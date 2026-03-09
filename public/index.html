@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SEPTA Live</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/src/css/style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="app-title">SEPTA Live</div>
+      <div class="app-subtitle">Real-time transit</div>
+    </div>
+    <div class="mode-tabs">
+      <div class="mode-tab active" data-mode="SUBWAY"  onclick="setMode('SUBWAY')">SUB</div>
+      <div class="mode-tab"        data-mode="TROLLEY" onclick="setMode('TROLLEY')">TROL</div>
+      <div class="mode-tab"        data-mode="BUS"     onclick="setMode('BUS')">BUS</div>
+      <div class="mode-tab"        data-mode="RAIL"    onclick="setMode('RAIL')">RAIL</div>
+    </div>
+    <div id="routeList" class="route-section"></div>
+    <div class="model-card">
+      <div class="model-card-hdr" onclick="toggleModelCard()">Legend <span id="mcArrow">▾</span></div>
+      <div class="model-card-body" id="mcBody">
+        <div class="legend-row"><span class="lp lp-green">On time</span><span>≤ 0 min late</span></div>
+        <div class="legend-row"><span class="lp lp-yellow">1–5 min</span><span>Minor delay</span></div>
+        <div class="legend-row"><span class="lp lp-red">5+ min</span><span>Significant delay</span></div>
+        <div class="legend-row"><span class="lp lp-tunnel">Tunnel</span><span>Underground; stop estimated by GPS proximity</span></div>
+        <div class="legend-row"><span class="lp lp-tunnel" style="border-style:dashed">Ghost</span><span>Estimated position in tunnel (speed-based)</span></div>
+        <div class="legend-row"><span class="lp lp-gray">▷ NE</span><span>Current compass heading</span></div>
+        <div class="legend-row"><span class="lp lp-gray">Trip #</span><span>SEPTA internal trip ID</span></div>
+        <div class="legend-row"><span class="lp lp-gray">Next stop</span><span>Nearest stop by GPS distance (lat/lon)</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="toolbar">
+      <div class="panel-tabs">
+        <div class="panel-tab active" onclick="setPanel('live')">Live Trips</div>
+        <div class="panel-tab"        onclick="setPanel('map')">Map</div>
+        <div class="panel-tab"        onclick="setPanel('stats')">Statistics</div>
+      </div>
+      <div class="tb-spacer"></div>
+      <span id="statusTxt" class="status-txt">Connecting…</span>
+      <button class="btn" id="refreshBtn" onclick="fetchNow()">Refresh</button>
+      <button class="btn btn-on" id="tunnelBtn" onclick="toggleTunnelEstimation()" style="display:none" title="Estimate trolley positions inside the subway tunnel">Tunnel: On</button>
+      <button class="btn" id="trackerBtn" onclick="toggleTracker()">Tracker: Off</button>
+    </div>
+
+    <!-- Live panel -->
+    <div class="content" id="livePanel">
+      <div class="empty" id="emptyLive">
+        <div class="empty-icon">🚆</div>
+        <div class="empty-title">Select a route</div>
+        <div>Choose a transit line from the sidebar</div>
+      </div>
+      <div class="vehicle-grid" id="vehicleGrid" style="display:none"></div>
+    </div>
+
+    <!-- Map panel -->
+    <div class="content map-content" id="mapPanel" style="display:none">
+      <div class="empty" id="emptyMap" style="padding:60px 20px;text-align:center;color:var(--muted);">
+        <div class="empty-icon">🗺️</div>
+        <div class="empty-title">Select a route</div>
+        <div>Choose a transit line to view the map</div>
+      </div>
+      <div id="mapContainer" style="display:none"></div>
+    </div>
+
+    <!-- Stats panel -->
+    <div class="content" id="statsPanel" style="display:none">
+      <div class="empty" id="emptyStats">
+        <div class="empty-icon">📊</div>
+        <div class="empty-title">Select a route</div>
+        <div>Choose a line to view trip statistics</div>
+      </div>
+      <div id="statsContent" style="display:none">
+        <div class="stat-row">
+          <div class="stat-box"><div class="stat-lbl">Today</div><div class="stat-val" id="sToday">–</div></div>
+          <div class="stat-box"><div class="stat-lbl">This week</div><div class="stat-val" id="sWeek">–</div></div>
+          <div class="stat-box"><div class="stat-lbl">All time</div><div class="stat-val" id="sAll">–</div></div>
+        </div>
+        <div class="pct-row" id="pctRow">
+          <div class="pct-item"><div class="pct-lbl">P25 duration</div><div class="pct-val" id="p25">–</div><div class="pct-unit">min</div></div>
+          <div class="pct-item"><div class="pct-lbl">Median</div><div class="pct-val" id="p50">–</div><div class="pct-unit">min</div></div>
+          <div class="pct-item"><div class="pct-lbl">P75 duration</div><div class="pct-val" id="p75">–</div><div class="pct-unit">min</div></div>
+        </div>
+        <canvas id="tripChart" height="300"></canvas>
+        <div class="chart-legend">
+          <span><span class="ld" style="background:#2f69f3"></span>Actual (by start time)</span>
+          <span><span class="ld" style="background:#78818c;opacity:.6"></span>Scheduled</span>
+        </div>
+        <div class="export-row">
+          <a class="btn" href="/api/stats/export?format=csv" download>Export CSV</a>
+          <button class="btn btn-clear" onclick="clearStats()">Clear all stats</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/src/js/routes.js"></script>
+<script src="/src/js/tunnel.js"></script>
+<script src="/src/js/stations.js"></script>
+<script src="/src/js/map.js"></script>
+<script src="/src/js/stats.js"></script>
+<script src="/src/js/app.js"></script>
+</body>
+</html>

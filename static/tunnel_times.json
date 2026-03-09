@@ -1,0 +1,27 @@
+{
+  "T1": {
+    "one_way_seconds": 441,
+    "round_trip_seconds": 883,
+    "sample_count": 494
+  },
+  "T2": {
+    "one_way_seconds": 660,
+    "round_trip_seconds": 1320,
+    "sample_count": 502
+  },
+  "T3": {
+    "one_way_seconds": 619,
+    "round_trip_seconds": 1237,
+    "sample_count": 536
+  },
+  "T4": {
+    "one_way_seconds": 665,
+    "round_trip_seconds": 1330,
+    "sample_count": 448
+  },
+  "T5": {
+    "one_way_seconds": 618,
+    "round_trip_seconds": 1236,
+    "sample_count": 544
+  }
+}
