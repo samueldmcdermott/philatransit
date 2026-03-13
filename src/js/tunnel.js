@@ -161,7 +161,7 @@ function detectTunnelClosureFromAlerts() {
     return false;
   }
   const trolleyAlertIds = new Set(['T1','T2','T3','T4','T5']);
-  const closureKw = /tunnel|15th\s*st|13th\s*st|subway.?surface|shuttle|divert|bypass|not\s+serv/i;
+  const closureKw = /tunnel|15th\s*st|13th\s*st|subway.?surface|shuttle|divert|diversion|bypass|not\s+serv/i;
   const reopenKw  = /resum|restor|reopen|back\s+in\s+service|normal\s+service/i;
   for (const a of alertsData) {
     if (a.type !== 'ALERT') continue;
