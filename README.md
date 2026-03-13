@@ -1,6 +1,6 @@
-# SEPTA Live
+# Philadelphia Transit Tracker Live
 
-Real-time transit tracker for SEPTA (Southeastern Pennsylvania Transportation Authority). Track buses, trolleys, regional rail, and subway lines on a live map with vehicle cards, tunnel estimation for trolleys, and trip statistics.
+Real-time transit tracker in the Philadelphia area including SEPTA (Southeastern Pennsylvania Transportation Authority). Track buses, trolleys, regional rail, and subway lines on a live map with vehicle cards, tunnel estimation for trolleys, and trip statistics.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
@@ -31,7 +31,7 @@ Open [http://localhost:5000](http://localhost:5000) in your browser.
 ## Project Structure
 
 ```
-septa-live/
+philatransit/
 ├── public/
 │   └── index.html          # Main HTML shell
 ├── src/
@@ -81,6 +81,10 @@ SEPTA trolley lines T1–T5 share an underground tunnel between their western po
 
 - **Subway lines (MFL/BSL)**: SEPTA does not provide real-time GPS data for subway vehicles. The API returns only placeholder entries.
 - Tunnel estimation is approximate — actual transit times vary with traffic and dwell times.
+
+## Issues
+
+If you see a bug, please open an [Issue!](https://github.com/samueldmcdermott/philatransit/issues)
 
 ## License
 
