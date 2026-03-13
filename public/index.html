@@ -44,12 +44,19 @@
       <div class="panel-tabs">
         <div class="panel-tab active" onclick="setPanel('live')">Live Trips</div>
         <div class="panel-tab"        onclick="setPanel('map')">Map</div>
+        <div class="panel-tab"        onclick="setPanel('alerts')">Alerts <span id="alertsBadge" class="alerts-badge" style="display:none"></span></div>
         <div class="panel-tab"        onclick="setPanel('stats')">Statistics</div>
       </div>
       <div class="tb-spacer"></div>
       <span id="statusTxt" class="status-txt">Connecting…</span>
+      <select id="refreshSelect" class="refresh-select" onchange="onRefreshChange()" title="Auto-refresh interval">
+        <option value="10000">10s</option>
+        <option value="20000" selected>20s</option>
+        <option value="30000">30s</option>
+      </select>
       <button class="btn" id="refreshBtn" onclick="fetchNow()">Refresh</button>
       <button class="btn btn-on" id="tunnelBtn" onclick="toggleTunnelEstimation()" style="display:none" title="Estimate trolley positions inside the subway tunnel">Tunnel: On</button>
+      <input type="range" id="bandOpacity" min="0" max="100" value="35" style="display:none;width:60px" oninput="onBandOpacityChange()" title="Band opacity">
       <button class="btn" id="trackerBtn" onclick="toggleTracker()">Tracker: Off</button>
     </div>
 
@@ -73,6 +80,16 @@
       <div id="mapContainer" style="display:none"></div>
     </div>
 
+    <!-- Alerts panel -->
+    <div class="content" id="alertsPanel" style="display:none">
+      <div class="empty" id="emptyAlerts">
+        <div class="empty-icon">&#x1f514;</div>
+        <div class="empty-title">Select a route</div>
+        <div>Choose a line to view active alerts</div>
+      </div>
+      <div id="alertsContent" style="display:none"></div>
+    </div>
+
     <!-- Stats panel -->
     <div class="content" id="statsPanel" style="display:none">
       <div class="empty" id="emptyStats">
@@ -83,17 +100,35 @@
       <div id="statsContent" style="display:none">
         <div class="stat-row">
           <div class="stat-box"><div class="stat-lbl">Today</div><div class="stat-val" id="sToday">–</div></div>
+          <div class="stat-box"><div class="stat-lbl">Yesterday</div><div class="stat-val" id="sYesterday">–</div></div>
           <div class="stat-box"><div class="stat-lbl">This week</div><div class="stat-val" id="sWeek">–</div></div>
           <div class="stat-box"><div class="stat-lbl">All time</div><div class="stat-val" id="sAll">–</div></div>
         </div>
+        <div class="stat-row">
+          <div class="stat-box stat-box-wide">
+            <div class="stat-lbl">Last <select id="lastNSelect" onchange="onLastNChange()"><option value="1">1</option><option value="7">7</option><option value="14">14</option><option value="30" selected>30</option><option value="90">90</option><option value="custom">custom</option></select> days <span id="lastNNote" style="font-weight:normal;text-transform:none">(excludes today)</span></div>
+            <div class="stat-val" id="sLastN">–</div>
+          </div>
+          <div class="stat-box stat-box-wide" id="customRangeRow" style="display:none">
+            <div class="stat-lbl">Date range</div>
+            <div class="date-range-row">
+              <input type="date" id="rangeFrom"> <span style="color:var(--muted)">to</span> <input type="date" id="rangeTo">
+              <button class="btn btn-sm" onclick="if(selectedRoute)loadStats()">Go</button>
+            </div>
+            <div class="stat-val" id="sCustomRange">–</div>
+          </div>
+        </div>
         <div class="pct-row" id="pctRow">
-          <div class="pct-item"><div class="pct-lbl">P25 duration</div><div class="pct-val" id="p25">–</div><div class="pct-unit">min</div></div>
+          <div class="pct-item pct-label-item"><div class="pct-row-label">Time between new trips</div></div>
+          <div class="pct-item"><div class="pct-lbl">25th pctile</div><div class="pct-val" id="p25">–</div><div class="pct-unit">min</div></div>
           <div class="pct-item"><div class="pct-lbl">Median</div><div class="pct-val" id="p50">–</div><div class="pct-unit">min</div></div>
-          <div class="pct-item"><div class="pct-lbl">P75 duration</div><div class="pct-val" id="p75">–</div><div class="pct-unit">min</div></div>
+          <div class="pct-item"><div class="pct-lbl">75th pctile</div><div class="pct-val" id="p75">–</div><div class="pct-unit">min</div></div>
+          <div class="pct-item" id="schedDurRow"><div class="pct-lbl">Sched. interval</div><div class="pct-val" id="schedDur">–</div><div class="pct-unit">min</div></div>
         </div>
         <canvas id="tripChart" height="300"></canvas>
         <div class="chart-legend">
           <span><span class="ld" style="background:#2f69f3"></span>Actual (by start time)</span>
+          <span><span class="ld" style="background:#2f69f3;border-radius:50%;width:8px;height:8px;display:inline-block"></span> Now</span>
           <span><span class="ld" style="background:#78818c;opacity:.6"></span>Scheduled</span>
         </div>
         <div class="export-row">

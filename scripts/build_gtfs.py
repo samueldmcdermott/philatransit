@@ -45,15 +45,18 @@ def parse_time(s):
 
 
 def read_csv(zf, filename):
-    """Read a CSV file from a ZIP archive into a list of dicts."""
-    # Some SEPTA ZIPs nest files under a subdirectory
+    """Read a CSV file from a ZIP archive into a list of dicts.
+    Merges rows from all matching files (e.g. google_bus/routes.txt + google_rail/routes.txt)."""
     names = zf.namelist()
-    match = next((n for n in names if n.endswith(filename)), None)
-    if match is None:
+    matches = [n for n in names if n.endswith(filename)]
+    if not matches:
         raise FileNotFoundError(f"{filename} not found in ZIP. Available: {names[:20]}")
-    with zf.open(match) as f:
-        text = f.read().decode("utf-8-sig")
-    return list(csv.DictReader(io.StringIO(text)))
+    rows = []
+    for match in matches:
+        with zf.open(match) as f:
+            text = f.read().decode("utf-8-sig")
+        rows.extend(csv.DictReader(io.StringIO(text)))
+    return rows
 
 
 def open_gtfs(content):
@@ -224,17 +227,43 @@ def main():
                     if existing is None or len(coords) > len(existing):
                         route_shapes[short] = coords
 
-            # Add aliases for subway lines (MFL=L1, BSL=B1)
-            if "L1" in route_shapes:
-                route_shapes["MFL"] = route_shapes["L1"]
-            if "B1" in route_shapes:
-                route_shapes["BSL"] = route_shapes["B1"]
+            # Add aliases so the frontend can look up by its route IDs
+            ALIASES = {
+                # subway
+                "L1": "MFL", "B1": "BSL",
+                # regional rail (GTFS short code → app route ID)
+                "AIR": "Airport", "CHE": "Chestnut Hill East",
+                "CHW": "Chestnut Hill West", "CYN": "Cynwyd",
+                "FOX": "Fox Chase", "LAN": "Lansdale",
+                "MED": "Media", "NOR": "Manayunk",
+                "PAO": "Paoli", "TRE": "Trenton",
+                "WAR": "Warminster", "WTR": "West Trenton",
+                "WIL": "Wilmington",
+            }
+            for gtfs_key, app_key in ALIASES.items():
+                if gtfs_key in route_shapes:
+                    route_shapes[app_key] = route_shapes[gtfs_key]
 
             shapes_path = OUT_DIR / "shapes.json"
             shapes_path.write_text(json.dumps(route_shapes))
             print(f"Wrote {shapes_path}  ({len(route_shapes)} route shapes)")
         except FileNotFoundError as e:
             print(f"  shapes.txt not found: {e} — skipping")
+
+    # ── Add schedule aliases (same mapping as shapes) ────────────────────
+    SCHED_ALIASES = {
+        "L1": "MFL", "B1": "BSL",
+        "AIR": "Airport", "CHE": "Chestnut Hill East",
+        "CHW": "Chestnut Hill West", "CYN": "Cynwyd",
+        "FOX": "Fox Chase", "LAN": "Lansdale",
+        "MED": "Media", "NOR": "Manayunk",
+        "PAO": "Paoli", "TRE": "Trenton",
+        "WAR": "Warminster", "WTR": "West Trenton",
+        "WIL": "Wilmington",
+    }
+    for gtfs_key, app_key in SCHED_ALIASES.items():
+        if gtfs_key in schedule:
+            schedule[app_key] = schedule[gtfs_key]
 
     # ── Write outputs ────────────────────────────────────────────────────
     stops_path = OUT_DIR / "stops.json"

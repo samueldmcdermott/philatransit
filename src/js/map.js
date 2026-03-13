@@ -33,32 +33,92 @@ async function drawMap() {
   routeLayerGroup.clearLayers();
   stopLayerGroup.clearLayers();
   vehicleLayerGroup.clearLayers();
+  if (detourLayerGroup) { detourLayerGroup.clearLayers(); }
   vehicleMarkers = {};
+  ghostBandLayers = {};
+  stopMarkerInfos = [];
+  routePathIndices = {};
+  stopDirFilters = {};
+  lastStopVehicles = [];
+  stopPredictions = {};
 
-  // Route path
-  const shapeCoords = shapesData[gtfsId] || shapesData[routeKey];
-  const stationList = routeStops.length > 0 ? routeStops : (HARDCODED_STATIONS[routeKey] || []);
+  // Route path — for multi-route (T-ALL), draw each sub-route
+  const subRoutes = selectedRoute.multi
+    ? ['T1','T2','T3','T4','T5'].map(id => ({ id, gtfs: id, color: getRouteColor(id) || color }))
+    : [{ id: routeKey, gtfs: gtfsId, color }];
+
   let hasGtfsShapes = false;
+  const bounds = [];
+  const allStops = new Map();
 
-  if (shapeCoords && shapeCoords.length > 1) {
-    hasGtfsShapes = true;
-    drawSegmentedPath(shapeCoords, routeKey, color);
-  } else if (stationList.length > 1) {
-    const inOrder = (stationList === routeStops && routeStopsOrdered) || HARDCODED_STATIONS[routeKey];
-    const coords  = (inOrder ? stationList : orderStops(stationList)).map(s => [s.lat, s.lng]);
-    drawSegmentedPath(coords, routeKey, color);
+  for (const sub of subRoutes) {
+    const shapeCoords = shapesData[sub.gtfs] || shapesData[sub.id];
+    if (shapeCoords && shapeCoords.length > 1) {
+      hasGtfsShapes = true;
+      const spur = ROUTE_SPURS[sub.id];
+      if (spur) {
+        // Draw spur as a thin line, main route as normal
+        const ci = spur.cutoffIndex;
+        if (spur.end === 'start') {
+          drawThinPath(shapeCoords.slice(0, ci + 1), sub.color);
+          drawSegmentedPath(shapeCoords.slice(ci), sub.id, sub.color);
+        } else {
+          drawSegmentedPath(shapeCoords.slice(0, ci + 1), sub.id, sub.color);
+          drawThinPath(shapeCoords.slice(ci), sub.color);
+        }
+      } else {
+        drawSegmentedPath(shapeCoords, sub.id, sub.color);
+      }
+    }
   }
 
-  // Stop markers
-  const bounds = [];
-  for (const s of stationList) {
-    const underground = isPointUnderground(routeKey, s.lat, s.lng);
+  // Draw surface detour path when tunnel is closed (for T2-T5 / T-ALL)
+  const isTunnelRoute = TUNNEL_ROUTES.has(routeKey);
+  if (isTunnelRoute) {
+    drawDetourPaths(routeKey, color, bounds);
+  }
+
+  // For single route, fall back to station list if no GTFS shapes
+  if (!selectedRoute.multi) {
+    const shapeCoords = shapesData[gtfsId] || shapesData[routeKey];
+    const stationList = routeStops.length > 0 ? routeStops : (HARDCODED_STATIONS[routeKey] || []);
+    if (!hasGtfsShapes && stationList.length > 1) {
+      const inOrder = (stationList === routeStops && routeStopsOrdered) || HARDCODED_STATIONS[routeKey];
+      const coords  = (inOrder ? stationList : orderStops(stationList)).map(s => [s.lat, s.lng]);
+      drawSegmentedPath(coords, routeKey, color);
+    }
+    for (const s of stationList) {
+      allStops.set(`${s.lat},${s.lng}`, { ...s, routeKey, routes: [routeKey] });
+    }
+  } else {
+    // For multi-route, gather stops from HARDCODED_STATIONS for each sub-route
+    for (const sub of subRoutes) {
+      const stations = HARDCODED_STATIONS[sub.id] || [];
+      for (const s of stations) {
+        const key = `${s.lat},${s.lng}`;
+        const existing = allStops.get(key);
+        if (existing) {
+          if (!existing.routes.includes(sub.id)) existing.routes.push(sub.id);
+        } else {
+          allStops.set(key, { ...s, routeKey: sub.id, color: sub.color, routes: [sub.id] });
+        }
+      }
+    }
+  }
+
+  // Stop markers — assign nearest stop IDs from stopsData for prediction lookups
+  for (const s of allStops.values()) {
+    const rk = s.routeKey || routeKey;
+    const sc = s.color || color;
+    const underground = isPointUnderground(rk, s.lat, s.lng);
+    if (!s.stopId) s.stopId = findNearestStopId(s.lat, s.lng);
     const marker = L.circleMarker([s.lat, s.lng], {
       radius: 4, color: '#0c0e12', weight: 1.5,
-      fillColor: underground ? '#4a7fff' : color, fillOpacity: 0.9,
+      fillColor: underground ? '#4a7fff' : sc, fillOpacity: 0.9,
     }).bindPopup(`<b>${s.name}</b>${underground ? '<br><i>Underground</i>' : ''}`);
     stopLayerGroup.addLayer(marker);
     bounds.push([s.lat, s.lng]);
+    stopMarkerInfos.push({ marker, stop: s });
   }
 
   if (bounds.length) leafletMap.fitBounds(bounds, { padding: [30, 30] });
@@ -110,6 +170,42 @@ function drawSegmentedPath(coords, routeKey, color) {
   }
 }
 
+function drawThinPath(coords, color) {
+  if (coords.length < 2) return;
+  L.polyline(coords, {
+    color, weight: 2, opacity: 0.35, dashArray: '6 4',
+  }).addTo(routeLayerGroup);
+}
+
+// Detour layer group — cleared/redrawn on each vehicle refresh
+let detourLayerGroup = null;
+
+function drawDetourPaths(routeKey, color, bounds) {
+  // Only draw when tunnel closure is detected
+  const status = getTunnelClosureStatus();
+  if (!status) {
+    if (detourLayerGroup) detourLayerGroup.clearLayers();
+    return;
+  }
+  if (!detourLayerGroup) {
+    detourLayerGroup = L.layerGroup().addTo(leafletMap);
+  }
+  detourLayerGroup.clearLayers();
+
+  const detourColor = '#f59e0b';  // amber
+  // Draw both directions of the detour
+  L.polyline(DETOUR_PATH_WB, {
+    color: detourColor, weight: 4, opacity: 0.8, dashArray: '10 6',
+  }).addTo(detourLayerGroup);
+  L.polyline(DETOUR_PATH_EB, {
+    color: detourColor, weight: 4, opacity: 0.8, dashArray: '10 6',
+  }).addTo(detourLayerGroup);
+
+  // Add bounds so map fits the detour
+  for (const p of DETOUR_PATH_WB) bounds.push(p);
+  for (const p of DETOUR_PATH_EB) bounds.push(p);
+}
+
 function orderStops(stops) {
   if (stops.length < 2) return stops;
   const lats = stops.map(s => s.lat), lngs = stops.map(s => s.lng);
@@ -134,12 +230,36 @@ async function refreshMapVehicles() {
       const results = await Promise.all(
         apiIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
       );
-      vehicles = processTransitData(results.flatMap(r => r?.bus || []), selectedRoute.id);
+      vehicles = processTransitData(results.flatMap(r => r?.bus || []), selectedRoute.id, selectedRoute.multi);
     }
     updateVehicleHistory(vehicles);
-    detectTunnelEntries(vehicles);
-    const ghosts = getGhostVehicles();
-    updateVehiclesOnMap([...vehicles, ...ghosts]);
+    // Update liveRegistry so stop arrival predictions work from map refresh
+    const now = Date.now();
+    const newReg = {};
+    for (const v of vehicles) {
+      const ex = liveRegistry[v._id];
+      newReg[v._id] = {
+        route: v._rkey, firstSeen: ex?.firstSeen ?? now, lastSeen: now,
+        firstLat: ex?.firstLat ?? parseFloat(v.lat), firstLng: ex?.firstLng ?? parseFloat(v.lng),
+      };
+    }
+    Object.assign(liveRegistry, newReg);
+
+    const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
+    if (isTunnelRoute) detectTunnelEntries(vehicles);
+    const ghosts = isTunnelRoute ? getGhostVehicles() : [];
+    const visible = isTunnelRoute ? vehicles.filter(v => !ghostReplacedVids.has(v._id)) : vehicles;
+    updateVehiclesOnMap([...visible, ...ghosts]);
+
+    // Tunnel closure detection — after render so errors don't block it
+    if (isTunnelRoute) {
+      try {
+        detectTunnelClosureFromGPS(vehicles);
+        detectTunnelClosureFromAlerts();
+        updateTunnelClosureBanner();
+        drawDetourPaths(selectedRoute.id, selectedRoute.color || '#2f69f3', []);
+      } catch (e) { console.warn('tunnel closure detection error:', e); }
+    }
   } catch (_) {}
 }
 
@@ -165,15 +285,24 @@ function ghostIcon(color) {
   });
 }
 
+// Ghost band polylines: vid → L.polyline
+let ghostBandLayers = {};
+
+// Stop arrival estimation state
+let stopMarkerInfos = [];   // [{marker, stop}]
+let routePathIndices = {};  // routeKey → {path, cumDist, totalLen}
+let stopPredictions = {};   // stopId → [{trip, vehicle, route, minutes}]
+
 function updateVehiclesOnMap(vehicles) {
   if (!mapInitialized) return;
-  const color = selectedRoute?.color || '#2f69f3';
+  const defaultColor = selectedRoute?.color || '#2f69f3';
   const seenIds = new Set();
 
   for (const v of vehicles) {
     const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
     if (isNaN(lat) || isNaN(lng)) continue;
     seenIds.add(v._id);
+    const color = getRouteColor(v._rkey) || defaultColor;
 
     const isGhost = v._ghost === true;
     const tunneled = isGhost || inTunnel(v);
@@ -183,7 +312,9 @@ function updateVehiclesOnMap(vehicles) {
 
     const lateText = isGhost ? 'In tunnel' : (v.late <= 0 ? 'On time' : `${v.late} min late`);
     const dir = headingLabel(v.heading);
-    const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${Math.round((v._fraction||0)*100)}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
+    const aftPct = isGhost ? Math.round((v._aftFraction || 0) * 100) : 0;
+    const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
+    const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${aftPct}–${forePct}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
     const popupHtml = `
       <div style="background:#191c22;padding:8px 10px;border-radius:5px;color:#e0e8f0;min-width:140px;">
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.label}</div>
@@ -192,6 +323,20 @@ function updateVehiclesOnMap(vehicles) {
         <div style="font-size:11px;color:#78818c;">${v.dest || '—'}</div>
         <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · ▷'+dir:''}</div>
       </div>`;
+
+    // Ghost band polyline
+    if (isGhost && v._bandPath && v._bandPath.length >= 2) {
+      const bandCoords = v._bandPath.map(p => [p.lat, p.lng]);
+      if (ghostBandLayers[v._id]) {
+        ghostBandLayers[v._id].setLatLngs(bandCoords);
+      } else {
+        const band = L.polyline(bandCoords, {
+          color, weight: 10, opacity: bandOpacity,
+          lineCap: 'round', lineJoin: 'round',
+        }).addTo(vehicleLayerGroup);
+        ghostBandLayers[v._id] = band;
+      }
+    }
 
     if (vehicleMarkers[v._id]) {
       vehicleMarkers[v._id].setLatLng([lat, lng]).setPopupContent(popupHtml);
@@ -213,11 +358,387 @@ function updateVehiclesOnMap(vehicles) {
     }
   }
 
-  // Remove markers for vehicles no longer present
+  // Remove markers and ghost band layers for vehicles no longer present
   for (const [id, m] of Object.entries(vehicleMarkers)) {
     if (!seenIds.has(id)) {
       vehicleLayerGroup.removeLayer(m);
       delete vehicleMarkers[id];
     }
+  }
+  for (const [id, band] of Object.entries(ghostBandLayers)) {
+    if (!seenIds.has(id)) {
+      vehicleLayerGroup.removeLayer(band);
+      delete ghostBandLayers[id];
+    }
+  }
+
+  updateAllStopPopups(vehicles);
+}
+
+// ── Stop arrival estimation ──────────────────────────────────────────────
+
+// Direction filter per stop: stopKey → null | 'fwd' | 'rev'
+let stopDirFilters = {};
+// Cache of last vehicles for popup re-render on filter change
+let lastStopVehicles = [];
+
+function findNearestStopId(lat, lng) {
+  let bestId = null, bestDist = Infinity;
+  for (const [sid, s] of Object.entries(stopsData)) {
+    const d = Math.abs(s.lat - lat) + Math.abs(s.lng - lng);
+    if (d < bestDist) { bestDist = d; bestId = sid; }
+  }
+  return bestDist < 0.003 ? bestId : null;
+}
+
+async function fetchStopPredictions() {
+  const stopIds = stopMarkerInfos
+    .map(info => info.stop.stopId)
+    .filter(Boolean);
+  if (stopIds.length === 0) return;
+  const uniqueIds = [...new Set(stopIds)];
+  // Batch into chunks of 50 to avoid huge URLs
+  for (let i = 0; i < uniqueIds.length; i += 50) {
+    const batch = uniqueIds.slice(i, i + 50);
+    const routeFilter = selectedRoute.multi
+      ? (selectedRoute.apiIds || []).join(',')
+      : (selectedRoute.id || '');
+    try {
+      const data = await apiFetch(
+        `/api/septa/stop-predictions?stops=${batch.join(',')}&routes=${routeFilter}`
+      );
+      Object.assign(stopPredictions, data);
+    } catch (_) {}
+  }
+}
+
+function getRoutePathIndex(routeKey) {
+  if (routePathIndices[routeKey]) return routePathIndices[routeKey];
+  let shapeCoords = shapesData[routeKey];
+  if (!shapeCoords || shapeCoords.length < 2) return null;
+  // Exclude spur sections — they distort distance-along calculations
+  const spur = ROUTE_SPURS[routeKey];
+  if (spur) {
+    const ci = spur.cutoffIndex;
+    shapeCoords = spur.end === 'start' ? shapeCoords.slice(ci) : shapeCoords.slice(0, ci + 1);
+  }
+  const path = shapeCoords.map(c => ({ lat: c[0], lng: c[1] }));
+  const cumDist = [0];
+  for (let i = 1; i < path.length; i++) {
+    cumDist.push(cumDist[i - 1] + distLatLng(path[i - 1], path[i]));
+  }
+  routePathIndices[routeKey] = { path, cumDist, totalLen: cumDist[cumDist.length - 1] };
+  return routePathIndices[routeKey];
+}
+
+// Determine if route runs primarily east-west or north-south from its shape
+function getRouteOrientation(routeKey) {
+  const shapeCoords = shapesData[routeKey];
+  if (!shapeCoords || shapeCoords.length < 2) return 'ew';
+  const first = shapeCoords[0], last = shapeCoords[shapeCoords.length - 1];
+  const latSpan = Math.abs(last[0] - first[0]) * 111;
+  const lngSpan = Math.abs(last[1] - first[1]) * 85;
+  return latSpan > lngSpan * 1.5 ? 'ns' : 'ew';
+}
+
+function getDirLabels(routeKey) {
+  const routes = (selectedRoute?.multi && selectedRoute?.apiIds) || [routeKey];
+  // Use first sub-route's shape for orientation
+  const orient = getRouteOrientation(routes[0]);
+  return orient === 'ns'
+    ? { fwd: 'Northbound', rev: 'Southbound' }
+    : { fwd: 'Eastbound', rev: 'Westbound' };
+}
+
+function projectOntoPathIdx(idx, lat, lng) {
+  if (!idx || idx.path.length < 2) return null;
+  let bestDistAlong = 0, bestPerpDist = Infinity;
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  for (let i = 1; i < idx.path.length; i++) {
+    const p0 = idx.path[i - 1], p1 = idx.path[i];
+    const dx = (p1.lat - p0.lat) * 111320;
+    const dy = (p1.lng - p0.lng) * 111320 * cosLat;
+    const px = (lat - p0.lat) * 111320;
+    const py = (lng - p0.lng) * 111320 * cosLat;
+    const segLenSq = dx * dx + dy * dy;
+    const t = segLenSq === 0 ? 0 : Math.max(0, Math.min(1, (px * dx + py * dy) / segLenSq));
+    const projLat = p0.lat + t * (p1.lat - p0.lat);
+    const projLng = p0.lng + t * (p1.lng - p0.lng);
+    const perpDist = distLatLng({ lat, lng }, { lat: projLat, lng: projLng });
+    if (perpDist < bestPerpDist) {
+      bestPerpDist = perpDist;
+      bestDistAlong = idx.cumDist[i - 1] + t * (idx.cumDist[i] - idx.cumDist[i - 1]);
+    }
+  }
+  return { distAlong: bestDistAlong, perpDist: bestPerpDist };
+}
+
+function computeStopArrivals(stop, vehicles, now) {
+  const arrivals = [];
+  const routes = stop.routes || [stop.routeKey];
+
+  for (const rk of routes) {
+    const pathIdx = getRoutePathIndex(rk);
+    if (!pathIdx) continue;
+    const stopProj = projectOntoPathIdx(pathIdx, stop.lat, stop.lng);
+    if (!stopProj) continue;
+
+    for (const v of vehicles) {
+      // Match vehicle to route
+      if (selectedRoute.multi && v._rkey !== rk) continue;
+      if (!selectedRoute.multi && v._rkey !== (selectedRoute?.id || rk)) continue;
+
+      const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+      if (isNaN(lat) || isNaN(lng)) continue;
+
+      const isGhost = v._ghost === true;
+      let startLat, startLng, T_s_ms;
+
+      if (isGhost) {
+        startLat = v._enterLat;
+        startLng = v._enterLng;
+        T_s_ms = now - v._enterTs;
+      } else {
+        const reg = liveRegistry[v._id];
+        if (!reg || reg.firstLat == null) continue;
+        startLat = reg.firstLat;
+        startLng = reg.firstLng;
+        T_s_ms = now - reg.firstSeen;
+      }
+
+      if (T_s_ms < 30000) continue;
+      const T_s = T_s_ms / 60000;
+
+      const startProj = projectOntoPathIdx(pathIdx, startLat, startLng);
+      const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
+      if (!startProj || !vehProj) continue;
+
+      const D_cs = Math.abs(vehProj.distAlong - startProj.distAlong);
+      if (D_cs < 50) continue;
+
+      const movingForward = vehProj.distAlong >= startProj.distAlong;
+      const D_ch = movingForward
+        ? stopProj.distAlong - vehProj.distAlong
+        : vehProj.distAlong - stopProj.distAlong;
+
+      // Check direct arrival (stop is ahead in current direction)
+      if (D_ch >= 0 && D_ch <= pathIdx.totalLen * 0.9) {
+        const T_star = T_s * D_ch / D_cs;
+        if (T_star <= 120) {
+          let T_official = null;
+          let officialStatus = null;
+          if (!isGhost && stop.stopId) {
+            const preds = stopPredictions[stop.stopId] || [];
+            const tripId = String(v.trip || '');
+            const match = preds.find(p => String(p.trip) === tripId);
+            if (match) {
+              T_official = match.minutes;
+              officialStatus = match.status || null;
+            }
+          }
+
+          let T_low = null, T_high = null;
+          if (isGhost && v._forePos && v._aftPos) {
+            const foreProj = projectOntoPathIdx(pathIdx, v._forePos.lat, v._forePos.lng);
+            const aftProj = projectOntoPathIdx(pathIdx, v._aftPos.lat, v._aftPos.lng);
+            if (foreProj && aftProj) {
+              const D_ch_f = movingForward
+                ? stopProj.distAlong - foreProj.distAlong
+                : foreProj.distAlong - stopProj.distAlong;
+              const D_ch_a = movingForward
+                ? stopProj.distAlong - aftProj.distAlong
+                : aftProj.distAlong - stopProj.distAlong;
+              if (D_ch_f >= 0) T_low = T_s * D_ch_f / D_cs;
+              if (D_ch_a >= 0) T_high = T_s * D_ch_a / D_cs;
+            }
+          }
+
+          arrivals.push({
+            label: v.label,
+            dest: v.dest || '—',
+            route: rk,
+            T_star,
+            T_official,
+            officialStatus,
+            T_low,
+            T_high,
+            isGhost,
+            late: v.late,
+            dirFwd: movingForward,
+          });
+        }
+      }
+
+      // Turnaround arrival: vehicle heading toward 13th & Market will
+      // reverse there and come back. Only for trolley tunnel routes.
+      // 13th & Market is at the END of the shape for T1/T2/T4,
+      // and at the START of the shape for T3/T5.
+      if (TUNNEL_ROUTES.has(rk) && rk !== 'T-ALL' && !isGhost) {
+        const terminusAtEnd = (rk === 'T1' || rk === 'T2' || rk === 'T4');
+        const headingToTerminus = terminusAtEnd ? movingForward : !movingForward;
+        if (headingToTerminus && stopProj.distAlong !== vehProj.distAlong) {
+          let D_turn;
+          if (terminusAtEnd && stopProj.distAlong < vehProj.distAlong) {
+            // Moving toward end, stop is behind — turnaround at end
+            const toEnd = pathIdx.totalLen - vehProj.distAlong;
+            const endToStop = pathIdx.totalLen - stopProj.distAlong;
+            D_turn = toEnd + endToStop;
+          } else if (!terminusAtEnd && stopProj.distAlong > vehProj.distAlong) {
+            // Moving toward start, stop is ahead in fwd sense — turnaround at start
+            const toStart = vehProj.distAlong;
+            const startToStop = stopProj.distAlong;
+            D_turn = toStart + startToStop;
+          }
+          if (D_turn != null && D_turn > 0) {
+            const T_turn = T_s * D_turn / D_cs;
+            if (T_turn > 0 && T_turn <= 120) {
+              arrivals.push({
+                label: v.label,
+                dest: v.dest || '—',
+                route: rk,
+                T_star: T_turn,
+                T_official: null,
+                officialStatus: null,
+                T_low: null,
+                T_high: null,
+                isGhost: false,
+                late: v.late,
+                dirFwd: !movingForward,  // after turnaround, direction reverses
+                turnaround: true,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return arrivals.sort((a, b) => a.T_star - b.T_star);
+}
+
+function stopKey(stop) {
+  return `${stop.lat},${stop.lng}`;
+}
+
+// Called from inline onclick in popup HTML
+function setStopDirFilter(key, dir) {
+  stopDirFilters[key] = dir;
+  // Re-render just this stop's popup synchronously from cached data (no fetch)
+  const now = Date.now();
+  for (const info of stopMarkerInfos) {
+    if (stopKey(info.stop) === key) {
+      const arrivals = computeStopArrivals(info.stop, lastStopVehicles, now);
+      const html = formatArrivalPopup(info.stop, arrivals);
+      const popup = info.marker.getPopup();
+      if (popup) {
+        popup.setContent(html);
+        popup.update();
+      }
+      break;
+    }
+  }
+}
+
+function formatArrivalPopup(stop, arrivals) {
+  const rk = stop.routeKey || (stop.routes && stop.routes[0]) || '';
+  const underground = isPointUnderground(rk, stop.lat, stop.lng);
+  const sk = stopKey(stop);
+  const dirFilter = stopDirFilters[sk] || null;
+  const dirLabels = getDirLabels(rk);
+
+  let html = `<div style="background:#191c22;padding:8px 10px;border-radius:5px;color:#e0e8f0;min-width:210px;max-width:320px;">`;
+  html += `<div style="font-weight:700;font-size:14px;">${stop.name}</div>`;
+  if (underground) html += `<div style="font-size:10px;color:#93c5fd;"><i>Underground</i></div>`;
+
+  // Direction filter tabs
+  const tabStyle = (active) => `cursor:pointer;padding:2px 7px;border-radius:3px;font-size:9px;font-weight:600;margin-right:2px;${active ? 'background:#2f69f3;color:#fff;' : 'background:#25292f;color:#78818c;'}`;
+  html += `<div style="margin-top:6px;margin-bottom:4px;display:flex;align-items:center;gap:2px;">`;
+  html += `<span style="${tabStyle(!dirFilter)}" onclick="event.stopPropagation();setStopDirFilter('${sk}',null)">All</span>`;
+  html += `<span style="${tabStyle(dirFilter==='fwd')}" onclick="event.stopPropagation();setStopDirFilter('${sk}','fwd')">${dirLabels.fwd}</span>`;
+  html += `<span style="${tabStyle(dirFilter==='rev')}" onclick="event.stopPropagation();setStopDirFilter('${sk}','rev')">${dirLabels.rev}</span>`;
+  html += `</div>`;
+
+  // Filter arrivals by direction
+  let filtered = arrivals;
+  if (dirFilter === 'fwd') filtered = arrivals.filter(a => a.dirFwd);
+  else if (dirFilter === 'rev') filtered = arrivals.filter(a => !a.dirFwd);
+
+  if (filtered.length === 0) {
+    html += `<div style="font-size:11px;color:#78818c;margin-top:4px;">No approaching vehicles</div>`;
+    html += `</div>`;
+    return html;
+  }
+
+  html += `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em;">Next arrival in...</div>`;
+
+  const routes = stop.routes || [stop.routeKey];
+  const isMultiRoute = routes.length > 1;
+
+  if (isMultiRoute && !dirFilter) {
+    // Group by (route, direction), show next for each
+    const groups = {};
+    for (const a of filtered) {
+      const dk = a.dirFwd ? 'fwd' : 'rev';
+      const key = `${a.route}_${dk}`;
+      if (!groups[key]) groups[key] = a;
+    }
+    const groupList = Object.values(groups).sort((a, b) => {
+      if (a.route !== b.route) return a.route.localeCompare(b.route);
+      return a.T_star - b.T_star;
+    });
+    for (const a of groupList) {
+      html += formatOneArrival(a, true, dirLabels);
+    }
+  } else {
+    const shown = filtered.slice(0, 5);
+    for (const a of shown) {
+      html += formatOneArrival(a, isMultiRoute, dirLabels);
+    }
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function formatOneArrival(a, showRoute, dirLabels) {
+  const color = getRouteColor(a.route) || selectedRoute?.color || '#2f69f3';
+  const routeBadge = `<span style="background:${color};color:#000;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:600;margin-right:4px;">${a.route}</span>`;
+
+  let calcText;
+  if (a.isGhost && a.T_low != null && a.T_high != null) {
+    const lo = Math.round(a.T_low);
+    const hi = Math.round(a.T_high);
+    calcText = lo === hi ? `${lo} min` : `${lo}–${hi} min`;
+  } else {
+    calcText = `${Math.round(a.T_star)} min`;
+  }
+
+  // Official from SEPTA v2 stop-schedule + live delay
+  let officialText = '–';
+  if (!a.isGhost && a.T_official != null) {
+    const statusColor = (a.officialStatus === 'ON-TIME' || a.officialStatus === 'EARLY') ? '#22c55e' : a.officialStatus === 'LATE' ? '#f59e0b' : '#78818c';
+    officialText = `<span style="color:${statusColor}">${Math.round(a.T_official)} min</span>`;
+  }
+
+  const dirLabel = a.dirFwd ? dirLabels.fwd : dirLabels.rev;
+  const turnTag = a.turnaround ? ' <span style="color:#93c5fd;font-size:9px;">via turnaround</span>' : '';
+
+  let html = `<div style="margin-bottom:4px;border-bottom:1px solid #25292f;padding-bottom:3px;">`;
+  html += `<div style="font-size:11px;">${routeBadge}<b>${a.dest}</b> <span style="color:#555;font-size:9px;">${dirLabel}</span>${turnTag}</div>`;
+  html += `<div style="font-size:10px;color:#78818c;">${calcText} <span style="color:#555">(calc.)</span> · ${officialText} <span style="color:#555">(official)</span></div>`;
+  html += `</div>`;
+  return html;
+}
+
+async function updateAllStopPopups(vehicles) {
+  if (!mapInitialized || stopMarkerInfos.length === 0) return;
+  lastStopVehicles = vehicles;
+  // Fetch GTFS-RT official predictions (only include real tracked vehicles)
+  await fetchStopPredictions();
+  const now = Date.now();
+  for (const info of stopMarkerInfos) {
+    const arrivals = computeStopArrivals(info.stop, vehicles, now);
+    const html = formatArrivalPopup(info.stop, arrivals);
+    info.marker.setPopupContent(html);
   }
 }

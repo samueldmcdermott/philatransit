@@ -74,6 +74,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn-on    { border-color: var(--green); color: var(--green); background: #0a200a; }
 .btn-clear { border-color: var(--red); color: var(--red); }
+.refresh-select { background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 11px; padding: 4px 6px; cursor: pointer; }
+#bandOpacity { accent-color: #93c5fd; vertical-align: middle; cursor: pointer; }
 
 /* vehicle cards */
 .vehicle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
@@ -116,16 +119,25 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .stat-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .stat-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
   padding: 10px 16px; min-width: 90px; }
+.stat-box-wide { flex: 1 1 100%; }
 .stat-lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+.stat-lbl select { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 9px; padding: 1px 4px; margin: 0 2px; }
 .stat-val { font-size: 26px; font-weight: 700; margin-top: 2px; }
+.date-range-row { display: flex; gap: 6px; align-items: center; margin: 6px 0 2px; }
+.date-range-row input[type="date"] { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 11px; padding: 2px 6px; }
+.btn-sm { font-size: 10px; padding: 2px 10px; }
 .pct-row { display: flex; gap: 16px; background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; padding: 10px 16px; margin-bottom: 12px; flex-wrap: wrap; }
 .pct-item { text-align: center; }
+.pct-label-item { display: flex; align-items: center; }
+.pct-row-label { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .pct-lbl  { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
 .pct-val  { font-size: 22px; font-weight: 700; color: var(--accent); }
 .pct-unit { font-size: 10px; color: var(--muted); }
-#tripChart { width: 100%; border-radius: 8px; display: block; }
-.chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+#tripChart { width: 100%; border-radius: 8px; display: block; cursor: crosshair; }
+.chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; align-items: center; }
 .ld { display: inline-block; width: 14px; height: 3px; border-radius: 2px;
   vertical-align: middle; margin-right: 4px; }
 .export-row { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
@@ -146,6 +158,51 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
   z-index: 1000; background: rgba(18,21,26,0.92); border: 1px solid #25292f;
   border-radius: 6px; padding: 6px 14px; font-size: 11px; color: #78818c;
   white-space: nowrap; }
+
+/* tunnel closure banner */
+.tunnel-closure-banner { padding: 8px 14px; border-radius: 6px; font-size: 12px;
+  font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.tunnel-closure-banner.official { background: rgba(239,68,68,0.15); border: 1px solid var(--red);
+  color: var(--red); }
+.tunnel-closure-banner.likely { background: rgba(245,158,11,0.15); border: 1px solid var(--yellow);
+  color: var(--yellow); }
+.tunnel-closure-icon { font-size: 14px; }
+.tunnel-closure-map-banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 1000; padding: 6px 14px; border-radius: 6px; font-size: 11px;
+  font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.tunnel-closure-map-banner.official { background: rgba(239,68,68,0.92); color: #fff; }
+.tunnel-closure-map-banner.likely { background: rgba(245,158,11,0.92); color: #000; }
+
+/* alerts tab badge */
+.alerts-badge { display: inline-block; min-width: 14px; height: 14px; line-height: 14px;
+  padding: 0 4px; border-radius: 7px; font-size: 9px; font-weight: 700;
+  text-align: center; background: var(--red); color: #fff; vertical-align: middle; margin-left: 3px; }
+
+/* alert dots on sidebar routes */
+.alert-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-left: auto; }
+.alert-dot-severe  { background: var(--red); box-shadow: 0 0 4px var(--red); }
+.alert-dot-warning { background: var(--yellow); }
+.alert-dot-info    { background: var(--accent); }
+
+/* alerts panel */
+.alert-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 10px; border-left: 3px solid var(--border); }
+.alert-card.alert-severe  { border-left-color: var(--red); }
+.alert-card.alert-warning { border-left-color: var(--yellow); }
+.alert-card.alert-info    { border-left-color: var(--accent); }
+.alert-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.alert-type { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: var(--muted);
+  text-transform: uppercase; }
+.alert-severity { font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 3px; }
+.alert-severity.alert-severe  { background: var(--red); color: #fff; }
+.alert-severity.alert-warning { background: var(--yellow); color: #000; }
+.alert-severity.alert-info    { background: var(--accent); color: #fff; }
+.alert-subject { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.alert-message { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 6px; }
+.alert-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 10px; color: var(--muted); }
+.alert-routes { background: var(--border); padding: 1px 6px; border-radius: 3px; }
+.alert-effect { background: var(--border); padding: 1px 6px; border-radius: 3px; text-transform: lowercase; }
+.alert-time { font-size: 10px; color: var(--muted); margin-top: 4px; }
 
 @media (max-width: 640px) { .sidebar { width: 170px; } }
 @media (max-width: 440px) {

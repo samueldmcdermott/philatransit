@@ -2,33 +2,34 @@
 
 // ── Route definitions ──────────────────────────────────────────────────────
 const RAIL_LINES = [
-  { id:'Airport',            label:'Airport',             color:'#a855f7', gtfs:'Airport',            stopsId:'Airport' },
-  { id:'Chestnut Hill East', label:'Chestnut Hill East',  color:'#10b981', gtfs:'Chestnut Hill East',  stopsId:'Chestnut_Hill_East' },
-  { id:'Chestnut Hill West', label:'Chestnut Hill West',  color:'#059669', gtfs:'Chestnut Hill West',  stopsId:'Chestnut_Hill_West' },
-  { id:'Cynwyd',             label:'Cynwyd',              color:'#6366f1', gtfs:'Cynwyd',              stopsId:'Cynwyd' },
-  { id:'Fox Chase',          label:'Fox Chase',           color:'#f97316', gtfs:'Fox Chase',           stopsId:'Fox_Chase' },
-  { id:'Lansdale',           label:'Lansdale/Doylestown', color:'#eab308', gtfs:'Lansdale',            stopsId:'Lansdale' },
-  { id:'Media',              label:'Media/Wawa',          color:'#ec4899', gtfs:'Media',               stopsId:'Media' },
-  { id:'Manayunk',           label:'Manayunk/Norristown', color:'#8b5cf6', gtfs:'Manayunk',            stopsId:'Manayunk' },
-  { id:'Paoli',              label:'Paoli/Thorndale',     color:'#0ea5e9', gtfs:'Paoli',               stopsId:'Paoli' },
-  { id:'Trenton',            label:'Trenton',             color:'#ef4444', gtfs:'Trenton',             stopsId:'Trenton' },
-  { id:'Warminster',         label:'Warminster',          color:'#84cc16', gtfs:'Warminster',          stopsId:'Warminster' },
-  { id:'West Trenton',       label:'West Trenton',        color:'#06b6d4', gtfs:'West Trenton',        stopsId:'West_Trenton' },
-  { id:'Wilmington',         label:'Wilmington/Newark',   color:'#f43f5e', gtfs:'Wilmington',          stopsId:'Wilmington' },
+  { id:'Airport',            label:'Airport',             color:'#a855f7', gtfs:'Airport',            stopsId:'Airport',            alertIds:['AIR'] },
+  { id:'Chestnut Hill East', label:'Chestnut Hill East',  color:'#10b981', gtfs:'Chestnut Hill East',  stopsId:'Chestnut_Hill_East', alertIds:['CHE'] },
+  { id:'Chestnut Hill West', label:'Chestnut Hill West',  color:'#059669', gtfs:'Chestnut Hill West',  stopsId:'Chestnut_Hill_West', alertIds:['CHW'] },
+  { id:'Cynwyd',             label:'Cynwyd',              color:'#6366f1', gtfs:'Cynwyd',              stopsId:'Cynwyd',             alertIds:['CYN'] },
+  { id:'Fox Chase',          label:'Fox Chase',           color:'#f97316', gtfs:'Fox Chase',           stopsId:'Fox_Chase',          alertIds:['FOX'] },
+  { id:'Lansdale',           label:'Lansdale/Doylestown', color:'#eab308', gtfs:'Lansdale',            stopsId:'Lansdale',           alertIds:['LAN'] },
+  { id:'Media',              label:'Media/Wawa',          color:'#ec4899', gtfs:'Media',               stopsId:'Media',              alertIds:['MED'] },
+  { id:'Manayunk',           label:'Manayunk/Norristown', color:'#8b5cf6', gtfs:'Manayunk',            stopsId:'Manayunk',           alertIds:['NOR'] },
+  { id:'Paoli',              label:'Paoli/Thorndale',     color:'#0ea5e9', gtfs:'Paoli',               stopsId:'Paoli',              alertIds:['PAO'] },
+  { id:'Trenton',            label:'Trenton',             color:'#ef4444', gtfs:'Trenton',             stopsId:'Trenton',            alertIds:['TRE'] },
+  { id:'Warminster',         label:'Warminster',          color:'#84cc16', gtfs:'Warminster',          stopsId:'Warminster',         alertIds:['WAR'] },
+  { id:'West Trenton',       label:'West Trenton',        color:'#06b6d4', gtfs:'West Trenton',        stopsId:'West_Trenton',       alertIds:['WTR'] },
+  { id:'Wilmington',         label:'Wilmington/Newark',   color:'#f43f5e', gtfs:'Wilmington',          stopsId:'Wilmington',         alertIds:['WIL'] },
 ];
 
 const SUBWAY_LINES = [
-  { id:'MFL', apiIds:['L1'],    label:'Market-Frankford Line', color:'#0060a9', gtfs:'L1' },
-  { id:'BSL', apiIds:['B1'],    label:'Broad Street Line',     color:'#f97316', gtfs:'B1' },
+  { id:'MFL', apiIds:['L1'],    label:'Market-Frankford Line', color:'#0060a9', gtfs:'L1', alertIds:['L1','L1 OWL'] },
+  { id:'BSL', apiIds:['B1'],    label:'Broad Street Line',     color:'#f97316', gtfs:'B1', alertIds:['B1','B1 OWL','B2'] },
 ];
 
 const TROLLEY_LINES = [
-  { id:'T1', apiIds:['T1'], label:'T1 – Overbrook',       color:'#22c55e', gtfs:'T1' },
-  { id:'T2', apiIds:['T2'], label:'T2 – Angora',          color:'#3b82f6', gtfs:'T2' },
-  { id:'T3', apiIds:['T3'], label:'T3 – Yeadon/Darby',    color:'#ec4899', gtfs:'T3' },
-  { id:'T4', apiIds:['T4'], label:'T4 – Darby',           color:'#8b5cf6', gtfs:'T4' },
-  { id:'T5', apiIds:['T5'], label:'T5 – Eastwick',        color:'#f59e0b', gtfs:'T5' },
-  { id:'G1', apiIds:['G1'], label:'G1 – Girard',          color:'#14b8a6', gtfs:'G1' },
+  { id:'T-ALL', apiIds:['T1','T2','T3','T4','T5'], label:'All T Lines', color:'#e0e8f0', gtfs:'T-ALL', multi:true, alertIds:['T1','T2','T3','T4','T5','T5 BUS'] },
+  { id:'T1', apiIds:['T1'], label:'T1 – 10 – Overbrook',       color:'#22c55e', gtfs:'T1', alertIds:['T1'] },
+  { id:'T2', apiIds:['T2'], label:'T2 – 34 – Angora',          color:'#3b82f6', gtfs:'T2', alertIds:['T2'] },
+  { id:'T3', apiIds:['T3'], label:'T3 – 13 – Yeadon',          color:'#ec4899', gtfs:'T3', alertIds:['T3'] },
+  { id:'T4', apiIds:['T4'], label:'T4 – 11 – Darby',           color:'#8b5cf6', gtfs:'T4', alertIds:['T4'] },
+  { id:'T5', apiIds:['T5'], label:'T5 – 36 – Eastwick',        color:'#f59e0b', gtfs:'T5', alertIds:['T5','T5 BUS'] },
+  { id:'G1', apiIds:['G1'], label:'G1 – 15 – Girard',          color:'#14b8a6', gtfs:'G1', alertIds:['G1'] },
 ];
 
 const BUS_ROUTES = [
@@ -41,7 +42,7 @@ const BUS_ROUTES = [
   '107','108','109','110','111','112','113','114','115','116','117','118',
   '119','120','123','124','125','126','127','128','129','130','131','132',
   '133','150','201','204','206','310',
-].map(n => ({ id: n, label: `Route ${n}`, color: '#78818c', gtfs: n }));
+].map(n => ({ id: n, label: `Route ${n}`, color: '#78818c', gtfs: n, alertIds: [n] }));
 
 const MODES = {
   SUBWAY:  { routes: SUBWAY_LINES,  type: 'transit' },
@@ -68,8 +69,15 @@ const RAIL_ALIASES = {
 };
 
 function railLineKey(line, dest, src) {
-  const s = `${line} ${dest} ${src}`.toLowerCase();
+  // Match against line field first (most reliable), then dest, then src
+  const lineLow = (line || '').toLowerCase();
+  const destLow = (dest || '').toLowerCase();
+  const srcLow  = (src  || '').toLowerCase();
   for (const [id, keys] of Object.entries(RAIL_ALIASES))
-    if (keys.some(k => s.includes(k))) return id;
+    if (keys.some(k => lineLow.includes(k))) return id;
+  for (const [id, keys] of Object.entries(RAIL_ALIASES))
+    if (keys.some(k => destLow.includes(k))) return id;
+  for (const [id, keys] of Object.entries(RAIL_ALIASES))
+    if (keys.some(k => srcLow.includes(k))) return id;
   return line || 'unknown';
 }

@@ -15,6 +15,8 @@ let tunnelTimesData      = {};
 let serverTrackerRunning = false;
 let modelCardOpen        = true;
 let refreshTimer         = null;
+let refreshIntervalMs    = 20000;
+let bandOpacity          = 0.35;
 
 // Map state
 let leafletMap       = null;
@@ -35,8 +37,10 @@ let tunnelShapePaths   = {};
 
 async function init() {
   buildRouteList();
-  await Promise.all([checkTrackerStatus(), loadStaticData()]);
+  await Promise.all([checkTrackerStatus(), loadStaticData(), fetchAlerts()]);
   startAutoRefresh();
+  // Refresh alerts every 60s
+  setInterval(fetchAlerts, 60000);
 }
 
 async function loadStaticData() {
@@ -51,12 +55,127 @@ async function loadStaticData() {
   ]);
 }
 
+// ── Alerts ──────────────────────────────────────────────────────────────────
+
+let alertsData = [];         // raw alerts from API
+let alertsByRoute = {};      // routeAlertId → [alerts]
+let alertsLoaded = false;
+
+async function fetchAlerts() {
+  try {
+    alertsData = await apiFetch('/api/septa/alerts');
+    alertsByRoute = {};
+    for (const a of alertsData) {
+      for (const rid of (a.routes || [])) {
+        (alertsByRoute[rid] = alertsByRoute[rid] || []).push(a);
+      }
+    }
+    alertsLoaded = true;
+    buildRouteList();  // refresh badges
+    updateAlertsBadge();
+  } catch (_) {}
+}
+
+function updateAlertsBadge() {
+  const badge = document.getElementById('alertsBadge');
+  if (!badge) return;
+  const alerts = selectedRoute ? getRouteAlerts(selectedRoute) : [];
+  const activeAlerts = alerts.filter(a => a.type === 'ALERT');
+  if (activeAlerts.length > 0) {
+    badge.textContent = activeAlerts.length;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function getRouteAlerts(route) {
+  if (!route || !alertsLoaded) return [];
+  const ids = route.alertIds || [route.id];
+  const seen = new Set();
+  const result = [];
+  for (const aid of ids) {
+    for (const a of (alertsByRoute[aid] || [])) {
+      if (!seen.has(a.alert_id)) {
+        seen.add(a.alert_id);
+        result.push(a);
+      }
+    }
+  }
+  return result;
+}
+
+function alertSeverityOrder(sev) {
+  if (sev === 'SEVERE') return 0;
+  if (sev === 'WARNING') return 1;
+  if (sev === 'INFO') return 2;
+  return 3;
+}
+
+function stripHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+}
+
+function renderAlertsPanel() {
+  const empty = document.getElementById('emptyAlerts');
+  const content = document.getElementById('alertsContent');
+  if (!selectedRoute) {
+    empty.style.display = ''; content.style.display = 'none';
+    return;
+  }
+  const alerts = getRouteAlerts(selectedRoute);
+  if (alerts.length === 0) {
+    empty.style.display = '';
+    empty.innerHTML = `<div class="empty-icon">&#x2705;</div><div class="empty-title">No active alerts</div><div>No alerts or advisories for ${selectedRoute.label}</div>`;
+    content.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none'; content.style.display = '';
+  alerts.sort((a, b) => alertSeverityOrder(a.severity) - alertSeverityOrder(b.severity));
+  let html = '';
+  for (const a of alerts) {
+    const sevClass = a.severity === 'SEVERE' ? 'alert-severe' : a.severity === 'WARNING' ? 'alert-warning' : 'alert-info';
+    const typeLabel = a.type || 'ALERT';
+    const sevLabel = a.severity && a.severity !== 'UNKNOWN_SEVERITY' ? a.severity : '';
+    const badge = sevLabel ? `<span class="alert-severity ${sevClass}">${sevLabel}</span>` : '';
+    const subject = a.subject ? `<div class="alert-subject">${a.subject}</div>` : '';
+    const msg = a.message ? stripHtml(a.message) : '';
+    const routes = (a.routes || []).join(', ');
+    const effect = a.effect && a.effect !== 'UNKNOWN_EFFECT' ? a.effect.replace(/_/g, ' ') : '';
+    const start = a.start ? new Date(a.start).toLocaleString() : '';
+    const end = a.end ? new Date(a.end).toLocaleString() : '';
+    const timeStr = end ? `${start} — ${end}` : start ? `Since ${start}` : '';
+
+    html += `<div class="alert-card ${sevClass}">`;
+    html += `<div class="alert-header"><span class="alert-type">${typeLabel}</span>${badge}</div>`;
+    html += subject;
+    if (msg) html += `<div class="alert-message">${msg}</div>`;
+    html += `<div class="alert-meta">`;
+    if (routes) html += `<span class="alert-routes">Routes: ${routes}</span>`;
+    if (effect) html += `<span class="alert-effect">${effect}</span>`;
+    html += `</div>`;
+    if (timeStr) html += `<div class="alert-time">${timeStr}</div>`;
+    html += `</div>`;
+  }
+  content.innerHTML = html;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function setStatus(msg) { document.getElementById('statusTxt').textContent = msg; }
 function fmtTime(ts) { return new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
 function fmtDate(d)  { return d.toISOString().slice(0,10); }
 function pctFmt(n)   { return isNaN(n)?'–':n.toFixed(1); }
+
+function getRouteColor(routeId) {
+  for (const mode of Object.values(MODES)) {
+    const r = mode.routes.find(r => r.id === routeId);
+    if (r) return r.color;
+  }
+  return null;
+}
 
 async function apiFetch(url, opts) {
   const r = await fetch(url, opts);
@@ -95,9 +214,18 @@ function buildRouteList() {
   const el = document.getElementById('routeList');
   el.innerHTML = `<div class="route-section-label">${activeMode}</div>`;
   for (const r of routes) {
+    const alerts = getRouteAlerts(r);
+    // Only show sidebar dot for ALERT type (active disruptions), not DETOUR/ADVISORY
+    const activeAlerts = alerts.filter(a => a.type === 'ALERT');
+    const hasSevere = activeAlerts.some(a => a.severity === 'SEVERE');
+    const alertDot = hasSevere
+      ? '<span class="alert-dot alert-dot-severe"></span>'
+      : activeAlerts.length > 0
+        ? '<span class="alert-dot alert-dot-warning"></span>'
+        : '';
     const btn = document.createElement('button');
     btn.className = 'route-btn' + (selectedRoute?.id === r.id ? ' active' : '');
-    btn.innerHTML = `<span class="route-dot" style="background:${r.color}"></span><span class="route-label">${r.label}</span>`;
+    btn.innerHTML = `<span class="route-dot" style="background:${r.color}"></span><span class="route-label">${r.label}</span>${alertDot}`;
     btn.onclick = () => selectRoute(r, MODES[activeMode].type);
     el.appendChild(btn);
   }
@@ -109,16 +237,18 @@ async function selectRoute(route, type) {
   routeStops        = [];
   routeStopsOrdered = false;
   vehicleHistory    = {};
-  ghostVehicles     = {};
-  ghostedVids       = {};
-  tunnelShapePaths  = {};
   buildRouteList();
+  updateAlertsBadge();
+  const isTunnel = TUNNEL_ROUTES.has(route.id);
   const tunnelBtn = document.getElementById('tunnelBtn');
-  if (tunnelBtn) tunnelBtn.style.display = TUNNEL_ROUTES.has(route.id) ? '' : 'none';
+  if (tunnelBtn) tunnelBtn.style.display = isTunnel ? '' : 'none';
+  const bandSlider = document.getElementById('bandOpacity');
+  if (bandSlider) bandSlider.style.display = isTunnel ? '' : 'none';
   await fetchRouteStops();
-  if (activePanel === 'live')  fetchNow();
-  else if (activePanel === 'map')   drawMap();
-  else if (activePanel === 'stats') loadStats();
+  if (activePanel === 'live')   fetchNow();
+  else if (activePanel === 'map')    drawMap();
+  else if (activePanel === 'alerts') renderAlertsPanel();
+  else if (activePanel === 'stats')  loadStats();
 }
 
 async function fetchRouteStops() {
@@ -158,13 +288,15 @@ function toggleModelCard() {
 function setPanel(panel) {
   activePanel = panel;
   const tabs = document.querySelectorAll('.panel-tab');
-  const panels = ['live','map','stats'];
+  const panels = ['live','map','alerts','stats'];
   tabs.forEach((t, i) => t.classList.toggle('active', panels[i] === panel));
-  document.getElementById('livePanel').style.display  = panel === 'live'  ? '' : 'none';
-  document.getElementById('mapPanel').style.display   = panel === 'map'   ? '' : 'none';
-  document.getElementById('statsPanel').style.display = panel === 'stats' ? '' : 'none';
-  if (panel === 'stats' && selectedRoute) loadStats();
-  if (panel === 'live'  && selectedRoute) fetchNow();
+  document.getElementById('livePanel').style.display   = panel === 'live'   ? '' : 'none';
+  document.getElementById('mapPanel').style.display    = panel === 'map'    ? '' : 'none';
+  document.getElementById('alertsPanel').style.display = panel === 'alerts' ? '' : 'none';
+  document.getElementById('statsPanel').style.display  = panel === 'stats'  ? '' : 'none';
+  if (panel === 'stats'  && selectedRoute) loadStats();
+  if (panel === 'live'   && selectedRoute) fetchNow();
+  if (panel === 'alerts') renderAlertsPanel();
   if (panel === 'map') {
     if (selectedRoute) drawMap();
     setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 50);
@@ -199,6 +331,21 @@ async function toggleTracker() {
 
 let ghostTickTimer = null;
 
+function onRefreshChange() {
+  const sel = document.getElementById('refreshSelect');
+  refreshIntervalMs = parseInt(sel.value, 10);
+  startAutoRefresh();
+}
+
+function onBandOpacityChange() {
+  const slider = document.getElementById('bandOpacity');
+  bandOpacity = parseInt(slider.value, 10) / 100;
+  // Update existing band polylines
+  for (const band of Object.values(ghostBandLayers)) {
+    band.setStyle({ opacity: bandOpacity });
+  }
+}
+
 function startAutoRefresh() {
   clearInterval(refreshTimer);
   clearInterval(ghostTickTimer);
@@ -206,7 +353,7 @@ function startAutoRefresh() {
     if (!selectedRoute) return;
     if (activePanel === 'live') fetchNow();
     if (activePanel === 'map')  refreshMapVehicles();
-  }, 30000);
+  }, refreshIntervalMs);
   ghostTickTimer = setInterval(() => {
     if (!tunnelEstimationOn || Object.keys(ghostVehicles).length === 0) return;
     if (!selectedRoute || !TUNNEL_ROUTES.has(selectedRoute.id)) return;
@@ -222,46 +369,60 @@ function tickGhosts() {
 
     if ((now - ghost.enterTs) > GHOST_MAX_AGE_MS) {
       delete ghostVehicles[vid];
+      ghostReplacedVids.delete(vid);
       if (vehicleMarkers[vid]) {
         vehicleLayerGroup?.removeLayer(vehicleMarkers[vid]);
         delete vehicleMarkers[vid];
+      }
+      if (ghostBandLayers[vid]) {
+        vehicleLayerGroup?.removeLayer(ghostBandLayers[vid]);
+        delete ghostBandLayers[vid];
       }
       changed = true;
       continue;
     }
 
-    let fraction, currentDirection;
-    if (totalElapsed <= ghost.halfTime) {
-      fraction = totalElapsed / ghost.halfTime;
-      currentDirection = ghost.direction;
-      ghost.path = ghost.direction === 'eastbound' ? ghost.pathWE : ghost.pathEW;
-    } else {
-      const secondElapsed = totalElapsed - ghost.halfTime;
-      fraction = secondElapsed / ghost.halfTime;
-      currentDirection = ghost.direction === 'eastbound' ? 'westbound' : 'eastbound';
-      ghost.path = ghost.direction === 'eastbound' ? ghost.pathEW : ghost.pathWE;
-    }
+    // Recompute aft/fore/mid positions using same logic as detectTunnelEntries
+    const fore = ghostPosition(totalElapsed, ghost);
+    const aftElapsed = Math.max(0, totalElapsed - ghost.lingerSec);
+    const aft  = ghostPosition(aftElapsed, ghost);
+    const midElapsed = (totalElapsed + aftElapsed) / 2;
+    const mid  = ghostPosition(midElapsed, ghost);
 
-    fraction = Math.min(fraction, 1.0);
-    if (fraction >= 1.0 && totalElapsed > ghost.halfTime * 2) {
+    if (fore.done && aft.done) {
       delete ghostVehicles[vid];
+      ghostReplacedVids.delete(vid);
       if (vehicleMarkers[vid]) {
         vehicleLayerGroup?.removeLayer(vehicleMarkers[vid]);
         delete vehicleMarkers[vid];
+      }
+      if (ghostBandLayers[vid]) {
+        vehicleLayerGroup?.removeLayer(ghostBandLayers[vid]);
+        delete ghostBandLayers[vid];
       }
       changed = true;
       continue;
     }
 
-    const pos = pointAlongPath(ghost.path, fraction);
-    ghost.lat = pos.lat;
-    ghost.lng = pos.lng;
-    ghost.fraction = fraction;
-    ghost.currentDirection = currentDirection;
-    ghost.leg = totalElapsed <= ghost.halfTime ? 'first' : 'second';
+    ghost.lat = mid.pos.lat;
+    ghost.lng = mid.pos.lng;
+    ghost.fraction = mid.fraction;
+    ghost.currentDirection = mid.direction;
+    ghost.leg = mid.leg;
+    ghost.aftPos  = aft.pos;
+    ghost.forePos = fore.pos;
+    ghost.midPos  = mid.pos;
+    ghost.aftFraction  = aft.fraction;
+    ghost.foreFraction = fore.fraction;
+    ghost.bandPath = extractBandPath(ghost, aft, fore);
 
+    // Update map marker position
     if (vehicleMarkers[vid]) {
-      vehicleMarkers[vid].setLatLng([pos.lat, pos.lng]);
+      vehicleMarkers[vid].setLatLng([mid.pos.lat, mid.pos.lng]);
+    }
+    // Update band polyline on map
+    if (ghostBandLayers[vid] && ghost.bandPath && ghost.bandPath.length >= 2) {
+      ghostBandLayers[vid].setLatLngs(ghost.bandPath.map(p => [p.lat, p.lng]));
     }
     changed = true;
   }
@@ -272,9 +433,10 @@ function tickGhosts() {
         const vid = card.dataset?.vid;
         const ghost = vid ? ghostVehicles[vid] : null;
         if (ghost) {
-          const pct = Math.round((ghost.fraction || 0) * 100);
+          const aftPct = Math.round((ghost.aftFraction || 0) * 100);
+          const forePct = Math.round((ghost.foreFraction || 0) * 100);
           const dir = ghost.currentDirection || ghost.direction;
-          label.textContent = `Tunnel estimate · ${pct}% ${dir}`;
+          label.textContent = `Tunnel estimate · ${aftPct}–${forePct}% ${dir}${ghost.leg === 'second' ? ' (return)' : ''}`;
         }
       }
     });
@@ -298,14 +460,26 @@ async function fetchNow() {
       const results = await Promise.all(
         apiIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
       );
-      vehicles = processTransitData(results.flatMap(r => r?.bus || []), selectedRoute.id);
+      vehicles = processTransitData(results.flatMap(r => r?.bus || []), selectedRoute.id, selectedRoute.multi);
     }
     updateVehicleHistory(vehicles);
-    detectTunnelEntries(vehicles);
-    const ghosts = getGhostVehicles();
-    const allVehicles = [...vehicles, ...ghosts];
+    const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
+    if (isTunnelRoute) detectTunnelEntries(vehicles);
+    const ghosts = isTunnelRoute ? getGhostVehicles() : [];
+    // Filter out vehicles whose real GPS is frozen — they're replaced by ghosts
+    const visible = isTunnelRoute ? vehicles.filter(v => !ghostReplacedVids.has(v._id)) : vehicles;
+    const allVehicles = [...visible, ...ghosts];
 
     renderVehicles(allVehicles);
+
+    // Tunnel closure detection (for trolley routes) — after render so errors don't block it
+    if (isTunnelRoute) {
+      try {
+        detectTunnelClosureFromGPS(vehicles);
+        detectTunnelClosureFromAlerts();
+        updateTunnelClosureBanner();
+      } catch (e) { console.warn('tunnel closure detection error:', e); }
+    }
     if (activePanel === 'map') updateVehiclesOnMap(allVehicles);
     return allVehicles;
   } catch (e) {
@@ -325,25 +499,28 @@ function processRailData(trains) {
       label: String(t.trainno || '?'),
       dest:  t.dest || '',
       late:  t.late != null ? +t.late : 0,
-      heading: t.heading, lat: t.lat, lng: t.lng, trip: t.trainno,
+      heading: t.heading, lat: t.lat, lng: t.lon, trip: t.trainno,
     }));
 }
 
-function processTransitData(rawVehicles, routeId) {
+function processTransitData(rawVehicles, routeId, isMulti) {
   return rawVehicles
     .filter(v => v.late < 998 && v.label != null && v.label !== 'None' && String(v.label) !== '0'
-              && v.VehicleID != null && v.VehicleID !== 'None' && String(v.VehicleID) !== '0')
+              && v.VehicleID != null && v.VehicleID !== 'None' && String(v.VehicleID) !== '0'
+              && !String(v.VehicleID).includes('schedBased'))
     .map(v => {
       const trip = v.trip && String(v.trip) !== '0' ? String(v.trip) : '';
       const vid  = v.VehicleID && String(v.VehicleID) !== '0' ? String(v.VehicleID) : '';
       const id   = trip || vid || `${v.label}_${v.lat}_${v.lng}`;
+      const actualRoute = isMulti ? (v.route_id || routeId) : routeId;
       return {
         _id: id,
-        _rkey: routeId,
+        _rkey: actualRoute,
         label: v.label || vid || '?',
         dest:  v.destination || v.dest || '',
         late:  v.late != null ? +v.late : 0,
         heading: v.heading, lat: v.lat, lng: v.lng, trip: v.trip,
+        _routeLabel: isMulti ? actualRoute : null,
       };
     });
 }
@@ -371,11 +548,18 @@ function renderVehicles(vehicles) {
   const newReg = {};
   for (const v of vehicles) {
     const ex = liveRegistry[v._id];
-    newReg[v._id] = { route: v._rkey, firstSeen: ex?.firstSeen ?? now, lastSeen: now };
+    newReg[v._id] = {
+      route: v._rkey, firstSeen: ex?.firstSeen ?? now, lastSeen: now,
+      firstLat: ex?.firstLat ?? parseFloat(v.lat), firstLng: ex?.firstLng ?? parseFloat(v.lng),
+    };
   }
   liveRegistry = newReg;
 
-  vehicles.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  if (selectedRoute?.multi) {
+    vehicles.sort((a, b) => (a._rkey || '').localeCompare(b._rkey || '') || a.label.localeCompare(b.label, undefined, { numeric: true }));
+  } else {
+    vehicles.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  }
   grid.style.display = ''; empty.style.display = 'none';
   grid.innerHTML = '';
 
@@ -386,6 +570,7 @@ function renderVehicles(vehicles) {
     const lateText  = late <= 0 ? 'On time' : `${late} min`;
     const tunneled  = !isGhost && inTunnel(v);
     const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+    const vColor = getRouteColor(v._rkey) || color;
 
     let nextStop = '';
     let isTunneled = isGhost || tunneled;
@@ -399,6 +584,7 @@ function renderVehicles(vehicles) {
 
     const dir = headingLabel(v.heading);
     const tags = [];
+    if (v._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${v._routeLabel}</span>`);
     if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${v._direction || 'tunnel'}${v._leg === 'second' ? ' (return)' : ''}</span>`);
     else if (isTunneled) tags.push(`<span class="tag tag-tunnel">Underground</span>`);
     if (dir)             tags.push(`<span class="tag">▷ ${dir}</span>`);
@@ -407,16 +593,17 @@ function renderVehicles(vehicles) {
     const card = document.createElement('div');
     card.className = 'vcard' + (isGhost ? ' ghost-card' : '');
     if (isGhost) card.dataset.vid = v._id;
-    const ghostPct = Math.round((v._fraction || 0) * 100);
+    const aftPct = isGhost ? Math.round((v._aftFraction || 0) * 100) : 0;
+    const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
     const ghostDir = v._direction || '';
-    const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${ghostPct}% ${ghostDir}${v._leg === 'second' ? ' (return)' : ''}</div>` : '';
+    const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${aftPct}–${forePct}% ${ghostDir}${v._leg === 'second' ? ' (return)' : ''}</div>` : '';
     card.innerHTML = `
       ${ghostBanner}
       <div class="vcard-hdr">
         <span class="vcard-id">${v.label}</span>
         <span class="late-pill" style="background:${isGhost ? '#1e3a6e' : lateColor}">${isGhost ? 'In tunnel' : lateText}</span>
       </div>
-      <div class="next-stop-block" style="border-left:3px solid ${isGhost ? '#93c5fd' : color}">
+      <div class="next-stop-block" style="border-left:3px solid ${isGhost ? '#93c5fd' : vColor}">
         <div class="next-stop-label">Next Stop</div>
         <div class="next-stop-name tunnel-stop">${nextStop || '—'}</div>
       </div>
@@ -430,11 +617,53 @@ function renderVehicles(vehicles) {
   setStatus(`${nReal} vehicle${nReal !== 1 ? 's' : ''}${ghostSuffix} · ${fmtTime(now)}`);
 }
 
+// ── Tunnel closure banner ────────────────────────────────────────────────────
+
+function updateTunnelClosureBanner() {
+  const status = getTunnelClosureStatus();
+  const label = status === 'official' ? 'Tunnel closed (official)' : 'Tunnel closed (likely)';
+  const cls = status === 'official' ? 'tunnel-closure-banner official' : 'tunnel-closure-banner likely';
+  const content = `<span class="tunnel-closure-icon">&#x26A0;</span> ${label} — trolleys operating on surface detour`;
+
+  // Live panel: insert as first child
+  let liveBanner = document.getElementById('tunnelClosureBanner_live');
+  if (!status) {
+    if (liveBanner) liveBanner.style.display = 'none';
+  } else {
+    if (!liveBanner) {
+      liveBanner = document.createElement('div');
+      liveBanner.id = 'tunnelClosureBanner_live';
+      const livePanel = document.getElementById('livePanel');
+      livePanel.insertBefore(liveBanner, livePanel.firstChild);
+    }
+    liveBanner.className = cls;
+    liveBanner.innerHTML = content;
+    liveBanner.style.display = '';
+  }
+
+  // Map panel: use the overlay note area (absolute positioned)
+  let mapBanner = document.getElementById('tunnelClosureBanner_map');
+  if (!status) {
+    if (mapBanner) mapBanner.style.display = 'none';
+  } else {
+    if (!mapBanner) {
+      mapBanner = document.createElement('div');
+      mapBanner.id = 'tunnelClosureBanner_map';
+      mapBanner.className = 'tunnel-closure-map-banner';
+      document.getElementById('mapPanel').appendChild(mapBanner);
+    }
+    const bannerCls = status === 'official' ? 'tunnel-closure-map-banner official' : 'tunnel-closure-map-banner likely';
+    mapBanner.className = bannerCls;
+    mapBanner.innerHTML = content;
+    mapBanner.style.display = '';
+  }
+}
+
 // ── Completion detection ────────────────────────────────────────────────────
 
 function detectCompletions(curIds, now) {
   if (serverTrackerRunning) return;
-  const MIN_DWELL = 2 * 30 * 1000;
+  const MIN_DWELL = 60000; // 60s minimum time on route before counting as trip
   for (const [vid, entry] of Object.entries(liveRegistry)) {
     if (!curIds.has(vid) && (now - entry.firstSeen) >= MIN_DWELL) {
       recordCompletion(entry.route, entry.firstSeen, now);

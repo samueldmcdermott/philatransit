@@ -23,6 +23,7 @@ except ImportError:
     print("\n  Missing dependencies. Run:\n\n    pip install flask requests\n")
     sys.exit(1)
 
+
 # ── paths ────────────────────────────────────────────────────
 BASE   = Path(__file__).parent
 DATA   = BASE / "data"
@@ -97,6 +98,163 @@ def stops():
     except Exception as e:
         return jsonify(error=str(e)), 502
 
+# ── SEPTA v2 API: real-time stop predictions ─────────────────
+
+SEPTA_V2 = "https://www3.septa.org/api/v2"
+_trips_cache = {"data": {}, "ts": 0, "routes": set()}  # route → [trip objects]
+_trips_lock = threading.Lock()
+_trip_detail_cache = {}   # trip_id → {stop_times, ts}
+
+def _is_gps_tracked(trip):
+    """Return True if the trip has real GPS tracking (not a scheduled ghost)."""
+    return (trip.get("vehicle_id") not in (None, "None", "")
+            and trip.get("delay") != 998
+            and trip.get("status") != "NO GPS")
+
+
+def _fetch_route_trips(route_ids):
+    """Fetch live trips for given routes, cached 15s."""
+    now = time.time()
+    route_set = set(route_ids)
+    with _trips_lock:
+        if (now - _trips_cache["ts"]) < 15 and route_set <= _trips_cache["routes"]:
+            return _trips_cache["data"]
+
+    result = {}
+    for rid in route_ids:
+        try:
+            r = req.get(f"{SEPTA_V2}/trips/", params={"route_id": rid},
+                        headers=HEADERS, timeout=10)
+            result[rid] = r.json() if r.status_code == 200 else []
+        except Exception as e:
+            print(f"  [v2] trips error for {rid}: {e}")
+            result[rid] = []
+
+    with _trips_lock:
+        _trips_cache["data"] = result
+        _trips_cache["routes"] = route_set
+        _trips_cache["ts"] = time.time()
+    return result
+
+
+def _fetch_trip_detail(trip_id):
+    """Fetch per-stop scheduled + real-time data for a trip, cached 15s."""
+    now = time.time()
+    cached = _trip_detail_cache.get(trip_id)
+    if cached and (now - cached["ts"]) < 15:
+        return cached["data"]
+
+    try:
+        r = req.get(f"{SEPTA_V2}/trip-update/", params={"trip_id": trip_id},
+                    headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        _trip_detail_cache[trip_id] = {"data": data, "ts": now}
+        return data
+    except Exception as e:
+        print(f"  [v2] trip-update error for {trip_id}: {e}")
+        return {}
+
+
+@app.route("/api/septa/stop-predictions")
+def stop_predictions():
+    """Return per-stop arrival predictions from SEPTA v2 API.
+
+    Fetches live GPS-tracked trips, then uses trip-update to get
+    per-stop scheduled times and real-time ETAs. Only returns
+    predictions for stops in the requested set.
+
+    Query params:
+      stops  – comma-separated stop IDs (e.g. "20645,20646")
+      routes – comma-separated route IDs (e.g. "T2,T3")
+    """
+    stop_ids = set(s.strip() for s in request.args.get("stops", "").split(",") if s.strip())
+    route_ids = [s.strip() for s in request.args.get("routes", "").split(",") if s.strip()]
+
+    if not stop_ids or not route_ids:
+        return jsonify(error="missing stops or routes param"), 400
+
+    now = int(time.time())
+    trips_by_route = _fetch_route_trips(route_ids)
+
+    # Collect GPS-tracked trips
+    real_trips = []
+    for rid, trips in trips_by_route.items():
+        for t in trips:
+            if _is_gps_tracked(t):
+                real_trips.append({
+                    "trip_id": str(t["trip_id"]),
+                    "vehicle": str(t.get("vehicle_id", "")),
+                    "route": rid,
+                    "delay": t.get("delay", 0),
+                    "status": t.get("status", ""),
+                })
+
+    result = {sid: [] for sid in stop_ids}
+
+    for trip_info in real_trips:
+        detail = _fetch_trip_detail(trip_info["trip_id"])
+        stop_times = detail.get("stop_times", [])
+        for st in stop_times:
+            sid = str(st.get("stop_id", ""))
+            if sid not in stop_ids:
+                continue
+            if st.get("departed"):
+                continue
+
+            # Use ETA from trip-update (real-time adjusted)
+            eta = st.get("eta", 0)
+            if not eta or eta < now - 120:
+                continue
+
+            # Parse scheduled_time for the scheduled arrival
+            sched_ts = None
+            sched_str = st.get("scheduled_time", "")
+            if sched_str:
+                try:
+                    sched_dt = datetime.strptime(sched_str, "%Y-%m-%d %I:%M %p")
+                    sched_ts = int(sched_dt.timestamp())
+                except ValueError:
+                    pass
+
+            result[sid].append({
+                "trip": trip_info["trip_id"],
+                "vehicle": trip_info["vehicle"],
+                "route": trip_info["route"],
+                "arrival": eta,
+                "minutes": round((eta - now) / 60, 1),
+                "scheduled": sched_ts,
+                "sched_minutes": round((sched_ts - now) / 60, 1) if sched_ts else None,
+                "delay": trip_info["delay"],
+                "status": trip_info["status"],
+            })
+
+    # Sort by arrival time
+    for sid in result:
+        result[sid].sort(key=lambda x: x["arrival"])
+
+    return jsonify(result)
+
+
+# ── SEPTA alerts ──────────────────────────────────────────────
+_alerts_cache = {"data": [], "ts": 0}
+
+@app.route("/api/septa/alerts")
+def alerts():
+    now = time.time()
+    if (now - _alerts_cache["ts"]) < 60:
+        return jsonify(_alerts_cache["data"])
+    try:
+        r = req.get(f"{SEPTA_V2}/alerts/", headers=HEADERS, timeout=12)
+        data = r.json() if r.status_code == 200 else []
+    except Exception as e:
+        print(f"  [v2] alerts error: {e}")
+        data = _alerts_cache["data"]  # fallback to stale cache
+    _alerts_cache["data"] = data
+    _alerts_cache["ts"] = time.time()
+    return jsonify(data)
+
 # ── stats: read ───────────────────────────────────────────────
 @app.route("/api/stats")
 def get_stats():
@@ -154,8 +312,7 @@ def export_stats():
 # ── background trip tracker ──────────────────────────────────
 
 def rail_line_key(line, dest, src):
-    """Map TrainView fields to a stable route key (mirrors JS lineMatchKey)."""
-    s = " ".join([line, dest, src]).lower()
+    """Map TrainView fields to a stable route key (mirrors JS railLineKey)."""
     aliases = {
         "Airport":            ["airport", "phl"],
         "Chestnut Hill East": ["chestnut hill east", "che"],
@@ -171,9 +328,12 @@ def rail_line_key(line, dest, src):
         "West Trenton":       ["west trenton"],
         "Wilmington":         ["wilmington", "newark"],
     }
-    for route_id, keys in aliases.items():
-        if any(k in s for k in keys):
-            return route_id
+    # Match line field first (most reliable), then dest, then src
+    for field in [line, dest, src]:
+        low = (field or "").lower()
+        for route_id, keys in aliases.items():
+            if any(k in low for k in keys):
+                return route_id
     return line or "unknown"
 
 
@@ -250,7 +410,10 @@ class TripTracker:
                         label = v.get("label", "")
                         if label in ("None", None, ""):
                             continue
-                        vid = str(v.get("trip") or v.get("VehicleID") or "")
+                        vehicle_id = str(v.get("VehicleID") or "")
+                        if "schedBased" in vehicle_id:
+                            continue
+                        vid = str(v.get("trip") or vehicle_id or "")
                         if vid and vid not in ("None", ""):
                             vehicles[vid] = route_id
         except Exception as e:
