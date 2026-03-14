@@ -60,6 +60,16 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .lp-tunnel { background: #1e3a6e; color: #93c5fd; border: 1px solid #3b5998; }
 .lp-gray   { background: var(--border); color: var(--muted); }
 
+/* about */
+.about { margin: 8px 8px 12px; border: 1px solid var(--border); border-radius: 7px;
+  overflow: hidden; flex-shrink: 0; }
+.about-hdr { display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 10px; background: var(--card); cursor: pointer; font-size: 10px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; user-select: none; }
+.about-body { padding: 10px; font-size: 11px; line-height: 1.7; color: var(--muted); }
+.model-card-body.hidden { display: none; }
+.legend-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+
 /* toolbar */
 .panel-tabs { display: flex; gap: 2px; background: var(--card); border-radius: 6px; padding: 2px; }
 .panel-tab { padding: 4px 11px; border-radius: 4px; font-size: 12px; cursor: pointer;
