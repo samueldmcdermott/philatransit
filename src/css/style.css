@@ -67,7 +67,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
   padding: 7px 10px; background: var(--card); cursor: pointer; font-size: 10px; font-weight: 600;
   color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; user-select: none; }
 .about-body { padding: 10px; font-size: 11px; line-height: 1.7; color: var(--muted); }
-.model-card-body.hidden { display: none; }
+.about-body.hidden { display: none; }
 .legend-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
 
 /* toolbar */
