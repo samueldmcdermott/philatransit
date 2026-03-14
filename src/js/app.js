@@ -283,6 +283,12 @@ function toggleModelCard() {
   document.getElementById('mcArrow').textContent = modelCardOpen ? '▾' : '▸';
 }
 
+function toggleAbout() {
+  aboutOpen = !aboutOpen;
+  document.getElementById('aboutBody').classList.toggle('hidden', !aboutOpen);
+  document.getElementById('aboutArrow').textContent = aboutOpen ? '▾' : '▸';
+}
+
 // ── Panel switching ─────────────────────────────────────────────────────────
 
 function setPanel(panel) {
