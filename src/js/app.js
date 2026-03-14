@@ -14,6 +14,7 @@ let shapesData           = {};
 let tunnelTimesData      = {};
 let serverTrackerRunning = false;
 let modelCardOpen        = true;
+let aboutOpen            = true;
 let refreshTimer         = null;
 let refreshIntervalMs    = 20000;
 let bandOpacity          = 0.35;
