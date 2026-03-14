@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SEPTA Live</title>
+  <title>Philadelphia Transit Tracker</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="/src/css/style.css">
 </head>
@@ -13,7 +13,7 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-header">
-      <div class="app-title">SEPTA Live</div>
+      <div class="app-title">Philadelphia Transit Tracker</div>
       <div class="app-subtitle">Real-time transit</div>
     </div>
     <div class="mode-tabs">
@@ -34,6 +34,12 @@
         <div class="legend-row"><span class="lp lp-gray">▷ NE</span><span>Current compass heading</span></div>
         <div class="legend-row"><span class="lp lp-gray">Trip #</span><span>SEPTA internal trip ID</span></div>
         <div class="legend-row"><span class="lp lp-gray">Next stop</span><span>Nearest stop by GPS distance (lat/lon)</span></div>
+      </div>
+    </div>
+    <div class="about">
+      <div class="about-hdr" onclick="toggleAbout()">About <span id="mcArrow">▾</span></div>
+      <div class="about-body" id="aboutBody">
+        <div class="legend-row"<span>This website helps track transit in the Philadelphia area. The name is French for "seven ooos", since you might say "ooo" every time a transit option is late.</span></div>
       </div>
     </div>
   </aside>
