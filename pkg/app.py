@@ -9,7 +9,7 @@ from .tracker import tracker
 
 
 def create_app():
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder=None)
 
     # -- CORS --
     @app.after_request

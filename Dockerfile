@@ -9,9 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source
 COPY . .
 
-# Build static GTFS data (route shapes, stops, schedules, tunnel timing)
-RUN python3 scripts/build_gtfs.py && python3 scripts/tunnel_timing.py
-
 # Ensure data directory exists (trips.json lives here; mounted as a volume in prod)
 RUN mkdir -p data
 
