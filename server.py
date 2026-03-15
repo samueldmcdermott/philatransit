@@ -3,9 +3,12 @@
 SEPTA Live – local proxy server + statistics store.
 
 Usage:
-    pip install flask requests
+    pip install flask requests gunicorn
     python3 server.py          # → http://localhost:5000
     python3 server.py --port 8080
+
+Production (via Docker / gunicorn):
+    gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 4 server:app
 """
 
 import json
@@ -33,9 +36,18 @@ SCHED  = DATA / "scheduled.json"
 DATA.mkdir(exist_ok=True)
 
 SEPTA   = "https://www3.septa.org/api"
+SEPTA_V2 = "https://www3.septa.org/api/v2"
 HEADERS = {"User-Agent": "SEPTA-Live/1.0"}
 
 app = Flask(__name__)
+
+# ── CORS ──────────────────────────────────────────────────────
+@app.after_request
+def add_cors(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
 # ── json helpers ─────────────────────────────────────────────
 def load(path, default=None):
@@ -61,28 +73,83 @@ def static_files(filename):
 def src_files(filename):
     return send_from_directory(BASE / "src", filename)
 
-# ── SEPTA proxy ──────────────────────────────────────────────
+# ── Server-side SEPTA data cache ─────────────────────────────
+# All SEPTA transitview/trainview data is fetched here on a 15s cycle.
+# Client requests are served from this cache — SEPTA sees a fixed call
+# rate regardless of how many users are active.
+
+SEPTA_POLL_INTERVAL = 15  # seconds
+
+# transit cache: route_id → list of vehicle dicts (from TransitViewAll)
+_transit_cache      = {"routes": {}, "ts": 0.0}
+_transit_cache_lock = threading.Lock()
+
+# trainview cache: list of train dicts
+_trainview_cache      = {"data": [], "ts": 0.0}
+_trainview_cache_lock = threading.Lock()
+
+def _poll_septa_data():
+    """Background thread: refresh SEPTA transit + train data every SEPTA_POLL_INTERVAL seconds."""
+    while True:
+        # ── TransitViewAll (buses, trolleys, subway) ──────────
+        try:
+            r = req.get(f"{SEPTA}/TransitViewAll/index.php", headers=HEADERS, timeout=15)
+            by_route = {}
+            for group in r.json().get("routes", []):
+                for route_id, vehicles in group.items():
+                    by_route[route_id] = vehicles
+            with _transit_cache_lock:
+                _transit_cache["routes"] = by_route
+                _transit_cache["ts"] = time.time()
+        except Exception as e:
+            print(f"  [cache] TransitViewAll error: {e}")
+
+        # ── TrainView (regional rail) ─────────────────────────
+        try:
+            r = req.get(f"{SEPTA}/TrainView/index.php", headers=HEADERS, timeout=12)
+            with _trainview_cache_lock:
+                _trainview_cache["data"] = r.json()
+                _trainview_cache["ts"] = time.time()
+        except Exception as e:
+            print(f"  [cache] TrainView error: {e}")
+
+        time.sleep(SEPTA_POLL_INTERVAL)
+
+
+# ── SEPTA proxy endpoints (served from cache) ────────────────
+
 @app.route("/api/septa/trainview")
 def trainview():
-    try:
-        r = req.get(f"{SEPTA}/TrainView/index.php", headers=HEADERS, timeout=12)
-        return Response(r.content, mimetype="application/json")
-    except Exception as e:
-        return jsonify(error=str(e)), 502
+    with _trainview_cache_lock:
+        data = list(_trainview_cache["data"])
+    if not data:
+        # Cache cold — fallback to live fetch once
+        try:
+            r = req.get(f"{SEPTA}/TrainView/index.php", headers=HEADERS, timeout=12)
+            data = r.json()
+        except Exception as e:
+            return jsonify(error=str(e)), 502
+    return jsonify(data)
 
 @app.route("/api/septa/transitview")
 def transitview():
     route = request.args.get("route", "")
-    try:
-        r = req.get(
-            f"{SEPTA}/TransitView/index.php",
-            params={"route": route},
-            headers=HEADERS,
-            timeout=12,
-        )
-        return Response(r.content, mimetype="application/json")
-    except Exception as e:
-        return jsonify(error=str(e)), 502
+    with _transit_cache_lock:
+        vehicles = list(_transit_cache["routes"].get(route, []))
+        ts = _transit_cache["ts"]
+    if not vehicles and ts == 0.0:
+        # Cache cold — fallback to live fetch once
+        try:
+            r = req.get(
+                f"{SEPTA}/TransitView/index.php",
+                params={"route": route},
+                headers=HEADERS,
+                timeout=12,
+            )
+            return Response(r.content, mimetype="application/json")
+        except Exception as e:
+            return jsonify(error=str(e)), 502
+    return jsonify({"bus": vehicles})
 
 @app.route("/api/septa/stops")
 def stops():
@@ -100,7 +167,6 @@ def stops():
 
 # ── SEPTA v2 API: real-time stop predictions ─────────────────
 
-SEPTA_V2 = "https://www3.septa.org/api/v2"
 _trips_cache = {"data": {}, "ts": 0, "routes": set()}  # route → [trip objects]
 _trips_lock = threading.Lock()
 _trip_detail_cache = {}   # trip_id → {stop_times, ts}
@@ -388,8 +454,9 @@ class TripTracker:
 
         # ── regional rail ──────────────────────────────────
         try:
-            r = req.get(f"{SEPTA}/TrainView/index.php", headers=HEADERS, timeout=12)
-            for t in r.json():
+            with _trainview_cache_lock:
+                trains = list(_trainview_cache["data"])
+            for t in trains:
                 vid   = str(t.get("trainno", ""))
                 route = rail_line_key(
                     t.get("line", ""), t.get("dest", ""), t.get("SOURCE", "")
@@ -399,23 +466,23 @@ class TripTracker:
         except Exception as e:
             print(f"  [tracker] rail error: {e}")
 
-        # ── bus / trolley / subway (TransitViewAll) ────────
+        # ── bus / trolley / subway (from shared transit cache) ──
         try:
-            r = req.get(f"{SEPTA}/TransitViewAll/index.php", headers=HEADERS, timeout=15)
-            for route_group in r.json().get("routes", []):
-                for route_id, vs in route_group.items():
-                    for v in vs:
-                        if v.get("late") == 998:
-                            continue
-                        label = v.get("label", "")
-                        if label in ("None", None, ""):
-                            continue
-                        vehicle_id = str(v.get("VehicleID") or "")
-                        if "schedBased" in vehicle_id:
-                            continue
-                        vid = str(v.get("trip") or vehicle_id or "")
-                        if vid and vid not in ("None", ""):
-                            vehicles[vid] = route_id
+            with _transit_cache_lock:
+                routes_snapshot = dict(_transit_cache["routes"])
+            for route_id, vs in routes_snapshot.items():
+                for v in vs:
+                    if v.get("late") == 998:
+                        continue
+                    label = v.get("label", "")
+                    if label in ("None", None, ""):
+                        continue
+                    vehicle_id = str(v.get("VehicleID") or "")
+                    if "schedBased" in vehicle_id:
+                        continue
+                    vid = str(v.get("trip") or vehicle_id or "")
+                    if vid and vid not in ("None", ""):
+                        vehicles[vid] = route_id
         except Exception as e:
             print(f"  [tracker] transit error: {e}")
 
@@ -490,6 +557,19 @@ def set_scheduled():
     dump(SCHED, sched)
     return jsonify(ok=True)
 
+# ── start background services ─────────────────────────────────
+# Runs at import time so gunicorn workers pick it up automatically.
+# The tracker and cache poller are daemon threads — they stop when
+# the process exits.  tracker.start() is idempotent.
+
+_septa_cache_thread = threading.Thread(
+    target=_poll_septa_data, daemon=True, name="SeptaCache"
+)
+_septa_cache_thread.start()
+print("  [cache] SEPTA poller started")
+
+tracker.start()
+
 # ── entrypoint ───────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -497,5 +577,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"\n  SEPTA Live  →  http://localhost:{args.port}\n")
-    tracker.start()   # auto-start background tracker on server launch
     app.run(host="127.0.0.1", port=args.port, debug=False)

@@ -214,9 +214,77 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .alert-effect { background: var(--border); padding: 1px 6px; border-radius: 3px; text-transform: lowercase; }
 .alert-time { font-size: 10px; color: var(--muted); margin-top: 4px; }
 
-@media (max-width: 640px) { .sidebar { width: 170px; } }
-@media (max-width: 440px) {
-  .app { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; max-height: 40vh; flex-direction: row;
-    flex-wrap: wrap; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
+/* ── Tablet ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar { width: 180px; }
+  .status-txt { max-width: 120px; }
+  /* Collapse legend and about by default on tablet — still accessible */
+  .model-card-body, .about-body { display: none; }
+  #mcArrow, #aboutArrow { content: '▸'; }
+}
+
+/* ── Mobile ─────────────────────────────────────────────────── */
+@media (max-width: 540px) {
+  /* Stack sidebar above content */
+  .app { flex-direction: column; height: 100dvh; }
+
+  /* Sidebar becomes a compact top nav */
+  .sidebar {
+    width: 100%;
+    height: auto;
+    flex-shrink: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow: visible;
+  }
+
+  /* Hide title block and legend/about — not useful at this size */
+  .sidebar-header, .model-card, .about { display: none; }
+
+  /* Mode tabs: even 4-column grid */
+  .mode-tabs { display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 8px; gap: 4px; }
+  .mode-tab { padding: 7px 0; font-size: 11px; }
+
+  /* Route list: horizontal chip scroll */
+  #routeList {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 4px 8px 8px;
+    gap: 5px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #routeList::-webkit-scrollbar { display: none; }
+  .route-section-label { display: none; }
+  .route-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    width: auto;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .route-btn.active { border-color: var(--accent); }
+
+  /* Toolbar: panel tabs take full width on top row; controls below */
+  .toolbar { flex-wrap: wrap; padding: 6px 10px; gap: 5px; }
+  .panel-tabs { width: 100%; }
+  .panel-tab { flex: 1; text-align: center; font-size: 11px; padding: 5px 6px; }
+  .tb-spacer { display: none; }
+  .status-txt { font-size: 10px; max-width: none; flex: 1; }
+
+  /* Hide low-priority toolbar items on mobile */
+  #trackerBtn { display: none; }
+  #bandOpacity { display: none !important; }
+
+  /* Vehicle cards: single column, full width */
+  .vehicle-grid { grid-template-columns: 1fr; }
+
+  /* Stats: stack boxes */
+  .stat-row { flex-direction: column; }
+  .pct-row { flex-direction: column; gap: 8px; }
+  .pct-label-item { display: none; }
 }
