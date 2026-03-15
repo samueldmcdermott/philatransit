@@ -24,5 +24,14 @@
 - [ ] Needs further work or may be separated into a different app
 - [ ] Current trip tracking works but UI/analysis could be improved
 
-### General
-- [ ] Port to GitHub (repo setup, CI, hosting)
+
+### Notes
+currently, there's an alert "Trolleys are on diversion to 40th and Market Streets due to maintenance work" but the header bar at first was yellow and said diversion (likely) but now has no warning at all (update: it came back, then went away again), despite the fact that there is a live trolley in the diversion *and* that alert is *still live* (until 5:40AM). Make sure the logic for this bar is sound and durable.
+
+Also, minor issue -- in the "toolbar" I see that it lists the number of vehicles, which is good. A small change: when the trolley route is live, let this say "N trolleys" instead of "N vehicles" and when a bus route is live let this say "N buses", etc  
+
+The ordering of the vehicles in the "all" section should be improved (order by next to arrive)
+
+The reemergence logic should be improved (the trolley disappears if the estimated aft position is out of the tunnel but the vehicle is not yet on the surface; in this case, the estimated position should "linger" near the portal location)
+
+The portal position should be tightened (right now it encompasses the entire triangular "portal yard", where trolleys often start to move quite slowly as they reorient and prepare to enter the tunnel, but the portal entrance is actually on the very east edge of the triangle, pretty precisely at (39.949588, -75.203171))
