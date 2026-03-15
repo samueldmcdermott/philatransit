@@ -4,7 +4,7 @@
 const TUNNEL_ROUTES = new Set(['T1','T2','T3','T4','T5','T-ALL']);
 
 const TUNNEL_STOPS = [
-  { name:'40th St Portal', lat:39.9495, lng:-75.2033 },
+  { name:'40th St Portal', lat:39.949588, lng:-75.203171 },
   { name:'37th-Spruce',    lat:39.9510, lng:-75.1966 },
   { name:'36th-Sansom',    lat:39.9539, lng:-75.1945 },
   { name:'33rd St',        lat:39.9548, lng:-75.1895 },
@@ -25,11 +25,11 @@ const UNDERGROUND_ZONES = {
 };
 
 const PORTALS = {
-  T1:  {name:'36th St Portal',  lat:39.9553, lng:-75.1942},
-  T2:  {name:'40th St Portal',  lat:39.9495, lng:-75.2033},
-  T3:  {name:'40th St Portal',  lat:39.9495, lng:-75.2033},
-  T4:  {name:'40th St Portal',  lat:39.9495, lng:-75.2033},
-  T5:  {name:'40th St Portal',  lat:39.9495, lng:-75.2033},
+  T1:  {name:'36th St Portal',  lat:39.9553,   lng:-75.1942  },
+  T2:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
+  T3:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
+  T4:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
+  T5:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
 };
 
 const TUNNEL_EAST_END = {lat:39.9525, lng:-75.1626};
@@ -43,7 +43,7 @@ const TUNNEL_40TH = [
   {name:'30th St',           lat:39.9548, lng:-75.1835},
   {name:'36th-Sansom',       lat:39.9539, lng:-75.1945},
   {name:'37th-Spruce',       lat:39.9510, lng:-75.1966},
-  {name:'40th St Portal',    lat:39.9495, lng:-75.2033},
+  {name:'40th St Portal',    lat:39.949588, lng:-75.203171},
 ];
 
 const TUNNEL_36TH = [
@@ -164,7 +164,7 @@ function detectTunnelClosureFromAlerts() {
   const closureKw = /tunnel|15th\s*st|13th\s*st|subway.?surface|shuttle|divert|diversion|bypass|not\s+serv/i;
   const reopenKw  = /resum|restor|reopen|back\s+in\s+service|normal\s+service/i;
   for (const a of alertsData) {
-    if (a.type !== 'ALERT') continue;
+    if (a.type !== 'ALERT' && a.type !== 'DETOUR') continue;
     if (!a.routes || !a.routes.some(r => trolleyAlertIds.has(r))) continue;
     const text = (a.message || '') + ' ' + (a.subject || '');
     if (closureKw.test(text) && !reopenKw.test(text)) {
@@ -504,8 +504,16 @@ function detectTunnelEntries(currentVehicles) {
     const mid  = ghostPosition(midElapsed, ghost);
 
     if (fore.done && aft.done) {
-      delete ghostVehicles[vid];
-      ghostReplacedVids.delete(vid);
+      // Estimate exhausted but real vehicle hasn't emerged — freeze at exit portal.
+      if (!ghost._lingersAtPortal) {
+        const exitPos = ghost.direction === 'eastbound'
+          ? TUNNEL_EAST_END : PORTALS[ghost.route];
+        if (exitPos) {
+          ghost._lingersAtPortal = true;
+          ghost.lat = exitPos.lat;
+          ghost.lng = exitPos.lng;
+        }
+      }
       continue;
     }
 

@@ -397,15 +397,20 @@ function tickGhosts() {
     const mid  = ghostPosition(midElapsed, ghost);
 
     if (fore.done && aft.done) {
-      delete ghostVehicles[vid];
-      ghostReplacedVids.delete(vid);
-      if (vehicleMarkers[vid]) {
-        vehicleLayerGroup?.removeLayer(vehicleMarkers[vid]);
-        delete vehicleMarkers[vid];
-      }
-      if (ghostBandLayers[vid]) {
-        vehicleLayerGroup?.removeLayer(ghostBandLayers[vid]);
-        delete ghostBandLayers[vid];
+      // Estimate exhausted but real vehicle hasn't emerged — freeze at exit portal.
+      if (!ghost._lingersAtPortal) {
+        const exitPos = ghost.direction === 'eastbound'
+          ? TUNNEL_EAST_END : PORTALS[ghost.route];
+        if (exitPos) {
+          ghost._lingersAtPortal = true;
+          ghost.lat = exitPos.lat;
+          ghost.lng = exitPos.lng;
+          if (vehicleMarkers[vid]) vehicleMarkers[vid].setLatLng([exitPos.lat, exitPos.lng]);
+          if (ghostBandLayers[vid]) {
+            vehicleLayerGroup?.removeLayer(ghostBandLayers[vid]);
+            delete ghostBandLayers[vid];
+          }
+        }
       }
       changed = true;
       continue;
@@ -562,11 +567,18 @@ function renderVehicles(vehicles) {
   }
   liveRegistry = newReg;
 
-  if (selectedRoute?.multi) {
-    vehicles.sort((a, b) => (a._rkey || '').localeCompare(b._rkey || '') || a.label.localeCompare(b.label, undefined, { numeric: true }));
-  } else {
-    vehicles.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-  }
+  // Sort by soonest to arrive (least late first); ghosts after real vehicles
+  vehicles.sort((a, b) => {
+    if (a._ghost && !b._ghost) return 1;
+    if (!a._ghost && b._ghost) return -1;
+    const lateDiff = (a.late || 0) - (b.late || 0);
+    if (lateDiff !== 0) return lateDiff;
+    if (selectedRoute?.multi) {
+      const rDiff = (a._rkey || '').localeCompare(b._rkey || '');
+      if (rDiff !== 0) return rDiff;
+    }
+    return a.label.localeCompare(b.label, undefined, { numeric: true });
+  });
   grid.style.display = ''; empty.style.display = 'none';
   grid.innerHTML = '';
 
@@ -621,7 +633,12 @@ function renderVehicles(vehicles) {
   const nGhosts = vehicles.filter(v => v._ghost).length;
   const nReal = vehicles.length - nGhosts;
   const ghostSuffix = nGhosts > 0 ? ` + ${nGhosts} estimated` : '';
-  setStatus(`${nReal} vehicle${nReal !== 1 ? 's' : ''}${ghostSuffix} · ${fmtTime(now)}`);
+  const vSingular = activeMode === 'TROLLEY' ? 'trolley'
+    : activeMode === 'BUS'    ? 'bus'
+    : activeMode === 'RAIL'   ? 'train'
+    : 'vehicle';
+  const vPlural = activeMode === 'BUS' ? 'buses' : vSingular + 's';
+  setStatus(`${nReal} ${nReal !== 1 ? vPlural : vSingular}${ghostSuffix} · ${fmtTime(now)}`);
 }
 
 // ── Tunnel closure banner ────────────────────────────────────────────────────
