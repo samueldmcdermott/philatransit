@@ -28,7 +28,6 @@ async function drawMap() {
 
   document.getElementById('emptyMap').style.display = 'none';
   document.getElementById('mapContainer').style.display = '';
-  setTimeout(() => leafletMap.invalidateSize(), 50);
 
   routeLayerGroup.clearLayers();
   stopLayerGroup.clearLayers();
@@ -56,19 +55,25 @@ async function drawMap() {
     if (shapeCoords && shapeCoords.length > 1) {
       hasGtfsShapes = true;
       const spur = ROUTE_SPURS[sub.id];
+      let mainCoords = shapeCoords;
       if (spur) {
         // Draw spur as a thin line, main route as normal
         const ci = spur.cutoffIndex;
         if (spur.end === 'start') {
           drawThinPath(shapeCoords.slice(0, ci + 1), sub.color);
-          drawSegmentedPath(shapeCoords.slice(ci), sub.id, sub.color);
+          mainCoords = shapeCoords.slice(ci);
+          drawSegmentedPath(mainCoords, sub.id, sub.color);
         } else {
-          drawSegmentedPath(shapeCoords.slice(0, ci + 1), sub.id, sub.color);
+          mainCoords = shapeCoords.slice(0, ci + 1);
+          drawSegmentedPath(mainCoords, sub.id, sub.color);
           drawThinPath(shapeCoords.slice(ci), sub.color);
         }
       } else {
         drawSegmentedPath(shapeCoords, sub.id, sub.color);
       }
+      // Include shape endpoints in bounds so map shows full route
+      bounds.push(mainCoords[0]);
+      bounds.push(mainCoords[mainCoords.length - 1]);
     }
   }
 
@@ -121,7 +126,9 @@ async function drawMap() {
     stopMarkerInfos.push({ marker, stop: s });
   }
 
-  if (bounds.length) leafletMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+  // Ensure container has correct dimensions before fitting bounds
+  leafletMap.invalidateSize();
+  if (bounds.length) leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
 
   // Note if no GTFS shapes
   const noteEl = document.getElementById('noGtfsNote');

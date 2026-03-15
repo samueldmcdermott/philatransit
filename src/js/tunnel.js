@@ -418,8 +418,20 @@ function detectTunnelEntries(currentVehicles) {
       }
       // Otherwise position is still frozen — firstTs stays unchanged
     } else {
+      // Check if we have saved history showing this vehicle was already at this
+      // position before the page loaded — credit the saved linger time
+      const savedHist = vehicleHistory[v._id];
+      let seedTs = now;
+      if (savedHist && savedHist.length > 0) {
+        const last = savedHist[savedHist.length - 1];
+        const moved = Math.abs(lat - last.lat) + Math.abs(lng - last.lng);
+        if (moved < STATIONARY_THRESH) {
+          // Position unchanged since saved history — vehicle has been frozen since then
+          seedTs = last.ts;
+        }
+      }
       portalLingerMap[v._id] = {
-        firstTs: now, route: vRoute, direction, lat, lng
+        firstTs: seedTs, route: vRoute, direction, lat, lng
       };
     }
 
@@ -690,9 +702,9 @@ function toggleTunnelEstimation() {
 
 function saveGhostState() {
   try {
-    const state = {};
+    const ghosts = {};
     for (const [vid, g] of Object.entries(ghostVehicles)) {
-      state[vid] = {
+      ghosts[vid] = {
         route: g.route, label: g.label, dest: g.dest, late: g.late,
         trip: g.trip, _routeLabel: g._routeLabel,
         _entryLat: g._entryLat, _entryLng: g._entryLng,
@@ -700,7 +712,20 @@ function saveGhostState() {
         direction: g.direction,
       };
     }
-    localStorage.setItem('ghostState', JSON.stringify(state));
+    // Also save linger tracking and last-known positions for fast detection on reload
+    const lingers = {};
+    for (const [vid, l] of Object.entries(portalLingerMap)) {
+      lingers[vid] = { ...l };
+    }
+    const positions = {};
+    for (const [vid, hist] of Object.entries(vehicleHistory)) {
+      if (!hist.length) continue;
+      const last = hist[hist.length - 1];
+      const rk = hist._rkey;
+      if (!rk || !TUNNEL_ROUTES.has(rk) || rk === 'T-ALL') continue;
+      positions[vid] = { lat: last.lat, lng: last.lng, ts: last.ts, rkey: rk, dest: hist._dest };
+    }
+    localStorage.setItem('ghostState', JSON.stringify({ ghosts, lingers, positions, savedAt: Date.now() }));
   } catch (_) {}
 }
 
@@ -708,10 +733,15 @@ function restoreGhostState() {
   try {
     const raw = localStorage.getItem('ghostState');
     if (!raw) return;
-    const state = JSON.parse(raw);
+    const data = JSON.parse(raw);
     const now = Date.now();
+
+    // Handle old format (just ghost objects at top level)
+    const ghostEntries = data.ghosts || (data.savedAt ? {} : data);
     let restored = 0;
-    for (const [vid, s] of Object.entries(state)) {
+
+    // Restore active ghosts
+    for (const [vid, s] of Object.entries(ghostEntries)) {
       if (now - s.enterTs > GHOST_MAX_AGE_MS) continue;
       const shapePath = getTunnelShapePath(s.route);
       if (!shapePath || shapePath.length < 2) continue;
@@ -731,7 +761,6 @@ function restoreGhostState() {
         path, pathLen: pathLength(path),
       };
 
-      // Compute current position
       const totalElapsed = (now - s.enterTs) / 1000;
       const fore = ghostPosition(totalElapsed, ghostVehicles[vid]);
       const aftElapsed = Math.max(0, totalElapsed - s.lingerSec);
@@ -762,6 +791,31 @@ function restoreGhostState() {
       }
       restored++;
     }
+
+    // Restore portal linger tracking — vehicles that were being watched
+    // before the page closed continue accumulating linger time
+    if (data.lingers) {
+      for (const [vid, l] of Object.entries(data.lingers)) {
+        if (ghostVehicles[vid]) continue;  // already a ghost
+        if (now - l.firstTs > GHOST_MAX_AGE_MS) continue;
+        portalLingerMap[vid] = { ...l };
+      }
+    }
+
+    // Restore last-known positions so the first API fetch can immediately
+    // detect frozen GPS (same position = vehicle still at portal)
+    if (data.positions && data.savedAt && (now - data.savedAt) < 10 * 60 * 1000) {
+      for (const [vid, p] of Object.entries(data.positions)) {
+        if (ghostVehicles[vid]) continue;
+        // Seed vehicle history with the saved position
+        const entry = { lat: p.lat, lng: p.lng, ts: p.ts };
+        const hist = [entry];
+        hist._rkey = p.rkey;
+        hist._dest = p.dest;
+        vehicleHistory[vid] = hist;
+      }
+    }
+
     if (restored > 0) console.log(`Restored ${restored} tunnel ghost(s) from previous session`);
   } catch (_) {}
 }

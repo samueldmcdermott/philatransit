@@ -238,7 +238,17 @@ async function selectRoute(route, type) {
   liveRegistry  = {};
   routeStops        = [];
   routeStopsOrdered = false;
-  vehicleHistory    = {};
+  // Preserve restored vehicle history for tunnel routes (needed for ghost detection)
+  if (!TUNNEL_ROUTES.has(route.id)) {
+    vehicleHistory = {};
+  } else {
+    // Keep only entries for this route's vehicles
+    const kept = {};
+    for (const [vid, hist] of Object.entries(vehicleHistory)) {
+      if (hist._rkey && (hist._rkey === route.id || route.multi)) kept[vid] = hist;
+    }
+    vehicleHistory = kept;
+  }
   buildRouteList();
   updateAlertsBadge();
   const isTunnel = TUNNEL_ROUTES.has(route.id);
