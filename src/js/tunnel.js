@@ -534,6 +534,8 @@ function detectTunnelEntries(currentVehicles) {
     // Store the path segments for the band
     ghost.bandPath = extractBandPath(ghost, aft, fore);
   }
+
+  saveGhostState();
 }
 
 // Compute ghost position for a given elapsed time (handles round-trip)
@@ -678,7 +680,88 @@ function toggleTunnelEstimation() {
     ghostVehicles = {};
     ghostReplacedVids.clear();
     portalLingerMap = {};
+    saveGhostState();
   }
   if (selectedRoute && activePanel === 'live') fetchNow();
   if (selectedRoute && activePanel === 'map') refreshMapVehicles();
+}
+
+// ── Ghost persistence (localStorage) ────────────────────────────────────────
+
+function saveGhostState() {
+  try {
+    const state = {};
+    for (const [vid, g] of Object.entries(ghostVehicles)) {
+      state[vid] = {
+        route: g.route, label: g.label, dest: g.dest, late: g.late,
+        trip: g.trip, _routeLabel: g._routeLabel,
+        _entryLat: g._entryLat, _entryLng: g._entryLng,
+        enterTs: g.enterTs, lingerSec: g.lingerSec,
+        direction: g.direction,
+      };
+    }
+    localStorage.setItem('ghostState', JSON.stringify(state));
+  } catch (_) {}
+}
+
+function restoreGhostState() {
+  try {
+    const raw = localStorage.getItem('ghostState');
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    const now = Date.now();
+    let restored = 0;
+    for (const [vid, s] of Object.entries(state)) {
+      if (now - s.enterTs > GHOST_MAX_AGE_MS) continue;
+      const shapePath = getTunnelShapePath(s.route);
+      if (!shapePath || shapePath.length < 2) continue;
+      const halfTime = getHalfTunnelTime(s.route);
+      const path = s.direction === 'eastbound' ? shapePath : [...shapePath].reverse();
+
+      ghostedVids[vid] = now;
+      ghostReplacedVids.add(vid);
+      ghostVehicles[vid] = {
+        route: s.route, label: s.label, dest: s.dest, late: s.late,
+        trip: s.trip, _routeLabel: s._routeLabel,
+        _entryLat: s._entryLat, _entryLng: s._entryLng,
+        enterTs: s.enterTs, lingerSec: s.lingerSec,
+        leg: 'first', direction: s.direction,
+        halfTime,
+        pathWE: shapePath, pathEW: [...shapePath].reverse(),
+        path, pathLen: pathLength(path),
+      };
+
+      // Compute current position
+      const totalElapsed = (now - s.enterTs) / 1000;
+      const fore = ghostPosition(totalElapsed, ghostVehicles[vid]);
+      const aftElapsed = Math.max(0, totalElapsed - s.lingerSec);
+      const aft = ghostPosition(aftElapsed, ghostVehicles[vid]);
+      const midElapsed = (totalElapsed + aftElapsed) / 2;
+      const mid = ghostPosition(midElapsed, ghostVehicles[vid]);
+
+      const g = ghostVehicles[vid];
+      if (fore.done && aft.done) {
+        const exitPos = s.direction === 'eastbound' ? TUNNEL_EAST_END : PORTALS[s.route];
+        if (exitPos) {
+          g._lingersAtPortal = true;
+          g.lat = exitPos.lat;
+          g.lng = exitPos.lng;
+        }
+      } else {
+        g.lat = mid.pos.lat;
+        g.lng = mid.pos.lng;
+        g.fraction = mid.fraction;
+        g.currentDirection = mid.direction;
+        g.leg = mid.leg;
+        g.aftPos = aft.pos;
+        g.forePos = fore.pos;
+        g.midPos = mid.pos;
+        g.aftFraction = aft.fraction;
+        g.foreFraction = fore.fraction;
+        g.bandPath = extractBandPath(g, aft, fore);
+      }
+      restored++;
+    }
+    if (restored > 0) console.log(`Restored ${restored} tunnel ghost(s) from previous session`);
+  } catch (_) {}
 }

@@ -121,7 +121,7 @@ async function drawMap() {
     stopMarkerInfos.push({ marker, stop: s });
   }
 
-  if (bounds.length) leafletMap.fitBounds(bounds, { padding: [30, 30] });
+  if (bounds.length) leafletMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
 
   // Note if no GTFS shapes
   const noteEl = document.getElementById('noGtfsNote');

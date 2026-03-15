@@ -39,6 +39,7 @@ let tunnelShapePaths   = {};
 async function init() {
   buildRouteList();
   await Promise.all([checkTrackerStatus(), loadStaticData(), fetchAlerts()]);
+  restoreGhostState();
   startAutoRefresh();
   // Refresh alerts every 60s
   setInterval(fetchAlerts, 60000);
@@ -438,20 +439,23 @@ function tickGhosts() {
     }
     changed = true;
   }
-  if (changed && activePanel === 'live') {
-    document.querySelectorAll('.ghost-card').forEach(card => {
-      const label = card.querySelector('.ghost-label');
-      if (label) {
-        const vid = card.dataset?.vid;
-        const ghost = vid ? ghostVehicles[vid] : null;
-        if (ghost) {
-          const aftPct = Math.round((ghost.aftFraction || 0) * 100);
-          const forePct = Math.round((ghost.foreFraction || 0) * 100);
-          const dir = ghost.currentDirection || ghost.direction;
-          label.textContent = `Tunnel estimate · ${aftPct}–${forePct}% ${dir}${ghost.leg === 'second' ? ' (return)' : ''}`;
+  if (changed) {
+    saveGhostState();
+    if (activePanel === 'live') {
+      document.querySelectorAll('.ghost-card').forEach(card => {
+        const label = card.querySelector('.ghost-label');
+        if (label) {
+          const vid = card.dataset?.vid;
+          const ghost = vid ? ghostVehicles[vid] : null;
+          if (ghost) {
+            const aftPct = Math.round((ghost.aftFraction || 0) * 100);
+            const forePct = Math.round((ghost.foreFraction || 0) * 100);
+            const dir = ghost.currentDirection || ghost.direction;
+            label.textContent = `Tunnel estimate · ${aftPct}–${forePct}% ${dir}${ghost.leg === 'second' ? ' (return)' : ''}`;
+          }
         }
-      }
-    });
+      });
+    }
   }
 }
 
