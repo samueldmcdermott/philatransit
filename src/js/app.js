@@ -39,7 +39,6 @@ let tunnelShapePaths   = {};
 async function init() {
   buildRouteList();
   await Promise.all([checkTrackerStatus(), loadStaticData(), fetchAlerts()]);
-  restoreGhostState();
   startAutoRefresh();
   // Refresh alerts every 60s
   setInterval(fetchAlerts, 60000);
@@ -238,17 +237,7 @@ async function selectRoute(route, type) {
   liveRegistry  = {};
   routeStops        = [];
   routeStopsOrdered = false;
-  // Preserve restored vehicle history for tunnel routes (needed for ghost detection)
-  if (!TUNNEL_ROUTES.has(route.id)) {
-    vehicleHistory = {};
-  } else {
-    // Keep only entries for this route's vehicles
-    const kept = {};
-    for (const [vid, hist] of Object.entries(vehicleHistory)) {
-      if (hist._rkey && (hist._rkey === route.id || route.multi)) kept[vid] = hist;
-    }
-    vehicleHistory = kept;
-  }
+  vehicleHistory    = {};
   buildRouteList();
   updateAlertsBadge();
   const isTunnel = TUNNEL_ROUTES.has(route.id);
@@ -450,7 +439,6 @@ function tickGhosts() {
     changed = true;
   }
   if (changed) {
-    saveGhostState();
     if (activePanel === 'live') {
       document.querySelectorAll('.ghost-card').forEach(card => {
         const label = card.querySelector('.ghost-label');
@@ -490,9 +478,14 @@ async function fetchNow() {
     }
     updateVehicleHistory(vehicles);
     const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
-    if (isTunnelRoute) detectTunnelEntries(vehicles);
+    // Sync ghost state from server (server tracks tunnel entries centrally)
+    if (isTunnelRoute) {
+      try {
+        const serverGhosts = await apiFetch('/api/ghosts');
+        syncServerGhosts(serverGhosts);
+      } catch (_) {}
+    }
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
-    // Filter out vehicles whose real GPS is frozen — they're replaced by ghosts
     const visible = isTunnelRoute ? vehicles.filter(v => !ghostReplacedVids.has(v._id)) : vehicles;
     const allVehicles = [...visible, ...ghosts];
 

@@ -371,183 +371,74 @@ function getPortalAndDirection(lat, lng, routeKey, dest) {
 
 // ── Ghost vehicle management ───────────────────────────────────────────────
 
-function detectTunnelEntries(currentVehicles) {
+/** Sync local ghost state from server-side ghost tracker (/api/ghosts). */
+function syncServerGhosts(serverGhosts) {
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
     ghostReplacedVids.clear();
-    portalLingerMap = {};
     return;
   }
 
   const now = Date.now();
-  const currentById = new Map(currentVehicles.map(v => [v._id, v]));
-  const routeKey = selectedRoute?.id;
-  if (!TUNNEL_ROUTES.has(routeKey)) return;
+  const serverVids = new Set();
 
-  // Prune old ghostedVids entries
-  for (const [vid, ts] of Object.entries(ghostedVids)) {
-    if (now - ts > 5 * 60 * 1000) delete ghostedVids[vid];
-  }
+  for (const sg of serverGhosts) {
+    const vid = sg.vid;
+    serverVids.add(vid);
 
-  // ── Linger-based detection: frozen position near portal ──────────
-  // Vehicles still visible in API but GPS is frozen → they're underground
-  for (const v of currentVehicles) {
-    const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
-    if (isNaN(lat) || isNaN(lng)) continue;
-    if (ghostVehicles[v._id]) continue; // already a ghost
-
-    const vRoute = v._rkey || routeKey;
-    if (!TUNNEL_ROUTES.has(vRoute) || vRoute === 'T-ALL') continue;
-
-    const { near, direction } = getPortalAndDirection(lat, lng, vRoute, v.dest);
-    if (!near) {
-      // Not near a portal heading in → clear linger tracking
-      delete portalLingerMap[v._id];
+    if (ghostVehicles[vid]) {
+      // Already tracking — update metadata but don't reset interpolation
+      ghostVehicles[vid].label = sg.label;
+      ghostVehicles[vid].dest = sg.dest;
+      ghostVehicles[vid].late = sg.late;
       continue;
     }
 
-    // Track lingering (frozen position near portal)
-    const existing = portalLingerMap[v._id];
-    if (existing && existing.route === vRoute) {
-      const moved = Math.abs(lat - existing.lat) + Math.abs(lng - existing.lng);
-      if (moved >= STATIONARY_THRESH) {
-        // Position changed significantly → reset linger timer
-        existing.firstTs = now;
-        existing.lat = lat;
-        existing.lng = lng;
-      }
-      // Otherwise position is still frozen — firstTs stays unchanged
+    // New ghost from server — build local object for interpolation
+    const shapePath = getTunnelShapePath(sg.route);
+    if (!shapePath || shapePath.length < 2) continue;
+    const halfTime = getHalfTunnelTime(sg.route);
+    const path = sg.direction === 'eastbound' ? shapePath : [...shapePath].reverse();
+
+    ghostReplacedVids.add(vid);
+    ghostVehicles[vid] = {
+      route: sg.route, label: sg.label, dest: sg.dest, late: sg.late,
+      trip: sg.trip, _routeLabel: sg.route,
+      _entryLat: sg.entryLat, _entryLng: sg.entryLng,
+      enterTs: sg.enterTs, lingerSec: sg.lingerSec,
+      leg: 'first', direction: sg.direction, halfTime,
+      pathWE: shapePath, pathEW: [...shapePath].reverse(),
+      path, pathLen: pathLength(path),
+    };
+
+    // Compute current position
+    const totalElapsed = (now - sg.enterTs) / 1000;
+    const fore = ghostPosition(totalElapsed, ghostVehicles[vid]);
+    const aftElapsed = Math.max(0, totalElapsed - sg.lingerSec);
+    const aft = ghostPosition(aftElapsed, ghostVehicles[vid]);
+    const midElapsed = (totalElapsed + aftElapsed) / 2;
+    const mid = ghostPosition(midElapsed, ghostVehicles[vid]);
+
+    const g = ghostVehicles[vid];
+    if (fore.done && aft.done) {
+      const exitPos = sg.direction === 'eastbound' ? TUNNEL_EAST_END : PORTALS[sg.route];
+      if (exitPos) { g._lingersAtPortal = true; g.lat = exitPos.lat; g.lng = exitPos.lng; }
     } else {
-      // Check if we have saved history showing this vehicle was already at this
-      // position before the page loaded — credit the saved linger time
-      const savedHist = vehicleHistory[v._id];
-      let seedTs = now;
-      if (savedHist && savedHist.length > 0) {
-        const last = savedHist[savedHist.length - 1];
-        const moved = Math.abs(lat - last.lat) + Math.abs(lng - last.lng);
-        if (moved < STATIONARY_THRESH) {
-          // Position unchanged since saved history — vehicle has been frozen since then
-          seedTs = last.ts;
-        }
-      }
-      portalLingerMap[v._id] = {
-        firstTs: seedTs, route: vRoute, direction, lat, lng
-      };
-    }
-
-    const linger = portalLingerMap[v._id];
-    if ((now - linger.firstTs) >= LINGER_TIME_MS && !ghostedVids[v._id]) {
-      // Vehicle has been frozen near portal long enough → create ghost
-      createGhost(v._id, vRoute, direction, linger.firstTs, v);
-      delete portalLingerMap[v._id];
+      g.lat = mid.pos.lat; g.lng = mid.pos.lng;
+      g.fraction = mid.fraction; g.currentDirection = mid.direction; g.leg = mid.leg;
+      g.aftPos = aft.pos; g.forePos = fore.pos; g.midPos = mid.pos;
+      g.aftFraction = aft.fraction; g.foreFraction = fore.fraction;
+      g.bandPath = extractBandPath(g, aft, fore);
     }
   }
 
-  // ── Disappearance-based detection (backup) ─────────────────────
-  // Vehicles that fully vanish from the API near a portal
-  for (const [vid, history] of Object.entries(vehicleHistory)) {
-    if (currentById.has(vid)) continue;
-    if (ghostVehicles[vid] || ghostedVids[vid]) continue;
-    if (history.length < 2) continue;
-
-    const vRoute = history._rkey || routeKey;
-    if (!TUNNEL_ROUTES.has(vRoute) || vRoute === 'T-ALL') continue;
-
-    const last = history[history.length - 1];
-    if (now - last.ts > 90000) continue;
-
-    const { near, direction } = getPortalAndDirection(
-      last.lat, last.lng, vRoute, history._dest
-    );
-    if (!near) continue;
-
-    createGhost(vid, vRoute, direction, last.ts, {
-      label: history._label || vid.slice(-4),
-      dest:  history._dest  || '',
-      late:  history._late  ?? 0,
-      trip:  history._trip  || '',
-      _routeLabel: history._rkey || null,
-    });
-  }
-
-  // ── Update ghost positions and detect emergence ────────────────
-  for (const [vid, ghost] of Object.entries(ghostVehicles)) {
-    const real = currentById.get(vid);
-
-    if (real) {
-      const lat = parseFloat(real.lat), lng = parseFloat(real.lng);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        const zone = UNDERGROUND_ZONES[ghost.route];
-        const inZone = zone && lat >= zone.minLat && lat <= zone.maxLat
-                            && lng >= zone.minLng && lng <= zone.maxLng;
-        // If real vehicle is outside the underground zone, it emerged
-        if (!inZone) {
-          delete ghostVehicles[vid];
-          ghostReplacedVids.delete(vid);
-          delete portalLingerMap[vid];
-          continue;
-        }
-        // If still in zone but position changed from where it froze, it's moving again
-        const moved = Math.abs(lat - ghost._entryLat) + Math.abs(lng - ghost._entryLng);
-        if (moved > LINGER_RADIUS) {
-          delete ghostVehicles[vid];
-          ghostReplacedVids.delete(vid);
-          delete portalLingerMap[vid];
-          continue;
-        }
-      }
-    }
-
-    const totalElapsed = (now - ghost.enterTs) / 1000;
-
-    if ((now - ghost.enterTs) > GHOST_MAX_AGE_MS) {
+  // Remove ghosts no longer reported by server
+  for (const vid of Object.keys(ghostVehicles)) {
+    if (!serverVids.has(vid)) {
       delete ghostVehicles[vid];
       ghostReplacedVids.delete(vid);
-      continue;
     }
-
-    // Fore = entered tunnel at linger start (earliest, furthest ahead)
-    const fore = ghostPosition(totalElapsed, ghost);
-    // Aft = entered tunnel at linger end (latest, furthest behind)
-    const aftElapsed = Math.max(0, totalElapsed - ghost.lingerSec);
-    const aft  = ghostPosition(aftElapsed, ghost);
-    // Mid = midpoint in time
-    const midElapsed = (totalElapsed + aftElapsed) / 2;
-    const mid  = ghostPosition(midElapsed, ghost);
-
-    if (fore.done && aft.done) {
-      // Estimate exhausted but real vehicle hasn't emerged — freeze at exit portal.
-      if (!ghost._lingersAtPortal) {
-        const exitPos = ghost.direction === 'eastbound'
-          ? TUNNEL_EAST_END : PORTALS[ghost.route];
-        if (exitPos) {
-          ghost._lingersAtPortal = true;
-          ghost.lat = exitPos.lat;
-          ghost.lng = exitPos.lng;
-        }
-      }
-      continue;
-    }
-
-    // Use midpoint as the primary position (for cards, nearest stop, etc.)
-    ghost.lat = mid.pos.lat;
-    ghost.lng = mid.pos.lng;
-    ghost.fraction = mid.fraction;
-    ghost.currentDirection = mid.direction;
-    ghost.leg = mid.leg;
-    // Store band endpoints
-    ghost.aftPos  = aft.pos;
-    ghost.forePos = fore.pos;
-    ghost.midPos  = mid.pos;
-    ghost.aftFraction  = aft.fraction;
-    ghost.foreFraction = fore.fraction;
-    ghost.aftDirection  = aft.direction;
-    ghost.foreDirection = fore.direction;
-    // Store the path segments for the band
-    ghost.bandPath = extractBandPath(ghost, aft, fore);
   }
-
-  saveGhostState();
 }
 
 // Compute ghost position for a given elapsed time (handles round-trip)
@@ -620,41 +511,12 @@ function extractSubPath(path, fracStart, fracEnd) {
   return pts;
 }
 
-function createGhost(vid, vRoute, direction, enterTs, vehicle) {
-  const shapePath = getTunnelShapePath(vRoute);
-  if (!shapePath || shapePath.length < 2) return;
-
-  const halfTime = getHalfTunnelTime(vRoute);
-  const path = direction === 'eastbound' ? shapePath : [...shapePath].reverse();
-  const now = Date.now();
-  const lingerSec = (now - enterTs) / 1000;  // how long it lingered
-
-  ghostedVids[vid] = now;
-  ghostReplacedVids.add(vid);
-  ghostVehicles[vid] = {
-    route:       vRoute,
-    label:       vehicle.label || vid.slice(-4),
-    dest:        vehicle.dest  || '',
-    late:        vehicle.late  ?? 0,
-    trip:        vehicle.trip  || '',
-    _routeLabel: vehicle._routeLabel || vehicle._rkey || null,
-    _entryLat:   parseFloat(vehicle.lat) || 0,
-    _entryLng:   parseFloat(vehicle.lng) || 0,
-    enterTs,
-    lingerSec,
-    leg:         'first',
-    direction,
-    halfTime,
-    pathWE:      shapePath,
-    pathEW:      [...shapePath].reverse(),
-    path,
-    pathLen:     pathLength(path),
-  };
-}
-
 function getGhostVehicles() {
   if (!tunnelEstimationOn) return [];
-  return Object.entries(ghostVehicles).map(([vid, g]) => ({
+  const routeKey = selectedRoute?.id;
+  return Object.entries(ghostVehicles)
+    .filter(([_, g]) => routeKey === 'T-ALL' || g.route === routeKey)
+    .map(([vid, g]) => ({
     _id:     vid,
     _rkey:   g.route,
     label:   g.label,
@@ -691,131 +553,7 @@ function toggleTunnelEstimation() {
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
     ghostReplacedVids.clear();
-    portalLingerMap = {};
-    saveGhostState();
   }
   if (selectedRoute && activePanel === 'live') fetchNow();
   if (selectedRoute && activePanel === 'map') refreshMapVehicles();
-}
-
-// ── Ghost persistence (localStorage) ────────────────────────────────────────
-
-function saveGhostState() {
-  try {
-    const ghosts = {};
-    for (const [vid, g] of Object.entries(ghostVehicles)) {
-      ghosts[vid] = {
-        route: g.route, label: g.label, dest: g.dest, late: g.late,
-        trip: g.trip, _routeLabel: g._routeLabel,
-        _entryLat: g._entryLat, _entryLng: g._entryLng,
-        enterTs: g.enterTs, lingerSec: g.lingerSec,
-        direction: g.direction,
-      };
-    }
-    // Also save linger tracking and last-known positions for fast detection on reload
-    const lingers = {};
-    for (const [vid, l] of Object.entries(portalLingerMap)) {
-      lingers[vid] = { ...l };
-    }
-    const positions = {};
-    for (const [vid, hist] of Object.entries(vehicleHistory)) {
-      if (!hist.length) continue;
-      const last = hist[hist.length - 1];
-      const rk = hist._rkey;
-      if (!rk || !TUNNEL_ROUTES.has(rk) || rk === 'T-ALL') continue;
-      positions[vid] = { lat: last.lat, lng: last.lng, ts: last.ts, rkey: rk, dest: hist._dest };
-    }
-    localStorage.setItem('ghostState', JSON.stringify({ ghosts, lingers, positions, savedAt: Date.now() }));
-  } catch (_) {}
-}
-
-function restoreGhostState() {
-  try {
-    const raw = localStorage.getItem('ghostState');
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    const now = Date.now();
-
-    // Handle old format (just ghost objects at top level)
-    const ghostEntries = data.ghosts || (data.savedAt ? {} : data);
-    let restored = 0;
-
-    // Restore active ghosts
-    for (const [vid, s] of Object.entries(ghostEntries)) {
-      if (now - s.enterTs > GHOST_MAX_AGE_MS) continue;
-      const shapePath = getTunnelShapePath(s.route);
-      if (!shapePath || shapePath.length < 2) continue;
-      const halfTime = getHalfTunnelTime(s.route);
-      const path = s.direction === 'eastbound' ? shapePath : [...shapePath].reverse();
-
-      ghostedVids[vid] = now;
-      ghostReplacedVids.add(vid);
-      ghostVehicles[vid] = {
-        route: s.route, label: s.label, dest: s.dest, late: s.late,
-        trip: s.trip, _routeLabel: s._routeLabel,
-        _entryLat: s._entryLat, _entryLng: s._entryLng,
-        enterTs: s.enterTs, lingerSec: s.lingerSec,
-        leg: 'first', direction: s.direction,
-        halfTime,
-        pathWE: shapePath, pathEW: [...shapePath].reverse(),
-        path, pathLen: pathLength(path),
-      };
-
-      const totalElapsed = (now - s.enterTs) / 1000;
-      const fore = ghostPosition(totalElapsed, ghostVehicles[vid]);
-      const aftElapsed = Math.max(0, totalElapsed - s.lingerSec);
-      const aft = ghostPosition(aftElapsed, ghostVehicles[vid]);
-      const midElapsed = (totalElapsed + aftElapsed) / 2;
-      const mid = ghostPosition(midElapsed, ghostVehicles[vid]);
-
-      const g = ghostVehicles[vid];
-      if (fore.done && aft.done) {
-        const exitPos = s.direction === 'eastbound' ? TUNNEL_EAST_END : PORTALS[s.route];
-        if (exitPos) {
-          g._lingersAtPortal = true;
-          g.lat = exitPos.lat;
-          g.lng = exitPos.lng;
-        }
-      } else {
-        g.lat = mid.pos.lat;
-        g.lng = mid.pos.lng;
-        g.fraction = mid.fraction;
-        g.currentDirection = mid.direction;
-        g.leg = mid.leg;
-        g.aftPos = aft.pos;
-        g.forePos = fore.pos;
-        g.midPos = mid.pos;
-        g.aftFraction = aft.fraction;
-        g.foreFraction = fore.fraction;
-        g.bandPath = extractBandPath(g, aft, fore);
-      }
-      restored++;
-    }
-
-    // Restore portal linger tracking — vehicles that were being watched
-    // before the page closed continue accumulating linger time
-    if (data.lingers) {
-      for (const [vid, l] of Object.entries(data.lingers)) {
-        if (ghostVehicles[vid]) continue;  // already a ghost
-        if (now - l.firstTs > GHOST_MAX_AGE_MS) continue;
-        portalLingerMap[vid] = { ...l };
-      }
-    }
-
-    // Restore last-known positions so the first API fetch can immediately
-    // detect frozen GPS (same position = vehicle still at portal)
-    if (data.positions && data.savedAt && (now - data.savedAt) < 10 * 60 * 1000) {
-      for (const [vid, p] of Object.entries(data.positions)) {
-        if (ghostVehicles[vid]) continue;
-        // Seed vehicle history with the saved position
-        const entry = { lat: p.lat, lng: p.lng, ts: p.ts };
-        const hist = [entry];
-        hist._rkey = p.rkey;
-        hist._dest = p.dest;
-        vehicleHistory[vid] = hist;
-      }
-    }
-
-    if (restored > 0) console.log(`Restored ${restored} tunnel ghost(s) from previous session`);
-  } catch (_) {}
 }

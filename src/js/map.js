@@ -126,9 +126,16 @@ async function drawMap() {
     stopMarkerInfos.push({ marker, stop: s });
   }
 
-  // Ensure container has correct dimensions before fitting bounds
-  leafletMap.invalidateSize();
-  if (bounds.length) leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  // Defer fitBounds until browser has laid out the (previously hidden) container.
+  // On first open, the map container goes from display:none → visible, but dimensions
+  // aren't available until after reflow. setTimeout ensures layout is complete.
+  if (bounds.length) {
+    const fitBoundsNow = () => {
+      leafletMap.invalidateSize();
+      leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    };
+    setTimeout(fitBoundsNow, 80);
+  }
 
   // Note if no GTFS shapes
   const noteEl = document.getElementById('noGtfsNote');
@@ -253,7 +260,12 @@ async function refreshMapVehicles() {
     Object.assign(liveRegistry, newReg);
 
     const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
-    if (isTunnelRoute) detectTunnelEntries(vehicles);
+    if (isTunnelRoute) {
+      try {
+        const serverGhosts = await apiFetch('/api/ghosts');
+        syncServerGhosts(serverGhosts);
+      } catch (_) {}
+    }
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
     const visible = isTunnelRoute ? vehicles.filter(v => !ghostReplacedVids.has(v._id)) : vehicles;
     updateVehiclesOnMap([...visible, ...ghosts]);
