@@ -3,7 +3,7 @@
 // ── App state ──────────────────────────────────────────────────────────────
 let selectedRoute        = null;
 let activePanel          = 'live';
-let activeMode           = 'SUBWAY';
+let activeMode           = 'TROLLEY';
 let liveRegistry         = {};
 let routeStops           = [];
 let routeStopsOrdered    = false;

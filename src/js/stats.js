@@ -107,16 +107,6 @@ function renderStats() {
   const dayNames = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
   document.getElementById('dowLabel').textContent = 'Previous ' + dayNames[today.getDay()];
 
-  // Today trip count — only trips up to now (matches what the plot shows)
-  const todayMins = routeCdfs[todayStr] || [];
-  const nowMin = today.getHours() * 60 + today.getMinutes() + today.getSeconds() / 60;
-  const todayCount = todayMins.filter(m => m <= nowMin).length;
-  document.getElementById('sToday').textContent = todayCount;
-
-  // Days tracked
-  const dayCount = Object.keys(routeCdfs).length;
-  document.getElementById('sDays').textContent = dayCount;
-
   // Build chart series
   chartState.minX = chartState.fullMinX;
   chartState.maxX = chartState.fullMaxX;
