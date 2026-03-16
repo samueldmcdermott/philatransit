@@ -10,9 +10,9 @@ let cdfData = {};       // route -> {date: [sorted mins], ...}
 let cdfSchedMins = [];  // schedule minutes for current route/day-type
 
 // Cutoff: discard data before this date/time
-const CUTOFF_DATE = '2026-03-15';
-// First full day of tracking (exclude partial first day from historical stats)
-const FIRST_FULL_DATE = '2026-03-16';
+const CUTOFF_DATE = '2026-03-17';
+// First full day of tracking (exclude partial/UTC-tainted days from historical stats)
+const FIRST_FULL_DATE = '2026-03-17';
 
 // Chart zoom/pan state
 let chartState = {

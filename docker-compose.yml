@@ -8,3 +8,4 @@ services:
       - ./data:/app/data         # persist trip stats across restarts
     environment:
       - PYTHONUNBUFFERED=1
+      - TZ=America/New_York

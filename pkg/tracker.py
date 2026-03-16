@@ -8,10 +8,10 @@ from .helpers import TRIPS, DAILY_CDFS, load, dump, rail_line_key
 from .cache import transit_lock, transit_cache, trainview_lock, trainview_cache
 
 
-# ── Startup cleanup: discard data before 2026-03-15 15:00 ────────────────────
+# ── Startup cleanup: discard data before 2026-03-17 ──────────────────────────
 
-_CUTOFF_DATE = "2026-03-15"
-_CUTOFF_MS = int(datetime(2026, 3, 15, 15, 0, 0).timestamp() * 1000)
+_CUTOFF_DATE = "2026-03-17"
+_CUTOFF_MS = int(datetime(2026, 3, 17, 0, 0, 0).timestamp() * 1000)
 
 
 def _cleanup_old_data():
