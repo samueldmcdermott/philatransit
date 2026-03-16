@@ -28,12 +28,6 @@ def _cleanup_old_data():
             if trip_list:
                 cleaned.setdefault(route, {})[day] = trip_list
     dump(TRIPS, cleaned)
-
-    # Wipe daily_cdfs.json — fresh start
-    cdfs = load(DAILY_CDFS)
-    if cdfs:
-        dump(DAILY_CDFS, {})
-
     print("  [tracker] startup cleanup complete")
 
 
