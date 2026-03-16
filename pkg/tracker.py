@@ -164,7 +164,7 @@ class TripTracker:
                 if vid not in cur_ids and entry["seen"] >= self.MIN_DWELL:
                     route    = entry["route"]
                     start_ms = entry["first_ms"]
-                    day      = datetime.fromtimestamp(now_ms / 1000).strftime("%Y-%m-%d")
+                    day      = datetime.fromtimestamp(start_ms / 1000).strftime("%Y-%m-%d")
                     trips.setdefault(route, {}).setdefault(day, []).append(
                         {"start": start_ms, "end": now_ms, "dur": now_ms - start_ms}
                     )
