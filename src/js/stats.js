@@ -681,12 +681,22 @@ function _downloadBlob(url, filename) {
 
 function exportCsvRoute() {
   if (!selectedRoute) return;
-  const route = selectedRoute.id;
-  const safe = route.replace(/[^a-zA-Z0-9_-]/g, '_');
-  _downloadBlob(
-    `/api/stats/export?format=csv&route=${encodeURIComponent(route)}`,
-    `septa_trips_${safe}_${csvTimestamp()}.csv`
-  );
+  const isMulti = selectedRoute.multi && selectedRoute.apiIds;
+  if (isMulti) {
+    const routes = selectedRoute.apiIds.map(r => `route=${encodeURIComponent(r)}`).join('&');
+    const safe = selectedRoute.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    _downloadBlob(
+      `/api/stats/export?format=csv&${routes}`,
+      `septa_trips_${safe}_${csvTimestamp()}.csv`
+    );
+  } else {
+    const route = selectedRoute.id;
+    const safe = route.replace(/[^a-zA-Z0-9_-]/g, '_');
+    _downloadBlob(
+      `/api/stats/export?format=csv&route=${encodeURIComponent(route)}`,
+      `septa_trips_${safe}_${csvTimestamp()}.csv`
+    );
+  }
 }
 
 function exportCsvAll() {
