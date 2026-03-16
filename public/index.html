@@ -135,7 +135,8 @@
         <canvas id="tripChart" height="300"></canvas>
         <div class="chart-legend" id="chartLegend"></div>
         <div class="export-row">
-          <a class="btn" href="/api/stats/export?format=csv" download>Export CSV</a>
+          <button class="btn" onclick="exportCsv()">Export CSV (plot)</button>
+          <a class="btn" href="/api/stats/export?format=csv" download>Export CSV (all)</a>
         </div>
       </div>
     </div>

@@ -632,6 +632,41 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
 }
 
+function exportCsv() {
+  const today = new Date();
+  const todayStr = fmtDate(today);
+  const routeCdfs = chartState._routeCdfs || {};
+  const dates = new Set();
+
+  // Always include today if the today series is active
+  if (cdfActive.today) dates.add(todayStr);
+
+  if (cdfActive.dow) {
+    const targetDow = today.getDay();
+    for (const day of Object.keys(routeCdfs)) {
+      if (day === todayStr || day < FIRST_FULL_DATE) continue;
+      if (new Date(day + 'T12:00:00').getDay() === targetDow) dates.add(day);
+    }
+  }
+
+  if (cdfActive.ndays) {
+    const n = getNdaysValue();
+    for (let i = 1; i <= n; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const ds = fmtDate(d);
+      if (ds >= FIRST_FULL_DATE) dates.add(ds);
+    }
+  }
+
+  const params = new URLSearchParams({ format: 'csv' });
+  if (dates.size) params.set('dates', [...dates].sort().join(','));
+  const a = document.createElement('a');
+  a.href = '/api/stats/export?' + params.toString();
+  a.download = 'septa_trips.csv';
+  a.click();
+}
+
 async function clearStats() {
   if (!confirm('Clear all recorded trip data?')) return;
   try { await fetch('/api/stats/clear', { method: 'POST' }); if (selectedRoute) loadStats(); }
