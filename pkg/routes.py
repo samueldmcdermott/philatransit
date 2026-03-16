@@ -167,26 +167,36 @@ def get_cdfs():
     Response: {route: {date: [sorted minutes-since-midnight], ...}, ...}
     Historical days come from daily_cdfs.json; today is computed live from trips.json.
     """
+    from .tracker import _CUTOFF_DATE, _CUTOFF_MS
+
     cdfs = load(DAILY_CDFS)
     trips = load(TRIPS)
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Compute today's minutes from live trip data
+    # Remove any historical CDF entries before cutoff
+    for route in list(cdfs.keys()):
+        for day in list(cdfs[route].keys()):
+            if day < _CUTOFF_DATE:
+                del cdfs[route][day]
+
+    # Compute today's minutes from live trip data (applying cutoff)
     for route, days in trips.items():
-        day_trips = days.get(today, [])
-        if not day_trips:
-            continue
-        mins = []
-        for t in day_trips:
-            ts = t.get("start") or t.get("end")
-            if not ts:
+        for day_str, day_trips in days.items():
+            if day_str < _CUTOFF_DATE:
                 continue
-            dt = datetime.fromtimestamp(ts / 1000)
-            m = dt.hour * 60 + dt.minute + dt.second / 60
-            mins.append(round(m, 2))
-        mins.sort()
-        if mins:
-            cdfs.setdefault(route, {})[today] = mins
+            mins = []
+            for t in day_trips:
+                ts = t.get("start") or t.get("end")
+                if not ts:
+                    continue
+                if day_str == _CUTOFF_DATE and ts < _CUTOFF_MS:
+                    continue
+                dt = datetime.fromtimestamp(ts / 1000)
+                m = dt.hour * 60 + dt.minute + dt.second / 60
+                mins.append(round(m, 2))
+            mins.sort()
+            if mins:
+                cdfs.setdefault(route, {})[day_str] = mins
 
     return jsonify(cdfs)
 

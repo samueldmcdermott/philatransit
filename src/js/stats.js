@@ -327,6 +327,9 @@ function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
   if (!s.mins.length) return;
   const div = s.divisor;
 
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+
   ctx.save();
   ctx.strokeStyle = s.color;
   ctx.globalAlpha = s.alpha;
@@ -336,6 +339,8 @@ function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
 
   let count = 0;
   for (const m of s.mins) {
+    // For "today" series, don't draw steps past the current time
+    if (s.stopAtCurrent && m > nowMin) break;
     const yBefore = count / div;
     count++;
     const yAfter = count / div;
@@ -344,8 +349,6 @@ function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
   }
 
   if (s.stopAtCurrent) {
-    const now = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
     const endMin = Math.min(nowMin, maxX);
     const yEnd = count / div;
     ctx.lineTo(toX(endMin), toY(yEnd));
