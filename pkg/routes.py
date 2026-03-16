@@ -6,7 +6,7 @@ from datetime import datetime
 from flask import Blueprint, Response, jsonify, request
 import requests as req
 
-from .helpers import SEPTA, HEADERS, TRIPS, SCHED, load, dump
+from .helpers import SEPTA, HEADERS, TRIPS, SCHED, DAILY_CDFS, load, dump
 from .cache import (
     transit_lock, transit_cache, trainview_lock, trainview_cache,
     is_gps_tracked, fetch_route_trips, fetch_trip_detail, fetch_alerts,
@@ -158,6 +158,37 @@ def get_ghosts():
 @api.route("/api/stats")
 def get_stats():
     return jsonify(load(TRIPS))
+
+
+@api.route("/api/stats/cdfs")
+def get_cdfs():
+    """Return CDF data: historical summaries + today's live trips.
+
+    Response: {route: {date: [sorted minutes-since-midnight], ...}, ...}
+    Historical days come from daily_cdfs.json; today is computed live from trips.json.
+    """
+    cdfs = load(DAILY_CDFS)
+    trips = load(TRIPS)
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Compute today's minutes from live trip data
+    for route, days in trips.items():
+        day_trips = days.get(today, [])
+        if not day_trips:
+            continue
+        mins = []
+        for t in day_trips:
+            ts = t.get("start") or t.get("end")
+            if not ts:
+                continue
+            dt = datetime.fromtimestamp(ts / 1000)
+            m = dt.hour * 60 + dt.minute + dt.second / 60
+            mins.append(round(m, 2))
+        mins.sort()
+        if mins:
+            cdfs.setdefault(route, {})[today] = mins
+
+    return jsonify(cdfs)
 
 
 @api.route("/api/stats/record", methods=["POST"])

@@ -4,8 +4,61 @@ import threading
 import time
 from datetime import datetime
 
-from .helpers import TRIPS, load, dump, rail_line_key
+from .helpers import TRIPS, DAILY_CDFS, load, dump, rail_line_key
 from .cache import transit_lock, transit_cache, trainview_lock, trainview_cache
+
+
+# ── Startup cleanup: discard data before 2026-03-15 15:00 ────────────────────
+
+_CUTOFF_DATE = "2026-03-15"
+_CUTOFF_MS = int(datetime(2026, 3, 15, 15, 0, 0).timestamp() * 1000)
+
+
+def _cleanup_old_data():
+    """Remove all trip data before the cutoff date/time."""
+    trips = load(TRIPS)
+    cleaned = {}
+    for route, days in trips.items():
+        for day, trip_list in days.items():
+            if day < _CUTOFF_DATE:
+                continue
+            if day == _CUTOFF_DATE:
+                trip_list = [t for t in trip_list
+                             if (t.get("start") or t.get("end") or 0) >= _CUTOFF_MS]
+            if trip_list:
+                cleaned.setdefault(route, {})[day] = trip_list
+    dump(TRIPS, cleaned)
+
+    # Wipe daily_cdfs.json — fresh start
+    cdfs = load(DAILY_CDFS)
+    if cdfs:
+        dump(DAILY_CDFS, {})
+
+    print("  [tracker] startup cleanup complete")
+
+
+def _summarize_day(date_str):
+    """Summarize a day's trips into daily_cdfs.json (minutes-since-midnight)."""
+    trips = load(TRIPS)
+    cdfs = load(DAILY_CDFS)
+
+    for route, days in trips.items():
+        day_trips = days.get(date_str, [])
+        if not day_trips:
+            continue
+        mins = []
+        for t in day_trips:
+            ts = t.get("start") or t.get("end")
+            if not ts:
+                continue
+            dt = datetime.fromtimestamp(ts / 1000)
+            m = dt.hour * 60 + dt.minute + dt.second / 60
+            mins.append(round(m, 2))
+        mins.sort()
+        if mins:
+            cdfs.setdefault(route, {})[date_str] = mins
+
+    dump(DAILY_CDFS, cdfs)
 
 
 class TripTracker:
@@ -22,11 +75,14 @@ class TripTracker:
         self._lock     = threading.Lock()
         self._thread   = None
         self.running   = False
+        self._last_summary_date = None
 
     def start(self):
         if self.running:
             return
+        _cleanup_old_data()
         self.running = True
+        self._last_summary_date = datetime.now().strftime("%Y-%m-%d")
         self._thread = threading.Thread(target=self._loop, daemon=True, name="TripTracker")
         self._thread.start()
         print("  [tracker] started")
@@ -44,6 +100,7 @@ class TripTracker:
         while self.running:
             try:
                 self._poll()
+                self._check_day_rollover()
             except Exception as e:
                 print(f"  [tracker] poll error: {e}")
             # Sleep in 0.5 s ticks so stop() takes effect quickly
@@ -51,6 +108,18 @@ class TripTracker:
                 if not self.running:
                     break
                 time.sleep(0.5)
+
+    def _check_day_rollover(self):
+        """At midnight, summarize the previous day's data into daily_cdfs.json."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._last_summary_date and today != self._last_summary_date:
+            prev = self._last_summary_date
+            print(f"  [tracker] summarizing day: {prev}")
+            try:
+                _summarize_day(prev)
+            except Exception as e:
+                print(f"  [tracker] summary error: {e}")
+            self._last_summary_date = today
 
     def _poll(self):
         vehicles = {}   # vid -> route_key

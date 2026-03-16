@@ -7,6 +7,7 @@ BASE = Path(__file__).parent.parent
 DATA = BASE / "data"
 TRIPS = DATA / "trips.json"
 SCHED = DATA / "scheduled.json"
+DAILY_CDFS = DATA / "daily_cdfs.json"
 
 DATA.mkdir(exist_ok=True)
 

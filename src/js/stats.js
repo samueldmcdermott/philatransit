@@ -1,39 +1,60 @@
 'use strict';
 
-// ── Statistics ─────────────────────────────────────────────────────────────
+// ── Statistics — CDF-based chart ─────────────────────────────────────────────
+
+// Which CDF series are active (toggled by buttons)
+let cdfActive = { scheduled: true, today: true, dow: false, ndays: false };
+
+// Cached CDF data from the server
+let cdfData = {};       // route -> {date: [sorted mins], ...}
+let cdfSchedMins = [];  // schedule minutes for current route/day-type
 
 // Chart zoom/pan state
 let chartState = {
-  minX: 5 * 60, maxX: 24 * 60,  // visible range in minutes
+  minX: 5 * 60, maxX: 24 * 60,
   fullMinX: 5 * 60, fullMaxX: 24 * 60,
   dragging: false, dragStartX: null, dragStartMin: null,
   selecting: false, selectStartX: null, selectEndX: null,
-  cachedActual: [], cachedSched: [], cachedDate: null,
 };
+
+// Series colors
+const CDF_COLORS = {
+  scheduled: '#78818c',
+  today:     '#2f69f3',
+  dow:       '#22c55e',
+  ndays:     '#f59e0b',
+};
+
+// ── Load stats ───────────────────────────────────────────────────────────────
 
 async function loadStats() {
   if (!selectedRoute) return;
   document.getElementById('emptyStats').style.display   = 'none';
   document.getElementById('statsContent').style.display = '';
   try {
-    const data = await apiFetch('/api/stats');
-    renderStats(data);
+    const data = await apiFetch('/api/stats/cdfs');
+    cdfData = data;
+    renderStats();
   } catch (e) { setStatus('Stats error: ' + e.message); }
 }
 
-function mergeRouteDays(...routeObjs) {
+// ── Merge helpers for multi-route (T-ALL) ────────────────────────────────────
+
+function mergeRouteCdfs(...routeIds) {
   const merged = {};
-  for (const routes of routeObjs) {
-    for (const [day, trips] of Object.entries(routes)) {
+  for (const rid of routeIds) {
+    const routeData = cdfData[rid];
+    if (!routeData) continue;
+    for (const [day, mins] of Object.entries(routeData)) {
       if (!merged[day]) merged[day] = [];
-      merged[day].push(...trips);
+      merged[day].push(...mins);
     }
   }
+  for (const day of Object.keys(merged)) merged[day].sort((a, b) => a - b);
   return merged;
 }
 
 function mergeScheduleMins(...gtfsIds) {
-  // Merge schedule minute arrays, returning a combined object keyed by day type
   const merged = {};
   for (const id of gtfsIds) {
     const sched = scheduleData[id];
@@ -44,182 +65,187 @@ function mergeScheduleMins(...gtfsIds) {
       merged[dt].push(...sched[dt]);
     }
   }
-  // Sort each
   for (const dt of Object.keys(merged)) merged[dt].sort((a, b) => a - b);
   return merged;
 }
 
-function renderStats(data) {
+// ── Render stats ─────────────────────────────────────────────────────────────
+
+function renderStats() {
   const isMulti = selectedRoute.multi && selectedRoute.apiIds;
-  const routes = isMulti
-    ? mergeRouteDays(...selectedRoute.apiIds.map(id => data[id] || {}))
-    : (data[selectedRoute.id] || {});
+  const routeIds = isMulti ? selectedRoute.apiIds : [selectedRoute.id];
+  const routeCdfs = isMulti ? mergeRouteCdfs(...routeIds) : (cdfData[selectedRoute.id] || {});
+
   const effectiveGtfs = isMulti ? '_T-ALL' : selectedRoute.gtfs;
-  // Temporarily inject merged schedule data for T-ALL
   if (isMulti && !scheduleData['_T-ALL']) {
     scheduleData['_T-ALL'] = mergeScheduleMins(...selectedRoute.apiIds);
   }
-  const today   = new Date(), todayStr = fmtDate(today);
 
-  // ── count helpers ──
-  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
-  const weekStr = fmtDate(weekStart);
+  const today = new Date();
+  const todayStr = fmtDate(today);
+  const dt = dayType(today);
 
-  const todayTrips = routes[todayStr] || [];
-  let weekCount = 0, allCount = 0;
-  for (const [day, trips] of Object.entries(routes)) {
-    allCount += trips.length;
-    if (day >= weekStr) weekCount += trips.length;
-  }
-  document.getElementById('sToday').textContent = todayTrips.length;
-  document.getElementById('sWeek').textContent  = weekCount;
-  document.getElementById('sAll').textContent   = allCount;
+  // Schedule minutes for today's day-type
+  cdfSchedMins = (scheduleData[effectiveGtfs]?.[dt] || []).slice().sort((a, b) => a - b);
 
-  // ── yesterday ──
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const yStr = fmtDate(yesterday);
-  const yTrips = (routes[yStr] || []).length;
-  const yDt = dayType(yesterday);
-  const ySched = getScheduleCount(effectiveGtfs, yDt);
-  document.getElementById('sYesterday').textContent = ySched > 0 ? `${yTrips}/${ySched}` : yTrips;
+  // Update DOW label
+  const dayNames = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+  document.getElementById('dowLabel').textContent = 'Previous ' + dayNames[today.getDay()];
 
-  // ── last N days ──
-  renderLastNDays(routes, today, effectiveGtfs);
+  // Today trip count
+  const todayMins = routeCdfs[todayStr] || [];
+  document.getElementById('sToday').textContent = todayMins.length;
 
-  // ── percentiles (actual) ──
-  const durs = todayTrips.filter(t => typeof t === 'object' && t.dur > 0)
-    .map(t => t.dur / 60000).sort((a, b) => a - b);
-  if (durs.length >= 3) {
-    document.getElementById('p25').textContent = pctFmt(percentile(durs, 25));
-    document.getElementById('p50').textContent = pctFmt(percentile(durs, 50));
-    document.getElementById('p75').textContent = pctFmt(percentile(durs, 75));
-    document.getElementById('pctRow').style.display = '';
-  } else {
-    document.getElementById('pctRow').style.display = 'none';
-  }
+  // Days tracked
+  const dayCount = Object.keys(routeCdfs).length;
+  document.getElementById('sDays').textContent = dayCount;
 
-  // ── scheduled duration ──
-  const schedDur = getScheduledDuration(effectiveGtfs, dayType(today));
-  const schedEl = document.getElementById('schedDur');
-  if (schedDur && schedDur > 0) {
-    schedEl.textContent = pctFmt(schedDur);
-    document.getElementById('schedDurRow').style.display = '';
-  } else {
-    document.getElementById('schedDurRow').style.display = 'none';
-  }
-
-  // ── chart ──
+  // Build chart series
   chartState.minX = chartState.fullMinX;
   chartState.maxX = chartState.fullMaxX;
-  drawChart(todayTrips, effectiveGtfs, today);
+
+  // Cache route CDFs for chart drawing
+  chartState._routeCdfs = routeCdfs;
+  chartState._todayStr = todayStr;
+  chartState._today = today;
+
+  redrawChart();
+  updateLegend();
   initChartInteraction();
 }
 
-function getScheduleCount(gtfsId, dt) {
-  const mins = scheduleData[gtfsId]?.[dt];
-  return mins ? mins.length : 0;
-}
+// ── Build CDF series ─────────────────────────────────────────────────────────
 
-function getScheduledDuration(gtfsId, dt) {
-  // Estimate scheduled trip duration from schedule intervals
-  // Use median gap between consecutive departures as a proxy
-  const mins = (scheduleData[gtfsId]?.[dt] || []).slice().sort((a, b) => a - b);
-  if (mins.length < 2) return null;
-  const gaps = [];
-  for (let i = 1; i < mins.length; i++) {
-    const gap = mins[i] - mins[i - 1];
-    if (gap > 0 && gap < 120) gaps.push(gap); // filter out unreasonable gaps
+function buildCdfSeries() {
+  const series = [];
+  const routeCdfs = chartState._routeCdfs || {};
+  const todayStr = chartState._todayStr || fmtDate(new Date());
+  const today = chartState._today || new Date();
+
+  if (cdfActive.scheduled && cdfSchedMins.length) {
+    series.push({
+      key: 'scheduled',
+      label: 'Scheduled',
+      mins: cdfSchedMins,
+      divisor: 1,
+      color: CDF_COLORS.scheduled,
+      alpha: 0.55,
+      stopAtCurrent: false,
+    });
   }
-  if (gaps.length === 0) return null;
-  gaps.sort((a, b) => a - b);
-  return percentile(gaps, 50);
+
+  if (cdfActive.today) {
+    const todayMins = routeCdfs[todayStr] || [];
+    if (todayMins.length) {
+      series.push({
+        key: 'today',
+        label: 'Today',
+        mins: todayMins,
+        divisor: 1,
+        color: CDF_COLORS.today,
+        alpha: 1.0,
+        stopAtCurrent: true,
+      });
+    }
+  }
+
+  if (cdfActive.dow) {
+    const targetDow = today.getDay();
+    const allMins = [];
+    let dayCount = 0;
+    for (const [day, mins] of Object.entries(routeCdfs)) {
+      if (day === todayStr) continue;
+      const d = new Date(day + 'T12:00:00');
+      if (d.getDay() === targetDow) {
+        allMins.push(...mins);
+        dayCount++;
+      }
+    }
+    if (allMins.length && dayCount > 0) {
+      allMins.sort((a, b) => a - b);
+      series.push({
+        key: 'dow',
+        label: 'Prev. ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][targetDow] + 's',
+        mins: allMins,
+        divisor: dayCount,
+        color: CDF_COLORS.dow,
+        alpha: 0.8,
+        stopAtCurrent: false,
+      });
+    }
+  }
+
+  if (cdfActive.ndays) {
+    const n = getNdaysValue();
+    const allMins = [];
+    let dayCount = 0;
+    for (let i = 1; i <= n; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const ds = fmtDate(d);
+      const mins = routeCdfs[ds];
+      if (mins && mins.length) {
+        allMins.push(...mins);
+        dayCount++;
+      }
+    }
+    if (allMins.length && dayCount > 0) {
+      allMins.sort((a, b) => a - b);
+      series.push({
+        key: 'ndays',
+        label: 'Prev. ' + n + 'd',
+        mins: allMins,
+        divisor: dayCount,
+        color: CDF_COLORS.ndays,
+        alpha: 0.8,
+        stopAtCurrent: false,
+      });
+    }
+  }
+
+  return series;
 }
 
-function onLastNChange() {
-  const sel = document.getElementById('lastNSelect');
-  const customRow = document.getElementById('customRangeRow');
-  customRow.style.display = sel.value === 'custom' ? '' : 'none';
-  if (selectedRoute) loadStats();
-}
-
-function renderLastNDays(routes, today, gtfsId) {
-  const sel = document.getElementById('lastNSelect');
-  const el  = document.getElementById('sLastN');
-  gtfsId = gtfsId || selectedRoute.gtfs;
-
+function getNdaysValue() {
+  const sel = document.getElementById('ndaysSelect');
   if (sel.value === 'custom') {
-    renderCustomRange(routes, gtfsId);
-    el.textContent = '–';
-    return;
+    return parseInt(document.getElementById('ndaysCustom').value, 10) || 3;
   }
-
-  const n = parseInt(sel.value, 10);
-  let actual = 0, scheduled = 0;
-  for (let i = 1; i <= n; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const ds = fmtDate(d);
-    actual += (routes[ds] || []).length;
-    scheduled += getScheduleCount(gtfsId, dayType(d));
-  }
-  el.textContent = scheduled > 0 ? `${actual}/${scheduled}` : actual;
+  return parseInt(sel.value, 10) || 3;
 }
 
-function renderCustomRange(routes, gtfsId) {
-  const fromEl = document.getElementById('rangeFrom');
-  const toEl   = document.getElementById('rangeTo');
-  const el     = document.getElementById('sCustomRange');
-  if (!fromEl.value || !toEl.value) { el.textContent = '–'; return; }
-  gtfsId = gtfsId || selectedRoute.gtfs;
+// ── Toggle CDF series ────────────────────────────────────────────────────────
 
-  let actual = 0, scheduled = 0;
-  const from = new Date(fromEl.value + 'T00:00:00');
-  const to   = new Date(toEl.value + 'T00:00:00');
-  const todayStr = fmtDate(new Date());
-
-  for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-    const ds = fmtDate(d);
-    if (ds === todayStr) continue; // exclude today
-    actual += (routes[ds] || []).length;
-    scheduled += getScheduleCount(gtfsId, dayType(d));
-  }
-  el.textContent = scheduled > 0 ? `${actual}/${scheduled}` : actual;
-}
-
-function percentile(sorted, p) {
-  const idx = (p / 100) * (sorted.length - 1);
-  const lo  = Math.floor(idx), hi = Math.ceil(idx);
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
-// ── Chart drawing ───────────────────────────────────────────────────────────
-
-function drawChart(trips, gtfsId, date) {
-  const canvas = document.getElementById('tripChart');
-  const W = canvas.offsetWidth || 680;
-  canvas.width = W; canvas.height = 300;
-  const ctx = canvas.getContext('2d');
-  const PAD = { top: 16, right: 20, bottom: 38, left: 46 };
-  const cw = W - PAD.left - PAD.right, ch = canvas.height - PAD.top - PAD.bottom;
-
-  const actualMins = trips.map(t => {
-    const ts = typeof t === 'object' ? (t.start ?? t.end) : t;
-    if (!ts) return NaN;
-    const d = new Date(ts);
-    return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
-  }).filter(m => !isNaN(m)).sort((a, b) => a - b);
-
-  const dt = dayType(date);
-  const schedMins = (scheduleData[gtfsId]?.[dt] || []).slice().sort((a, b) => a - b);
-
-  // Cache for redraw on zoom/pan
-  chartState.cachedActual = actualMins;
-  chartState.cachedSched = schedMins;
-  chartState.cachedDate = date;
-
+function toggleCdf(key) {
+  cdfActive[key] = !cdfActive[key];
+  const btn = document.querySelector(`.cdf-btn[data-cdf="${key}"]`);
+  if (btn) btn.classList.toggle('active', cdfActive[key]);
   redrawChart();
+  updateLegend();
 }
+
+function onNdaysChange() {
+  const sel = document.getElementById('ndaysSelect');
+  document.getElementById('ndaysCustom').style.display = sel.value === 'custom' ? '' : 'none';
+  if (cdfActive.ndays) {
+    redrawChart();
+    updateLegend();
+  }
+}
+
+function updateLegend() {
+  const el = document.getElementById('chartLegend');
+  const series = buildCdfSeries();
+  el.innerHTML = series.map(s => {
+    const extra = s.key === 'today'
+      ? ' <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + s.color + ';vertical-align:middle;margin-left:2px"></span> Now'
+      : '';
+    const label = s.divisor > 1 ? s.label + ' (avg of ' + s.divisor + ')' : s.label;
+    return '<span><span class="ld" style="background:' + s.color + ';opacity:' + s.alpha + '"></span>' + label + extra + '</span>';
+  }).join('');
+}
+
+// ── Chart drawing ────────────────────────────────────────────────────────────
 
 function redrawChart() {
   const canvas = document.getElementById('tripChart');
@@ -230,16 +256,17 @@ function redrawChart() {
   const PAD = { top: 16, right: 20, bottom: 38, left: 46 };
   const cw = W - PAD.left - PAD.right, ch = canvas.height - PAD.top - PAD.bottom;
 
-  const { cachedActual: actualMins, cachedSched: schedMins, cachedDate: date } = chartState;
-  if (!date) return;
-
   const minX = chartState.minX, maxX = chartState.maxX;
+  const series = buildCdfSeries();
 
-  // Count visible items for Y scale
-  const visActual = actualMins.filter(m => m >= minX && m <= maxX).length;
-  const visSched = schedMins.filter(m => m >= minX && m <= maxX).length;
-  // But step chart needs full cumulative count
-  const maxY = Math.max(actualMins.length, schedMins.length, 1);
+  // Compute maxY across all visible series (after divisor)
+  let maxY = 1;
+  for (const s of series) {
+    const effectiveMax = s.mins.length / s.divisor;
+    if (effectiveMax > maxY) maxY = effectiveMax;
+  }
+  // Round maxY up to a nice number
+  maxY = Math.ceil(maxY);
 
   function toX(m) { return PAD.left + Math.max(0, Math.min(1, (m - minX) / (maxX - minX))) * cw; }
   function toY(n) { return PAD.top + (1 - n / maxY) * ch; }
@@ -260,36 +287,10 @@ function redrawChart() {
     ctx.beginPath(); ctx.moveTo(PAD.left, yy); ctx.lineTo(PAD.left + cw, yy); ctx.stroke();
   }
 
-  // Step chart helper
-  function drawSteps(mins, color, alpha, stopAtCurrent) {
-    if (!mins.length) return;
-    ctx.save(); ctx.strokeStyle = color; ctx.globalAlpha = alpha; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(toX(minX), toY(0)); let c = 0;
-    const now = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    for (const m of mins) {
-      ctx.lineTo(toX(m), toY(c)); c++; ctx.lineTo(toX(m), toY(c));
-    }
-    if (stopAtCurrent) {
-      // End at current time with a marker
-      const endMin = Math.min(nowMin, maxX);
-      ctx.lineTo(toX(endMin), toY(c));
-      ctx.stroke();
-      // Draw marker circle at current time
-      const cx = toX(endMin), cy = toY(c);
-      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-      ctx.fillStyle = color; ctx.globalAlpha = 1; ctx.fill();
-    } else {
-      ctx.lineTo(toX(maxX), toY(c));
-      ctx.stroke();
-    }
-    ctx.restore();
+  // Draw each CDF series
+  for (const s of series) {
+    drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw);
   }
-
-  drawSteps(schedMins, '#78818c', 0.55, false);
-  // Only stop at current time if viewing today
-  const isToday = date && fmtDate(date) === fmtDate(new Date());
-  drawSteps(actualMins, '#2f69f3', 1.0, isToday);
 
   // Selection overlay
   if (chartState.selecting && chartState.selectStartX != null && chartState.selectEndX != null) {
@@ -318,11 +319,50 @@ function redrawChart() {
   // Zoom hint
   if (chartState.minX === chartState.fullMinX && chartState.maxX === chartState.fullMaxX) {
     ctx.fillStyle = '#555'; ctx.font = '9px Helvetica Neue'; ctx.textAlign = 'right';
-    ctx.fillText('Scroll to zoom · Click+drag to select range · Double-click to reset', W - PAD.right, canvas.height - 4);
+    ctx.fillText('Scroll to zoom \u00b7 Click+drag to select range \u00b7 Double-click to reset', W - PAD.right, canvas.height - 4);
   }
 }
 
-// ── Chart interaction (zoom/pan/select) ─────────────────────────────────────
+function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
+  if (!s.mins.length) return;
+  const div = s.divisor;
+
+  ctx.save();
+  ctx.strokeStyle = s.color;
+  ctx.globalAlpha = s.alpha;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(toX(minX), toY(0));
+
+  let count = 0;
+  for (const m of s.mins) {
+    const yBefore = count / div;
+    count++;
+    const yAfter = count / div;
+    ctx.lineTo(toX(m), toY(yBefore));
+    ctx.lineTo(toX(m), toY(yAfter));
+  }
+
+  if (s.stopAtCurrent) {
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    const endMin = Math.min(nowMin, maxX);
+    const yEnd = count / div;
+    ctx.lineTo(toX(endMin), toY(yEnd));
+    ctx.stroke();
+    // Draw marker circle at current time
+    const cx = toX(endMin), cy = toY(yEnd);
+    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = s.color; ctx.globalAlpha = 1; ctx.fill();
+  } else {
+    ctx.lineTo(toX(maxX), toY(count / div));
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// ── Chart interaction (zoom/pan/select) ──────────────────────────────────────
 
 function initChartInteraction() {
   const canvas = document.getElementById('tripChart');
@@ -378,7 +418,6 @@ function initChartInteraction() {
     chartState.selectEndX = px;
     const x1 = Math.min(chartState.selectStartX, chartState.selectEndX);
     const x2 = Math.max(chartState.selectStartX, chartState.selectEndX);
-    // Only zoom if drag was significant (>10px)
     if (x2 - x1 > 10) {
       const W = canvas.width;
       const cw = W - PAD.left - PAD.right;
@@ -401,8 +440,16 @@ function initChartInteraction() {
   });
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 function dayType(d) {
   const day = d.getDay(); return day === 0 ? 'sunday' : day === 6 ? 'saturday' : 'weekday';
+}
+
+function percentile(sorted, p) {
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo  = Math.floor(idx), hi = Math.ceil(idx);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
 }
 
 async function clearStats() {
@@ -410,4 +457,3 @@ async function clearStats() {
   try { await fetch('/api/stats/clear', { method: 'POST' }); if (selectedRoute) loadStats(); }
   catch (e) { alert('Error: ' + e.message); }
 }
-

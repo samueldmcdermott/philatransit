@@ -11,6 +11,13 @@
   --yellow:  #f59e0b;
   --red:     #ef4444;
 }
+.subway-banner {
+  margin: 8px 10px; padding: 10px 12px; border-radius: 6px;
+  background: var(--card); border-left: 3px solid var(--accent);
+  font-size: 12px; line-height: 1.5; color: var(--muted);
+}
+.subway-banner a { color: var(--accent); text-decoration: underline; }
+
 html, body { height: 100%; background: var(--bg); color: var(--text);
   font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px; }
 
@@ -146,6 +153,25 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .pct-lbl  { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
 .pct-val  { font-size: 22px; font-weight: 700; color: var(--accent); }
 .pct-unit { font-size: 10px; color: var(--muted); }
+/* CDF controls */
+.cdf-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.cdf-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em;
+  font-weight: 600; white-space: nowrap; }
+.cdf-btn { padding: 4px 10px; border-radius: 14px; border: 1px solid var(--border);
+  background: var(--card); color: var(--muted); font-size: 11px; cursor: pointer;
+  white-space: nowrap; transition: all 0.15s; }
+.cdf-btn:hover { border-color: var(--accent); color: var(--text); }
+.cdf-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cdf-btn.active[data-cdf="dow"] { background: #22c55e; border-color: #22c55e; }
+.cdf-btn.active[data-cdf="ndays"] { background: #f59e0b; border-color: #f59e0b; color: #000; }
+.cdf-btn.active[data-cdf="scheduled"] { background: #78818c; border-color: #78818c; }
+.cdf-ndays-group { display: flex; align-items: center; gap: 4px; }
+.cdf-select { background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 11px; padding: 3px 4px; cursor: pointer; }
+.cdf-ndays-suffix { font-size: 11px; color: var(--muted); }
+.cdf-custom-input { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 11px; padding: 2px 6px; width: 50px; }
+
 #tripChart { width: 100%; border-radius: 8px; display: block; cursor: crosshair; }
 .chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; align-items: center; }
 .ld { display: inline-block; width: 14px; height: 3px; border-radius: 2px;
@@ -285,6 +311,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 
   /* Stats: stack boxes */
   .stat-row { flex-direction: column; }
-  .pct-row { flex-direction: column; gap: 8px; }
-  .pct-label-item { display: none; }
+  .cdf-controls { gap: 4px; }
+  .cdf-btn { font-size: 10px; padding: 3px 8px; }
 }

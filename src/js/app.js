@@ -240,6 +240,9 @@ async function selectRoute(route, type) {
   vehicleHistory    = {};
   buildRouteList();
   updateAlertsBadge();
+  const isSubway = ['MFL','BSL'].includes(route.id);
+  const subwayBanner = document.getElementById('subwayBanner');
+  if (subwayBanner) subwayBanner.style.display = isSubway ? '' : 'none';
   const isTunnel = TUNNEL_ROUTES.has(route.id);
   const tunnelBtn = document.getElementById('tunnelBtn');
   if (tunnelBtn) tunnelBtn.style.display = isTunnel ? '' : 'none';
@@ -554,9 +557,7 @@ function renderVehicles(vehicles) {
 
   if (vehicles.length === 0) {
     grid.style.display = 'none'; empty.style.display = '';
-    const isSubway = selectedRoute && ['MFL','BSL'].includes(selectedRoute.id);
-    const subwayNote = isSubway ? '<div style="margin-top:8px;color:var(--muted);font-size:12px">SEPTA does not provide real-time tracking for subway lines.</div>' : '';
-    empty.innerHTML = `<div class="empty-icon">🚌</div><div class="empty-title">No live vehicles</div><div>No active vehicles for this route right now.</div>${subwayNote}`;
+    empty.innerHTML = `<div class="empty-icon">🚌</div><div class="empty-title">No live vehicles</div><div>No active vehicles for this route right now.</div>`;
     setStatus(`No vehicles · ${fmtTime(now)}`);
     detectCompletions(new Set(), now);
     return;
