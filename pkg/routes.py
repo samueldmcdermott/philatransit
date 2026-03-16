@@ -233,13 +233,12 @@ def export_stats():
     trips = load(TRIPS)
 
     if fmt == "csv":
-        dates_param = request.args.get("dates", "")
-        allowed_dates = set(d.strip() for d in dates_param.split(",") if d.strip()) or None
+        route_filter = request.args.get("route", "").strip() or None
         rows = ["route,date,timestamp_ms,time_of_day"]
         for route in sorted(trips):
+            if route_filter and route != route_filter:
+                continue
             for day in sorted(trips[route]):
-                if allowed_dates and day not in allowed_dates:
-                    continue
                 for trip in sorted(trips[route][day], key=lambda x: x.get("start", 0)):
                     ts = trip.get("start") or trip.get("end") or 0
                     t = datetime.fromtimestamp(ts / 1000).strftime("%H:%M:%S")

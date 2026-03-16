@@ -669,11 +669,31 @@ function exportCsvPlot() {
   URL.revokeObjectURL(a.href);
 }
 
+function _downloadBlob(url, filename) {
+  fetch(url).then(r => r.blob()).then(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+}
+
+function exportCsvRoute() {
+  if (!selectedRoute) return;
+  const route = selectedRoute.id;
+  const safe = route.replace(/[^a-zA-Z0-9_-]/g, '_');
+  _downloadBlob(
+    `/api/stats/export?format=csv&route=${encodeURIComponent(route)}`,
+    `septa_trips_${safe}_${csvTimestamp()}.csv`
+  );
+}
+
 function exportCsvAll() {
-  const a = document.createElement('a');
-  a.href = '/api/stats/export?format=csv';
-  a.download = `septa_trips_${csvTimestamp()}.csv`;
-  a.click();
+  _downloadBlob(
+    '/api/stats/export?format=csv',
+    `septa_trips_all_${csvTimestamp()}.csv`
+  );
 }
 
 async function clearStats() {
