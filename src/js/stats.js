@@ -11,6 +11,8 @@ let cdfSchedMins = [];  // schedule minutes for current route/day-type
 
 // Cutoff: discard data before this date/time
 const CUTOFF_DATE = '2026-03-15';
+// First full day of tracking (exclude partial first day from historical stats)
+const FIRST_FULL_DATE = '2026-03-16';
 
 // Chart zoom/pan state
 let chartState = {
@@ -175,7 +177,7 @@ function buildCdfSeries() {
     const allMins = [];
     let dayCount = 0;
     for (const [day, mins] of Object.entries(routeCdfs)) {
-      if (day === todayStr) continue;
+      if (day === todayStr || day < FIRST_FULL_DATE) continue;
       const d = new Date(day + 'T12:00:00');
       if (d.getDay() === targetDow) {
         allMins.push(...mins);
@@ -205,6 +207,7 @@ function buildCdfSeries() {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
       const ds = fmtDate(d);
+      if (ds < FIRST_FULL_DATE) continue;
       const mins = routeCdfs[ds];
       if (mins && mins.length) {
         allMins.push(...mins);
