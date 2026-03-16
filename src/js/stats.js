@@ -9,6 +9,9 @@ let cdfActive = { scheduled: true, today: true, dow: false, ndays: false };
 let cdfData = {};       // route -> {date: [sorted mins], ...}
 let cdfSchedMins = [];  // schedule minutes for current route/day-type
 
+// Cutoff: discard data before this date/time
+const CUTOFF_DATE = '2026-03-15';
+
 // Chart zoom/pan state
 let chartState = {
   minX: 5 * 60, maxX: 24 * 60,
@@ -70,12 +73,23 @@ function mergeScheduleMins(...gtfsIds) {
   return merged;
 }
 
+// ── Filter routeCdfs to only valid dates ─────────────────────────────────────
+
+function filterCutoff(routeCdfs) {
+  const filtered = {};
+  for (const [day, mins] of Object.entries(routeCdfs)) {
+    if (day >= CUTOFF_DATE) filtered[day] = mins;
+  }
+  return filtered;
+}
+
 // ── Render stats ─────────────────────────────────────────────────────────────
 
 function renderStats() {
   const isMulti = selectedRoute.multi && selectedRoute.apiIds;
   const routeIds = isMulti ? selectedRoute.apiIds : [selectedRoute.id];
-  const routeCdfs = isMulti ? mergeRouteCdfs(...routeIds) : (cdfData[selectedRoute.id] || {});
+  const rawCdfs = isMulti ? mergeRouteCdfs(...routeIds) : (cdfData[selectedRoute.id] || {});
+  const routeCdfs = filterCutoff(rawCdfs);
 
   const effectiveGtfs = isMulti ? '_T-ALL' : selectedRoute.gtfs;
   if (isMulti && !scheduleData['_T-ALL']) {
@@ -93,13 +107,14 @@ function renderStats() {
   const dayNames = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
   document.getElementById('dowLabel').textContent = 'Previous ' + dayNames[today.getDay()];
 
-  // Today trip count
+  // Today trip count — only trips up to now (matches what the plot shows)
   const todayMins = routeCdfs[todayStr] || [];
-  document.getElementById('sToday').textContent = todayMins.length;
+  const nowMin = today.getHours() * 60 + today.getMinutes() + today.getSeconds() / 60;
+  const todayCount = todayMins.filter(m => m <= nowMin).length;
+  document.getElementById('sToday').textContent = todayCount;
 
-  // Days tracked (only from cutoff onward)
-  const CUTOFF_DATE = '2026-03-15';
-  const dayCount = Object.keys(routeCdfs).filter(d => d >= CUTOFF_DATE).length;
+  // Days tracked
+  const dayCount = Object.keys(routeCdfs).length;
   document.getElementById('sDays').textContent = dayCount;
 
   // Build chart series
@@ -119,8 +134,6 @@ function renderStats() {
 // ── CDF value at a given minute ──────────────────────────────────────────────
 
 function cdfValueAt(mins, minute, divisor, stopAtCurrent) {
-  // Count of entries <= minute, divided by divisor.
-  // For "today" series, also cap at current time.
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
   const cap = stopAtCurrent ? Math.min(minute, nowMin) : minute;
@@ -149,12 +162,12 @@ function buildCdfSeries() {
       color: CDF_COLORS.scheduled,
       alpha: 0.55,
       stopAtCurrent: false,
+      extendToEnd: true, // scheduled extends flat to midnight
     });
   }
 
   if (cdfActive.today) {
     const todayMins = routeCdfs[todayStr] || [];
-    // Always show the today series (even if empty — draws flat line + dot)
     series.push({
       key: 'today',
       label: 'Today',
@@ -163,6 +176,7 @@ function buildCdfSeries() {
       color: CDF_COLORS.today,
       alpha: 1.0,
       stopAtCurrent: true,
+      extendToEnd: false,
     });
   }
 
@@ -188,6 +202,7 @@ function buildCdfSeries() {
         color: CDF_COLORS.dow,
         alpha: 0.8,
         stopAtCurrent: false,
+        extendToEnd: false,
       });
     }
   }
@@ -216,6 +231,7 @@ function buildCdfSeries() {
         color: CDF_COLORS.ndays,
         alpha: 0.8,
         stopAtCurrent: false,
+        extendToEnd: false,
       });
     }
   }
@@ -293,11 +309,17 @@ function redrawChart() {
   }
   maxY = Math.ceil(maxY * 1.05) || 1; // 5% headroom
 
-  function toX(m) { return PAD.left + Math.max(0, Math.min(1, (m - minX) / (maxX - minX))) * cw; }
+  function toX(m) { return PAD.left + ((m - minX) / (maxX - minX)) * cw; }
   function toY(n) { return PAD.top + (1 - n / maxY) * ch; }
 
   // Background
   ctx.fillStyle = '#191c22'; ctx.fillRect(0, 0, W, canvas.height);
+
+  // Clip drawing to plot area
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(PAD.left, PAD.top, cw, ch);
+  ctx.clip();
 
   // Grid
   ctx.strokeStyle = '#25292f'; ctx.lineWidth = 1;
@@ -317,7 +339,10 @@ function redrawChart() {
     drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw);
   }
 
-  // Selection overlay
+  // End clip
+  ctx.restore();
+
+  // Selection overlay (outside clip so it draws over axes too)
   if (chartState.selecting && chartState.selectStartX != null && chartState.selectEndX != null) {
     const x1 = Math.min(chartState.selectStartX, chartState.selectEndX);
     const x2 = Math.max(chartState.selectStartX, chartState.selectEndX);
@@ -357,20 +382,30 @@ function redrawChart() {
 
 function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
   const div = s.divisor;
-
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+
+  // Count steps before visible range to get correct starting y
+  let count = 0;
+  let startIdx = 0;
+  for (let i = 0; i < s.mins.length; i++) {
+    if (s.mins[i] >= minX) break;
+    if (s.stopAtCurrent && s.mins[i] > nowMin) break;
+    count++;
+    startIdx = i + 1;
+  }
 
   ctx.save();
   ctx.strokeStyle = s.color;
   ctx.globalAlpha = s.alpha;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(toX(minX), toY(0));
+  ctx.moveTo(toX(minX), toY(count / div));
 
-  let count = 0;
-  for (const m of s.mins) {
-    // For "today" series, don't draw steps past the current time
+  // Draw steps only within visible range
+  for (let i = startIdx; i < s.mins.length; i++) {
+    const m = s.mins[i];
+    if (m > maxX) break;
     if (s.stopAtCurrent && m > nowMin) break;
     const yBefore = count / div;
     count++;
@@ -380,16 +415,23 @@ function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
   }
 
   if (s.stopAtCurrent) {
+    // Today series: extend to current time, draw dot
     const endMin = Math.min(nowMin, maxX);
     const yEnd = count / div;
     ctx.lineTo(toX(endMin), toY(yEnd));
     ctx.stroke();
-    // Draw marker circle at current time
-    const cx = toX(endMin), cy = toY(yEnd);
-    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-    ctx.fillStyle = s.color; ctx.globalAlpha = 1; ctx.fill();
+    // Draw marker circle at current time (only if in visible range)
+    if (nowMin >= minX && nowMin <= maxX) {
+      const cx = toX(endMin), cy = toY(yEnd);
+      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fillStyle = s.color; ctx.globalAlpha = 1; ctx.fill();
+    }
+  } else if (s.extendToEnd) {
+    // Scheduled: extend flat to end of day (midnight)
+    ctx.lineTo(toX(24 * 60), toY(count / div));
+    ctx.stroke();
   } else {
-    // Don't extend a flat line to the right edge — just end after the last step
+    // Historical averages: end at last data point
     ctx.stroke();
   }
 
@@ -528,7 +570,7 @@ function initChartInteraction() {
     const rect = canvas.getBoundingClientRect();
     const px = (e.clientX - rect.left) * (canvas.width / rect.width);
     chartState.selecting = true;
-    chartState.hoverMin = null; // hide tooltip during selection
+    chartState.hoverMin = null;
     chartState.selectStartX = px;
     chartState.selectEndX = px;
   });
@@ -540,7 +582,6 @@ function initChartInteraction() {
       chartState.selectEndX = px;
       chartState.hoverMin = null;
     } else {
-      // Hover: only within plot area
       const minPx = PAD.left, maxPx = PAD.left + (canvas.width - PAD.left - PAD.right);
       if (px >= minPx && px <= maxPx) {
         chartState.hoverMin = xToMin(px);
