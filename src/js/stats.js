@@ -632,38 +632,47 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
 }
 
-function exportCsv() {
-  const today = new Date();
-  const todayStr = fmtDate(today);
-  const routeCdfs = chartState._routeCdfs || {};
-  const dates = new Set();
+function csvTimestamp() {
+  const d = new Date();
+  return d.getFullYear()
+    + String(d.getMonth() + 1).padStart(2, '0')
+    + String(d.getDate()).padStart(2, '0')
+    + '_' + String(d.getHours()).padStart(2, '0')
+    + String(d.getMinutes()).padStart(2, '0');
+}
 
-  // Always include today if the today series is active
-  if (cdfActive.today) dates.add(todayStr);
+function exportCsvPlot() {
+  const series = buildCdfSeries();
+  if (!series.length) return;
 
-  if (cdfActive.dow) {
-    const targetDow = today.getDay();
-    for (const day of Object.keys(routeCdfs)) {
-      if (day === todayStr || day < FIRST_FULL_DATE) continue;
-      if (new Date(day + 'T12:00:00').getDay() === targetDow) dates.add(day);
+  const rows = ['series,minute,time_of_day,cdf_value'];
+  for (const s of series) {
+    let count = 0;
+    for (const m of s.mins) {
+      if (s.stopAtCurrent) {
+        const now = new Date();
+        const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+        if (m > nowMin) break;
+      }
+      count++;
+      const val = (count / s.divisor).toFixed(2);
+      const safe = s.label.replace(/"/g, '""');
+      rows.push(`"${safe}",${m.toFixed(2)},${fmtMin(m)},${val}`);
     }
   }
 
-  if (cdfActive.ndays) {
-    const n = getNdaysValue();
-    for (let i = 1; i <= n; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const ds = fmtDate(d);
-      if (ds >= FIRST_FULL_DATE) dates.add(ds);
-    }
-  }
-
-  const params = new URLSearchParams({ format: 'csv' });
-  if (dates.size) params.set('dates', [...dates].sort().join(','));
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
-  a.href = '/api/stats/export?' + params.toString();
-  a.download = 'septa_trips.csv';
+  a.href = URL.createObjectURL(blob);
+  a.download = `septa_cdf_${csvTimestamp()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportCsvAll() {
+  const a = document.createElement('a');
+  a.href = '/api/stats/export?format=csv';
+  a.download = `septa_trips_${csvTimestamp()}.csv`;
   a.click();
 }
 
