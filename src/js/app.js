@@ -167,7 +167,12 @@ function renderAlertsPanel() {
 
 function setStatus(msg) { document.getElementById('statusTxt').textContent = msg; }
 function fmtTime(ts) { return new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
-function fmtDate(d)  { return d.toISOString().slice(0,10); }
+function fmtDate(d)  {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
 function pctFmt(n)   { return isNaN(n)?'–':n.toFixed(1); }
 
 function getRouteColor(routeId) {

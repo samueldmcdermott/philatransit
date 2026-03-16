@@ -15,6 +15,7 @@ let chartState = {
   fullMinX: 5 * 60, fullMaxX: 24 * 60,
   dragging: false, dragStartX: null, dragStartMin: null,
   selecting: false, selectStartX: null, selectEndX: null,
+  hoverMin: null, // minute value under cursor (null = no hover)
 };
 
 // Series colors
@@ -114,6 +115,22 @@ function renderStats() {
   initChartInteraction();
 }
 
+// ── CDF value at a given minute ──────────────────────────────────────────────
+
+function cdfValueAt(mins, minute, divisor, stopAtCurrent) {
+  // Count of entries <= minute, divided by divisor.
+  // For "today" series, also cap at current time.
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  const cap = stopAtCurrent ? Math.min(minute, nowMin) : minute;
+  let count = 0;
+  for (const m of mins) {
+    if (m > cap) break;
+    count++;
+  }
+  return count / divisor;
+}
+
 // ── Build CDF series ─────────────────────────────────────────────────────────
 
 function buildCdfSeries() {
@@ -136,17 +153,16 @@ function buildCdfSeries() {
 
   if (cdfActive.today) {
     const todayMins = routeCdfs[todayStr] || [];
-    if (todayMins.length) {
-      series.push({
-        key: 'today',
-        label: 'Today',
-        mins: todayMins,
-        divisor: 1,
-        color: CDF_COLORS.today,
-        alpha: 1.0,
-        stopAtCurrent: true,
-      });
-    }
+    // Always show the today series (even if empty — draws flat line + dot)
+    series.push({
+      key: 'today',
+      label: 'Today',
+      mins: todayMins,
+      divisor: 1,
+      color: CDF_COLORS.today,
+      alpha: 1.0,
+      stopAtCurrent: true,
+    });
   }
 
   if (cdfActive.dow) {
@@ -245,6 +261,15 @@ function updateLegend() {
   }).join('');
 }
 
+// ── Format minute as time string ─────────────────────────────────────────────
+
+function fmtMin(m) {
+  const h = Math.floor(m / 60) % 24;
+  const mm = Math.floor(m % 60);
+  const ampm = h < 12 ? 'a' : 'p';
+  return (h % 12 || 12) + ':' + String(mm).padStart(2, '0') + ampm;
+}
+
 // ── Chart drawing ────────────────────────────────────────────────────────────
 
 function redrawChart() {
@@ -259,14 +284,13 @@ function redrawChart() {
   const minX = chartState.minX, maxX = chartState.maxX;
   const series = buildCdfSeries();
 
-  // Compute maxY across all visible series (after divisor)
+  // Compute maxY from visible range (CDF value at maxX for each series)
   let maxY = 1;
   for (const s of series) {
-    const effectiveMax = s.mins.length / s.divisor;
-    if (effectiveMax > maxY) maxY = effectiveMax;
+    const val = cdfValueAt(s.mins, maxX, s.divisor, s.stopAtCurrent);
+    if (val > maxY) maxY = val;
   }
-  // Round maxY up to a nice number
-  maxY = Math.ceil(maxY);
+  maxY = Math.ceil(maxY * 1.05) || 1; // 5% headroom
 
   function toX(m) { return PAD.left + Math.max(0, Math.min(1, (m - minX) / (maxX - minX))) * cw; }
   function toY(n) { return PAD.top + (1 - n / maxY) * ch; }
@@ -305,6 +329,11 @@ function redrawChart() {
     ctx.restore();
   }
 
+  // Hover crosshair + tooltip
+  if (chartState.hoverMin != null && !chartState.selecting && series.length) {
+    drawHoverTooltip(ctx, series, chartState.hoverMin, minX, maxX, maxY, toX, toY, PAD, cw, ch, W);
+  }
+
   // X axis labels
   ctx.fillStyle = '#78818c'; ctx.font = '10px Helvetica Neue'; ctx.textAlign = 'center';
   for (let h = Math.ceil(minX / 60); h * 60 <= maxX; h += hStep) {
@@ -324,7 +353,6 @@ function redrawChart() {
 }
 
 function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
-  if (!s.mins.length) return;
   const div = s.divisor;
 
   const now = new Date();
@@ -365,7 +393,103 @@ function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
   ctx.restore();
 }
 
-// ── Chart interaction (zoom/pan/select) ──────────────────────────────────────
+// ── Hover tooltip ────────────────────────────────────────────────────────────
+
+function drawHoverTooltip(ctx, series, hoverMin, minX, maxX, maxY, toX, toY, PAD, cw, ch, W) {
+  const hx = toX(hoverMin);
+
+  // Vertical line
+  ctx.save();
+  ctx.strokeStyle = 'rgba(224, 232, 240, 0.25)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(hx, PAD.top);
+  ctx.lineTo(hx, PAD.top + ch);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Compute values for each series at hoverMin
+  const lines = [];
+  for (const s of series) {
+    const val = cdfValueAt(s.mins, hoverMin, s.divisor, s.stopAtCurrent);
+    const valStr = s.divisor > 1 ? val.toFixed(1) : String(Math.round(val));
+    lines.push({ label: s.label, val: valStr, color: s.color });
+  }
+
+  // Draw small dots on each series at hover position
+  for (const s of series) {
+    const val = cdfValueAt(s.mins, hoverMin, s.divisor, s.stopAtCurrent);
+    const dy = toY(val);
+    ctx.save();
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = s.alpha;
+    ctx.beginPath();
+    ctx.arc(hx, dy, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Tooltip box
+  if (!lines.length) return;
+
+  ctx.save();
+  ctx.font = '10px Helvetica Neue';
+  const timeStr = fmtMin(hoverMin);
+  const header = timeStr;
+  const lineHeight = 14;
+  const padding = 6;
+  const dotSize = 6;
+  const dotGap = 4;
+
+  // Measure text widths
+  let boxW = ctx.measureText(header).width;
+  for (const l of lines) {
+    const tw = ctx.measureText(l.label + ': ' + l.val).width + dotSize + dotGap;
+    if (tw > boxW) boxW = tw;
+  }
+  boxW += padding * 2;
+  const boxH = lineHeight * (1 + lines.length) + padding * 2 - 4;
+
+  // Position tooltip (flip if near right edge)
+  let tx = hx + 10;
+  if (tx + boxW > W - PAD.right) tx = hx - boxW - 10;
+  let ty = PAD.top + 8;
+
+  // Background
+  ctx.fillStyle = 'rgba(18, 21, 26, 0.92)';
+  ctx.strokeStyle = '#25292f';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(tx, ty, boxW, boxH, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // Header (time)
+  ctx.fillStyle = '#e0e8f0';
+  ctx.textAlign = 'left';
+  ctx.fillText(header, tx + padding, ty + padding + 10);
+
+  // Series values
+  let row = 1;
+  for (const l of lines) {
+    const ry = ty + padding + 10 + lineHeight * row;
+    // Color dot
+    ctx.fillStyle = l.color;
+    ctx.beginPath();
+    ctx.arc(tx + padding + dotSize / 2, ry - 3, dotSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+    // Text
+    ctx.fillStyle = '#b0b8c4';
+    ctx.fillText(l.label + ': ' + l.val, tx + padding + dotSize + dotGap, ry);
+    row++;
+  }
+
+  ctx.restore();
+}
+
+// ── Chart interaction (zoom/pan/select/hover) ────────────────────────────────
 
 function initChartInteraction() {
   const canvas = document.getElementById('tripChart');
@@ -401,15 +525,26 @@ function initChartInteraction() {
     const rect = canvas.getBoundingClientRect();
     const px = (e.clientX - rect.left) * (canvas.width / rect.width);
     chartState.selecting = true;
+    chartState.hoverMin = null; // hide tooltip during selection
     chartState.selectStartX = px;
     chartState.selectEndX = px;
   });
 
   canvas.addEventListener('mousemove', e => {
-    if (!chartState.selecting) return;
     const rect = canvas.getBoundingClientRect();
     const px = (e.clientX - rect.left) * (canvas.width / rect.width);
-    chartState.selectEndX = px;
+    if (chartState.selecting) {
+      chartState.selectEndX = px;
+      chartState.hoverMin = null;
+    } else {
+      // Hover: only within plot area
+      const minPx = PAD.left, maxPx = PAD.left + (canvas.width - PAD.left - PAD.right);
+      if (px >= minPx && px <= maxPx) {
+        chartState.hoverMin = xToMin(px);
+      } else {
+        chartState.hoverMin = null;
+      }
+    }
     redrawChart();
   });
 
@@ -434,6 +569,11 @@ function initChartInteraction() {
     chartState.selectStartX = null;
     chartState.selectEndX = null;
     redrawChart();
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    chartState.hoverMin = null;
+    if (!chartState.selecting) redrawChart();
   });
 
   canvas.addEventListener('dblclick', () => {
