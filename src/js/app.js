@@ -207,6 +207,8 @@ function setMode(mode) {
   activeMode = mode;
   document.querySelectorAll('.mode-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.mode === mode));
+  const subwayBanner = document.getElementById('subwayBanner');
+  if (subwayBanner) subwayBanner.style.display = mode === 'SUBWAY' ? '' : 'none';
   buildRouteList();
 }
 
@@ -240,9 +242,6 @@ async function selectRoute(route, type) {
   vehicleHistory    = {};
   buildRouteList();
   updateAlertsBadge();
-  const isSubway = ['MFL','BSL'].includes(route.id);
-  const subwayBanner = document.getElementById('subwayBanner');
-  if (subwayBanner) subwayBanner.style.display = isSubway ? '' : 'none';
   const isTunnel = TUNNEL_ROUTES.has(route.id);
   const tunnelBtn = document.getElementById('tunnelBtn');
   if (tunnelBtn) tunnelBtn.style.display = isTunnel ? '' : 'none';
