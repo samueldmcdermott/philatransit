@@ -97,8 +97,9 @@ function renderStats() {
   const todayMins = routeCdfs[todayStr] || [];
   document.getElementById('sToday').textContent = todayMins.length;
 
-  // Days tracked
-  const dayCount = Object.keys(routeCdfs).length;
+  // Days tracked (only from cutoff onward)
+  const CUTOFF_DATE = '2026-03-15';
+  const dayCount = Object.keys(routeCdfs).filter(d => d >= CUTOFF_DATE).length;
   document.getElementById('sDays').textContent = dayCount;
 
   // Build chart series
@@ -345,11 +346,13 @@ function redrawChart() {
   ctx.textAlign = 'right';
   for (let y = 0; y <= maxY; y += yStep) ctx.fillText(y, PAD.left - 5, toY(y) + 4);
 
-  // Zoom hint
-  if (chartState.minX === chartState.fullMinX && chartState.maxX === chartState.fullMaxX) {
-    ctx.fillStyle = '#555'; ctx.font = '9px Helvetica Neue'; ctx.textAlign = 'right';
-    ctx.fillText('Scroll to zoom \u00b7 Click+drag to select range \u00b7 Double-click to reset', W - PAD.right, canvas.height - 4);
-  }
+  // Zoom hint (always visible)
+  ctx.fillStyle = '#555'; ctx.font = '9px Helvetica Neue'; ctx.textAlign = 'right';
+  const isZoomed = chartState.minX !== chartState.fullMinX || chartState.maxX !== chartState.fullMaxX;
+  const hint = isZoomed
+    ? 'Scroll to zoom \u00b7 Double-click to reset'
+    : 'Scroll to zoom \u00b7 Click+drag to select range \u00b7 Double-click to reset';
+  ctx.fillText(hint, W - PAD.right, canvas.height - 4);
 }
 
 function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
@@ -386,7 +389,7 @@ function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
     ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
     ctx.fillStyle = s.color; ctx.globalAlpha = 1; ctx.fill();
   } else {
-    ctx.lineTo(toX(maxX), toY(count / div));
+    // Don't extend a flat line to the right edge — just end after the last step
     ctx.stroke();
   }
 
