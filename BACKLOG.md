@@ -1,29 +1,43 @@
-# SEPTA Live – Backlog
+# Philadelphia Transit Tracker – Backlog
 
-## Planned Improvements
+## FUTURE
 
-### Subway Tracking (MFL / BSL)
-- [ ] SEPTA does not provide real-time GPS data for subway lines
-- [ ] TransitView API returns only placeholder entries for L1 (MFL) and B1 (BSL): all have `label=None`, `VehicleID=None`, `late=998`, parked at a fake coordinate (39.952187, -75.15995)
-- [ ] TransitViewAll confirms: 0 real vehicles out of 14 (L1) and 12 (B1) entries
-- [ ] GTFS-RT endpoints exist (`realtime.septa.org/gtfsrt/vehicles/`) but return empty HTML pages
-- **Possible approaches:**
-  - [ ] Schedule-based estimation: use GTFS timetables to show where trains *should* be, similar to tunnel ghost estimation but for the entire line
-  - [ ] Arrival board scraping: SEPTA may have station arrival boards with countdown data
-  - [ ] Third-party data: check if Transit app or Google Maps have subway positions (they may have private feeds)
-  - [ ] Monitor for API changes: SEPTA may add subway tracking in the future
+- [ ] long-term study to determine underground (trolley) timing
+  - [ ] for each trolley trip add tunnel entrance and reemergence times
+  - [ ] collect stats across routes and times of day, day of week
+- [ ] improved regional rail routes
+- [ ] error bands on the statistics plots
 
-### Adaptive Tunnel Timing
-- [ ] Currently tunnel transit time comes from GTFS schedule averages (~11 min one-way for T2-T5, ~7 min for T1)
-- [ ] **Improvement:** track vehicles that reappear at the portal after a tunnel trip and log the actual elapsed "underground time"
-- [ ] Build a running average of real tunnel transit times per route
-- [ ] Use this adaptive timing instead of the static schedule-based estimate
-- [ ] Could store historical data in `data/tunnel_observations.json` via the server
+## TODO
 
-### Statistics Section
-- [ ] Needs further work or may be separated into a different app
-- [ ] Current trip tracking works but UI/analysis could be improved
+### Direction of travel
+- [ ] direction of travel should come *only* from our knowledge of the trip:
+  - [ ] we know the terminus from which a trip started, so the vehicle travels from the start terminus to the end terminus and then turns around
+  - [ ] use this information instead of the officially reported destination
+  - [ ] use the small white arrow on the dot to show the direction towards the end terminus (instead of the current bearing of the vehicle)
+- [ ] *priority:* this should be "server side" aka with the cache so that it's available instantly whenever anyone loads the page
 
+### Stops
+- [ ] stops should be a little larger / easier to click on (especially on mobile)
+- [ ] next-to-arrive logic should improve
+  - [ ] *priority:* this should be "server side" aka with the cache so that it's available instantly whenever anyone loads the page
+  - [ ] make sure the "reflection" behavior after a trolley reaches 13th & Market is properly implemented and accounts for all westbound trolley trips
+  - [ ] make sure the fore/aft timing difference is self-consistent, ie the gap in estimated arrival times is based on the time to traverse the fore/aft distance
+- [ ] 33rd St currently is not listed as stop for T2, T3, T4, T5 but it should be
+- [ ] conversely, T2, T3, T4, T5 routes are depicted as passing by the 36th St portal but should _not_ be
+- [ ] show stops for all bus routes (currently shown on some but not all)
 
-### TODO
-*(No open items)*
+### Tunnel entrance and reappearance
+- [ ] trains move slowly through the yard near the portal; don't mistake this slow motion for tunnel entry
+- [ ] the "lingering" phenomenon that determines the entry to the tunnel should only happen at the very east end of the yard
+- [ ] eastbound trolleys that are currently determined to be lingering should linger as a solid dot that shrinks and expands
+- [ ] the estimated position of a westbound trolley which is underground should _never_ pass west of the actual portal on the east side of the yard
+- [ ] if the estimated position of a westbound trolley is at the portal or near 40th St, it should linger as a dashed dot that shrinks and expands
+- [ ] make the default opacity 55% instead of 35%
+
+### Diversion logic
+- [ ] reexamine the alerts API to see if there's a better way to do this than by keywords
+- [ ] if trolleys are _currently in_ the diversion loop:
+  - [ ] show banner as red regardless of announcement
+  - [ ] if no pertinent alert, say "Trolley tunnel closed (unofficial)"
+  - [ ] if pertinent alert, say "Trolley tunnel closed; reopening <time>" where <time> is TBD if no reopening is noted in the alert and time is given if sufficient information
