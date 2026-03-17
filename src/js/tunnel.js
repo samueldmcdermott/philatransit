@@ -326,6 +326,7 @@ function updateVehicleHistory(vehicles) {
       newHistory[vid]._late  = hist._late;
       newHistory[vid]._trip  = hist._trip;
       newHistory[vid]._rkey  = hist._rkey;
+      newHistory[vid]._computed_direction = hist._computed_direction;
     }
   }
   for (const v of vehicles) {
@@ -339,6 +340,7 @@ function updateVehicleHistory(vehicles) {
     updated._late  = v.late;
     updated._trip  = v.trip;
     updated._rkey  = v._rkey;
+    updated._computed_direction = v.computed_direction;
     newHistory[v._id] = updated;
   }
   vehicleHistory = newHistory;
@@ -346,24 +348,29 @@ function updateVehicleHistory(vehicles) {
 
 // ── Direction detection ──────────────────────────────────────────────────
 
-function isHeadingEast(dest) {
+function isHeadingEast(dest, v) {
+  // Prefer computed direction from server (shape-based)
+  if (v && v.computed_direction != null) {
+    return v.computed_direction === 'forward';  // forward = toward 13th St = eastbound
+  }
+  // Fallback to destination keyword detection
   if (!dest) return false;
   const d = dest.toLowerCase();
   return EASTBOUND_DESTS.some(k => d.includes(k));
 }
 
-function getPortalAndDirection(lat, lng, routeKey, dest) {
+function getPortalAndDirection(lat, lng, routeKey, dest, v) {
   // Check if near a west portal AND heading eastbound into tunnel
   const portal = PORTALS[routeKey];
   if (portal) {
     const dWest = Math.abs(lat - portal.lat) + Math.abs(lng - portal.lng);
-    if (dWest < LINGER_RADIUS && isHeadingEast(dest)) {
+    if (dWest < LINGER_RADIUS && isHeadingEast(dest, v)) {
       return { near: true, direction: 'eastbound', portal };
     }
   }
   // Check if near 13th St (east end) AND heading westbound into tunnel
   const dEast = Math.abs(lat - TUNNEL_EAST_END.lat) + Math.abs(lng - TUNNEL_EAST_END.lng);
-  if (dEast < LINGER_RADIUS && !isHeadingEast(dest)) {
+  if (dEast < LINGER_RADIUS && !isHeadingEast(dest, v)) {
     return { near: true, direction: 'westbound', portal: TUNNEL_EAST_END };
   }
   return { near: false };

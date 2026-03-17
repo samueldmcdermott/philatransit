@@ -330,7 +330,7 @@ function updateVehiclesOnMap(vehicles) {
     else nextStop = nearestStop(lat, lng);
 
     const lateText = isGhost ? 'In tunnel' : (v.late <= 0 ? 'On time' : `${v.late} min late`);
-    const dir = headingLabel(v.heading);
+    const dir = v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
     const aftPct = isGhost ? Math.round((v._aftFraction || 0) * 100) : 0;
     const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
     const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${aftPct}–${forePct}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
@@ -340,7 +340,7 @@ function updateVehiclesOnMap(vehicles) {
         ${ghostInfo}
         ${nextStop ? `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>` : ''}
         <div style="font-size:11px;color:#78818c;">${v.dest || '—'}</div>
-        <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · ▷'+dir:''}</div>
+        <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · → '+dir:''}</div>
       </div>`;
 
     // Ghost band polyline
@@ -363,12 +363,12 @@ function updateVehiclesOnMap(vehicles) {
         vehicleMarkers[v._id].setIcon(ghostIcon(color));
         vehicleMarkers[v._id]._isGhost = true;
       } else if (!isGhost && vehicleMarkers[v._id]._isGhost) {
-        const heading = v.heading != null ? +v.heading : 0;
+        const heading = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
         vehicleMarkers[v._id].setIcon(realIcon(color, heading));
         vehicleMarkers[v._id]._isGhost = false;
       }
     } else {
-      const icon = isGhost ? ghostIcon(color) : realIcon(color, v.heading != null ? +v.heading : 0);
+      const icon = isGhost ? ghostIcon(color) : realIcon(color, v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0));
       const m = L.marker([lat, lng], { icon })
         .bindPopup(popupHtml, { className: 'map-vehicle-popup' })
         .addTo(vehicleLayerGroup);

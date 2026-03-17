@@ -11,11 +11,11 @@
 ## TODO
 
 ### Direction of travel
-- [ ] direction of travel should come *only* from our knowledge of the trip:
-  - [ ] we know the terminus from which a trip started, so the vehicle travels from the start terminus to the end terminus and then turns around
-  - [ ] use this information instead of the officially reported destination
-  - [ ] use the small white arrow on the dot to show the direction towards the end terminus (instead of the current bearing of the vehicle)
-- [ ] *priority:* this should be "server side" aka with the cache so that it's available instantly whenever anyone loads the page
+- [x] direction of travel should come *only* from our knowledge of the trip:
+  - [x] we know the terminus from which a trip started, so the vehicle travels from the start terminus to the end terminus and then turns around
+  - [x] use this information instead of the officially reported destination
+  - [x] use the small white arrow on the dot to show the direction towards the end terminus (instead of the current bearing of the vehicle)
+- [x] *priority:* this should be "server side" aka with the cache so that it's available instantly whenever anyone loads the page
 
 ### Stops
 - [ ] stops should be a little larger / easier to click on (especially on mobile)

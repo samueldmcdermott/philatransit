@@ -481,7 +481,8 @@ async function fetchNow() {
       const results = await Promise.all(
         apiIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
       );
-      vehicles = processTransitData(results.flatMap(r => r?.bus || []), selectedRoute.id, selectedRoute.multi);
+      const raw = results.flatMap(r => r?.bus || []);
+      vehicles = processTransitData(raw, selectedRoute.id, selectedRoute.multi);
     }
     updateVehicleHistory(vehicles);
     const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
@@ -546,6 +547,9 @@ function processTransitData(rawVehicles, routeId, isMulti) {
         dest:  v.destination || v.dest || '',
         late:  v.late != null ? +v.late : 0,
         heading: v.heading, lat: v.lat, lng: v.lng, trip: v.trip,
+        computed_heading: v.computed_heading,
+        computed_direction: v.computed_direction,
+        toward_terminus: v.toward_terminus,
         _routeLabel: isMulti ? actualRoute : null,
       };
     });
@@ -613,12 +617,12 @@ function renderVehicles(vehicles) {
       nextStop = nearestStop(lat, lng);
     }
 
-    const dir = headingLabel(v.heading);
+    const dir = v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
     const tags = [];
     if (v._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${v._routeLabel}</span>`);
     if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${v._direction || 'tunnel'}${v._leg === 'second' ? ' (return)' : ''}</span>`);
     else if (isTunneled) tags.push(`<span class="tag tag-tunnel">Underground</span>`);
-    if (dir)             tags.push(`<span class="tag">▷ ${dir}</span>`);
+    if (dir)             tags.push(`<span class="tag">→ ${dir}</span>`);
     if (v.trip)          tags.push(`<span class="tag">Trip #${v.trip}</span>`);
 
     const card = document.createElement('div');

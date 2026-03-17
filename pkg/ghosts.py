@@ -6,6 +6,8 @@ Runs every poll cycle.  Clients fetch /api/ghosts to get current state.
 import threading
 import time
 
+from .direction import is_heading_to_end
+
 _TUNNEL_ROUTES = {'T1', 'T2', 'T3', 'T4', 'T5'}
 _PORTALS = {
     'T1': (39.9553, -75.1942),
@@ -42,15 +44,28 @@ def _heading_east(dest):
     return any(k in d for k in _EASTBOUND_KW)
 
 
-def _check_portal(lat, lng, route, dest):
-    """Return direction if vehicle is near a portal heading into tunnel, else None."""
+def _check_portal(lat, lng, route, dest, vid=None):
+    """Return direction if vehicle is near a portal heading into tunnel, else None.
+
+    Uses computed direction from shape projection (via vid) with fallback
+    to destination-keyword detection.
+    """
+    # Determine if vehicle is heading east (toward 13th St / end terminus)
+    heading_east = None
+    if vid is not None:
+        computed = is_heading_to_end(vid)
+        if computed is not None:
+            heading_east = computed
+    if heading_east is None:
+        heading_east = _heading_east(dest)
+
     portal = _PORTALS.get(route)
     if portal:
         d = abs(lat - portal[0]) + abs(lng - portal[1])
-        if d < _LINGER_RADIUS and _heading_east(dest):
+        if d < _LINGER_RADIUS and heading_east:
             return 'eastbound'
     d_east = abs(lat - _TUNNEL_EAST[0]) + abs(lng - _TUNNEL_EAST[1])
-    if d_east < _LINGER_RADIUS and not _heading_east(dest):
+    if d_east < _LINGER_RADIUS and not heading_east:
         return 'westbound'
     return None
 
@@ -108,7 +123,7 @@ def process_tunnel_ghosts(transit_routes):
             if vid in _ghosts:
                 continue
 
-            direction = _check_portal(tv['lat'], tv['lng'], tv['route'], tv['dest'])
+            direction = _check_portal(tv['lat'], tv['lng'], tv['route'], tv['dest'], vid=vid)
             if direction is None:
                 _portal_linger.pop(vid, None)
                 _prev_positions[vid] = {
@@ -169,7 +184,7 @@ def process_tunnel_ghosts(transit_routes):
                 continue
             if prev['route'] not in _TUNNEL_ROUTES:
                 continue
-            direction = _check_portal(prev['lat'], prev['lng'], prev['route'], prev['dest'])
+            direction = _check_portal(prev['lat'], prev['lng'], prev['route'], prev['dest'], vid=vid)
             if direction is not None:
                 _ghost_cooldown[vid] = now
                 _ghosts[vid] = {

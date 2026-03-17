@@ -12,6 +12,7 @@ import requests as req
 
 from .helpers import SEPTA, SEPTA_V2, HEADERS
 from .ghosts import process_tunnel_ghosts
+from .direction import load_shapes, enrich_vehicles
 
 POLL_INTERVAL = 15  # seconds
 
@@ -42,6 +43,13 @@ def _poll_loop():
             for group in r.json().get("routes", []):
                 for route_id, vehicles in group.items():
                     by_route[route_id] = vehicles
+
+            # Enrich vehicles with computed direction & heading from shapes
+            try:
+                enrich_vehicles(by_route)
+            except Exception as e:
+                print(f"  [direction] enrichment error: {e}")
+
             with transit_lock:
                 transit_cache["routes"] = by_route
                 transit_cache["ts"] = time.time()
@@ -70,6 +78,7 @@ def _poll_loop():
 
 def start_poller():
     """Launch the background SEPTA data poller thread."""
+    load_shapes()
     t = threading.Thread(target=_poll_loop, daemon=True, name="SeptaCache")
     t.start()
     print("  [cache] SEPTA poller started")
