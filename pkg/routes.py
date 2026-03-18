@@ -11,7 +11,7 @@ from .cache import (
     transit_lock, transit_cache, trainview_lock, trainview_cache,
     is_gps_tracked, fetch_route_trips, fetch_trip_detail, fetch_alerts,
 )
-from .ghosts import get_ghost_list
+from .ghosts import get_ghost_list, get_lingering_vids
 from .tracker import tracker
 
 api = Blueprint("api", __name__)
@@ -150,7 +150,10 @@ def alerts():
 
 @api.route("/api/ghosts")
 def get_ghosts():
-    return jsonify(get_ghost_list())
+    return jsonify({
+        'ghosts': get_ghost_list(),
+        'lingering': get_lingering_vids(),
+    })
 
 
 # ── Stats ─────────────────────────────────────────────────────

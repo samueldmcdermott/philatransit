@@ -17,7 +17,7 @@ _PORTALS = {
     'T5': (39.949588, -75.203171),
 }
 _TUNNEL_EAST = (39.9525, -75.1626)
-_LINGER_RADIUS = 0.006
+_LINGER_RADIUS = 0.002
 _LINGER_TIME_S = 60
 _STATIONARY_THRESH = 0.0005
 _GHOST_MAX_AGE_S = 25 * 60
@@ -228,3 +228,13 @@ def get_ghost_list():
     """Return current ghosts as a list of dicts (for the /api/ghosts endpoint)."""
     with _ghost_lock:
         return [{**g, 'vid': vid} for vid, g in _ghosts.items()]
+
+
+def get_lingering_vids():
+    """Return set of vehicle IDs currently lingering near a portal.
+
+    These vehicles have frozen GPS near a portal and are about to enter the
+    tunnel, but haven't yet crossed the linger time threshold to become ghosts.
+    """
+    with _ghost_lock:
+        return {vid: info['direction'] for vid, info in _portal_linger.items()}

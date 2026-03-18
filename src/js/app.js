@@ -33,6 +33,7 @@ let vehicleHistory     = {};
 let ghostVehicles      = {};
 let ghostedVids        = {};
 let tunnelShapePaths   = {};
+let lingeringVids      = {};  // vid → direction ('eastbound'|'westbound')
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
@@ -489,8 +490,9 @@ async function fetchNow() {
     // Sync ghost state from server (server tracks tunnel entries centrally)
     if (isTunnelRoute) {
       try {
-        const serverGhosts = await apiFetch('/api/ghosts');
-        syncServerGhosts(serverGhosts);
+        const ghostResp = await apiFetch('/api/ghosts');
+        syncServerGhosts(ghostResp.ghosts || ghostResp);
+        lingeringVids = ghostResp.lingering || {};
       } catch (_) {}
     }
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];

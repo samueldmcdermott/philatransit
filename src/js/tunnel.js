@@ -190,7 +190,7 @@ function getTunnelClosureStatus() {
 // ── Tunnel estimation constants ────────────────────────────────────────────
 const HISTORY_LEN         = 6;       // keep more history for linger detection
 const GHOST_MAX_AGE_MS    = 25 * 60 * 1000;
-const LINGER_RADIUS       = 0.006;   // distance to portal to be "near" it
+const LINGER_RADIUS       = 0.002;   // distance to portal to be "near" it (east end of yard only)
 const LINGER_TIME_MS      = 60000;   // 60s of frozen GPS to trigger ghost
 const STATIONARY_THRESH   = 0.0005;  // max position change to count as "frozen"
 
@@ -429,10 +429,13 @@ function syncServerGhosts(serverGhosts) {
     const mid = ghostPosition(midElapsed, ghostVehicles[vid]);
 
     const g = ghostVehicles[vid];
-    if (fore.done && aft.done) {
+    // Westbound: if aft has reached the portal (fraction 1.0), linger at portal
+    const wbAftAtPortal = sg.direction === 'westbound' && aft.fraction >= 1.0;
+    if ((fore.done && aft.done) || wbAftAtPortal) {
       const exitPos = sg.direction === 'eastbound' ? TUNNEL_EAST_END : PORTALS[sg.route];
       if (exitPos) { g._lingersAtPortal = true; g.lat = exitPos.lat; g.lng = exitPos.lng; }
     } else {
+      g._lingersAtPortal = false;
       g.lat = mid.pos.lat; g.lng = mid.pos.lng;
       g.fraction = mid.fraction; g.currentDirection = mid.direction; g.leg = mid.leg;
       g.aftPos = aft.pos; g.forePos = fore.pos; g.midPos = mid.pos;
@@ -466,6 +469,17 @@ function ghostPosition(elapsedSec, ghost) {
     path = ghost.direction === 'eastbound' ? ghost.pathEW : ghost.pathWE;
   }
   fraction = Math.min(fraction, 1.0);
+
+  // Westbound ghosts: clamp position at portal (never pass west of it)
+  // The westbound first-leg path goes east→west, so fraction 1.0 = portal.
+  // On second leg the ghost would go back east — but the trolley emerges instead.
+  if (ghost.direction === 'westbound' && leg === 'second') {
+    fraction = 1.0;
+    path = ghost.pathEW;  // use first-leg path
+    leg = 'first';
+    direction = 'westbound';
+  }
+
   const done = fraction >= 1.0 && elapsedSec > ghost.halfTime * 2;
   const pos = pointAlongPath(path, fraction);
   return { pos, fraction, direction, leg, path, done };
@@ -549,6 +563,7 @@ function getGhostVehicles() {
     _enterLat:  g._entryLat,
     _enterLng:  g._entryLng,
     _enterTs:   g.enterTs,
+    _lingersAtPortal: g._lingersAtPortal || false,
   }));
 }
 

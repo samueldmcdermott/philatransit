@@ -262,8 +262,9 @@ async function refreshMapVehicles() {
     const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
     if (isTunnelRoute) {
       try {
-        const serverGhosts = await apiFetch('/api/ghosts');
-        syncServerGhosts(serverGhosts);
+        const ghostResp = await apiFetch('/api/ghosts');
+        syncServerGhosts(ghostResp.ghosts || ghostResp);
+        lingeringVids = ghostResp.lingering || {};
       } catch (_) {}
     }
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
@@ -299,6 +300,27 @@ function ghostIcon(color) {
     html: `<svg width="24" height="24" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="7" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3"/>
       <circle cx="12" cy="12" r="3" fill="#93c5fd" opacity="0.8"/>
+    </svg>`,
+    iconSize: [24, 24], iconAnchor: [12, 12],
+  });
+}
+
+function lingerSolidIcon(color) {
+  return L.divIcon({
+    className: 'linger-marker',
+    html: `<svg width="24" height="24" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8" fill="${color}" stroke="#0c0e12" stroke-width="2" opacity="0.85"/>
+    </svg>`,
+    iconSize: [24, 24], iconAnchor: [12, 12],
+  });
+}
+
+function lingerDashedIcon(color) {
+  return L.divIcon({
+    className: 'linger-marker',
+    html: `<svg width="24" height="24" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="7" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" opacity="0.85"/>
+      <circle cx="12" cy="12" r="3" fill="${color}" opacity="0.7"/>
     </svg>`,
     iconSize: [24, 24], iconAnchor: [12, 12],
   });
@@ -357,22 +379,34 @@ function updateVehiclesOnMap(vehicles) {
       }
     }
 
+    // Determine marker icon based on vehicle state
+    const isLingering = !isGhost && lingeringVids[v._id];
+    const isPortalLinger = isGhost && v._lingersAtPortal;
+
+    function pickIcon() {
+      if (isLingering) return lingerSolidIcon(color);
+      if (isPortalLinger) return lingerDashedIcon(color);
+      if (isGhost) return ghostIcon(color);
+      const hdg = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
+      return realIcon(color, hdg);
+    }
+
+    const markerState = isPortalLinger ? 'portal-linger' : isLingering ? 'linger' : isGhost ? 'ghost' : 'real';
+
     if (vehicleMarkers[v._id]) {
       vehicleMarkers[v._id].setLatLng([lat, lng]).setPopupContent(popupHtml);
-      if (isGhost && !vehicleMarkers[v._id]._isGhost) {
-        vehicleMarkers[v._id].setIcon(ghostIcon(color));
-        vehicleMarkers[v._id]._isGhost = true;
-      } else if (!isGhost && vehicleMarkers[v._id]._isGhost) {
-        const heading = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
-        vehicleMarkers[v._id].setIcon(realIcon(color, heading));
-        vehicleMarkers[v._id]._isGhost = false;
+      if (vehicleMarkers[v._id]._markerState !== markerState) {
+        vehicleMarkers[v._id].setIcon(pickIcon());
+        vehicleMarkers[v._id]._markerState = markerState;
+        vehicleMarkers[v._id]._isGhost = isGhost || isPortalLinger;
       }
     } else {
-      const icon = isGhost ? ghostIcon(color) : realIcon(color, v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0));
+      const icon = pickIcon();
       const m = L.marker([lat, lng], { icon })
         .bindPopup(popupHtml, { className: 'map-vehicle-popup' })
         .addTo(vehicleLayerGroup);
-      m._isGhost = isGhost;
+      m._isGhost = isGhost || isPortalLinger;
+      m._markerState = markerState;
       vehicleMarkers[v._id] = m;
     }
   }

@@ -26,7 +26,6 @@
 - [x] 33rd St should be included as a stop for _every_ trolley route
 - [x] the T2, T3, T4, T5 should _not_ by the 36th St portal near 36th and Ludlow but should _instead_ pass through a stop at 36th and Sansom (only the T1 passes 36th and Ludlow)
 - [x] the T2, T3, T4, T5 should continue to stop at 37th and Spruce
-- [ ] show stops for all bus routes (currently shown on some but not all)
 
 ### West terminus trolley behavior
 - [ ] on the official app, some trolleys at the western termini are about to embark on eastbound trips
@@ -34,12 +33,11 @@
 - [ ] before these start, show them as a solid dot that shrinks and expands
 
 ### Tunnel entrance and reappearance
-- [ ] trains move slowly through the yard near the portal; don't mistake this slow motion for tunnel entry
-- [ ] the "lingering" phenomenon that determines the entry to the tunnel should only happen at the very east end of the yard
-- [ ] eastbound trolleys that are currently determined to be lingering should linger as a solid dot that shrinks and expands
-- [ ] the estimated position of a westbound trolley which is underground should _never_ pass west of the actual portal on the east side of the yard
-- [ ] if the estimated position of a westbound trolley is at the portal or near 40th St, it should linger as a dashed dot that shrinks and expands
-- [ ] make the default opacity 55% instead of 35%
+- [x] trains move slowly through the yard near the portal; don't mistake this slow motion for tunnel entry
+- [x] the "lingering" phenomenon that determines the entry to the tunnel should only happen at the very east end of the yard
+- [x] eastbound trolleys that are currently determined to be lingering should linger as a solid dot that shrinks and expands
+- [x] the estimated position of a westbound trolley which is underground should _never_ pass west of the actual portal on the east side of the yard
+- [x] if the estimated aft position of a westbound trolley is at the portal (which is as far as it should be allowed to go), it should linger as a dashed dot that shrinks and expands
 
 ### Diversion logic
 - [ ] reexamine the alerts API to see if there's a better way to do this than by keywords
@@ -47,3 +45,7 @@
   - [ ] show banner as red regardless of announcement
   - [ ] if no pertinent alert, say "Trolley tunnel closed (unofficial)"
   - [ ] if pertinent alert, say "Trolley tunnel closed; reopening <time>" where <time> is TBD if no reopening is noted in the alert and time is given if sufficient information
+
+### General
+- [ ] make the default opacity 55% instead of 35%
+- [ ] show stops for all bus routes (currently shown on some but not all)
