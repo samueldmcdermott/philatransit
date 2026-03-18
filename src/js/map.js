@@ -286,43 +286,43 @@ async function refreshMapVehicles() {
 function realIcon(color, heading) {
   return L.divIcon({
     className: '',
-    html: `<svg width="24" height="24" viewBox="0 0 24 24" style="transform:rotate(${heading}deg)">
-      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-      <polygon points="12,7 9.5,12.5 12,11 14.5,12.5" fill="black" opacity="0.8"/>
+    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
+      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+      <polygon points="15,8.8 11.9,15.6 15,13.8 18.1,15.6" fill="black" opacity="0.8"/>
     </svg>`,
-    iconSize: [24, 24], iconAnchor: [12, 12],
+    iconSize: [30, 30], iconAnchor: [15, 15],
   });
 }
 
 function ghostIcon(color) {
   return L.divIcon({
     className: 'ghost-marker-svg',
-    html: `<svg width="24" height="24" viewBox="0 0 24 24">
-      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
-      <circle cx="12" cy="12" r="3" fill="#93c5fd" opacity="0.8"/>
+    html: `<svg width="30" height="30" viewBox="0 0 30 30">
+      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+      <circle cx="15" cy="15" r="3.75" fill="#93c5fd" opacity="0.8"/>
     </svg>`,
-    iconSize: [24, 24], iconAnchor: [12, 12],
+    iconSize: [30, 30], iconAnchor: [15, 15],
   });
 }
 
 function lingerSolidIcon(color) {
   return L.divIcon({
     className: 'linger-marker',
-    html: `<svg width="24" height="24" viewBox="0 0 24 24">
-      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round" opacity="0.85"/>
+    html: `<svg width="30" height="30" viewBox="0 0 30 30">
+      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round" opacity="0.85"/>
     </svg>`,
-    iconSize: [24, 24], iconAnchor: [12, 12],
+    iconSize: [30, 30], iconAnchor: [15, 15],
   });
 }
 
 function lingerDashedIcon(color) {
   return L.divIcon({
     className: 'linger-marker',
-    html: `<svg width="24" height="24" viewBox="0 0 24 24">
-      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
-      <circle cx="12" cy="12" r="3" fill="${color}" opacity="0.7"/>
+    html: `<svg width="30" height="30" viewBox="0 0 30 30">
+      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
+      <circle cx="15" cy="15" r="3.75" fill="${color}" opacity="0.7"/>
     </svg>`,
-    iconSize: [24, 24], iconAnchor: [12, 12],
+    iconSize: [30, 30], iconAnchor: [15, 15],
   });
 }
 
