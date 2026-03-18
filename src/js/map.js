@@ -287,8 +287,8 @@ function realIcon(color, heading) {
   return L.divIcon({
     className: '',
     html: `<svg width="24" height="24" viewBox="0 0 24 24" style="transform:rotate(${heading}deg)">
-      <circle cx="12" cy="12" r="8" fill="${color}" stroke="#0c0e12" stroke-width="2"/>
-      <polygon points="12,2 15,9 12,7 9,9" fill="white" opacity="0.9"/>
+      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+      <polygon points="12,7 9.5,12.5 12,11 14.5,12.5" fill="black" opacity="0.8"/>
     </svg>`,
     iconSize: [24, 24], iconAnchor: [12, 12],
   });
@@ -298,7 +298,7 @@ function ghostIcon(color) {
   return L.divIcon({
     className: 'ghost-marker-svg',
     html: `<svg width="24" height="24" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="7" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3"/>
+      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
       <circle cx="12" cy="12" r="3" fill="#93c5fd" opacity="0.8"/>
     </svg>`,
     iconSize: [24, 24], iconAnchor: [12, 12],
@@ -309,7 +309,7 @@ function lingerSolidIcon(color) {
   return L.divIcon({
     className: 'linger-marker',
     html: `<svg width="24" height="24" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="8" fill="${color}" stroke="#0c0e12" stroke-width="2" opacity="0.85"/>
+      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round" opacity="0.85"/>
     </svg>`,
     iconSize: [24, 24], iconAnchor: [12, 12],
   });
@@ -319,7 +319,7 @@ function lingerDashedIcon(color) {
   return L.divIcon({
     className: 'linger-marker',
     html: `<svg width="24" height="24" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="7" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" opacity="0.85"/>
+      <polygon points="12,3.6 4.7,16.2 19.3,16.2" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
       <circle cx="12" cy="12" r="3" fill="${color}" opacity="0.7"/>
     </svg>`,
     iconSize: [24, 24], iconAnchor: [12, 12],
@@ -382,12 +382,12 @@ function updateVehiclesOnMap(vehicles) {
     // Determine marker icon based on vehicle state
     const isLingering = !isGhost && lingeringVids[v._id];
     const isPortalLinger = isGhost && v._lingersAtPortal;
+    const hdg = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
 
     function pickIcon() {
       if (isLingering) return lingerSolidIcon(color);
       if (isPortalLinger) return lingerDashedIcon(color);
       if (isGhost) return ghostIcon(color);
-      const hdg = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
       return realIcon(color, hdg);
     }
 
@@ -395,10 +395,12 @@ function updateVehiclesOnMap(vehicles) {
 
     if (vehicleMarkers[v._id]) {
       vehicleMarkers[v._id].setLatLng([lat, lng]).setPopupContent(popupHtml);
-      if (vehicleMarkers[v._id]._markerState !== markerState) {
+      if (vehicleMarkers[v._id]._markerState !== markerState ||
+          (markerState === 'real' && vehicleMarkers[v._id]._lastHeading !== hdg)) {
         vehicleMarkers[v._id].setIcon(pickIcon());
         vehicleMarkers[v._id]._markerState = markerState;
         vehicleMarkers[v._id]._isGhost = isGhost || isPortalLinger;
+        vehicleMarkers[v._id]._lastHeading = hdg;
       }
     } else {
       const icon = pickIcon();
@@ -407,6 +409,7 @@ function updateVehiclesOnMap(vehicles) {
         .addTo(vehicleLayerGroup);
       m._isGhost = isGhost || isPortalLinger;
       m._markerState = markerState;
+      m._lastHeading = hdg;
       vehicleMarkers[v._id] = m;
     }
   }
