@@ -293,10 +293,10 @@ function realIcon(color, heading) {
   });
 }
 
-function ghostIcon(color) {
+function ghostIcon(color, heading) {
   return L.divIcon({
     className: 'ghost-marker-svg',
-    html: `<svg width="30" height="30" viewBox="0 0 30 30">
+    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
       <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round"/>
       <circle cx="15" cy="15" r="3.75" fill="#93c5fd" opacity="0.8"/>
     </svg>`,
@@ -304,20 +304,20 @@ function ghostIcon(color) {
   });
 }
 
-function lingerSolidIcon(color) {
+function lingerSolidIcon(color, heading) {
   return L.divIcon({
     className: 'linger-marker',
-    html: `<svg width="30" height="30" viewBox="0 0 30 30">
+    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
       <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="${color}" stroke="white" stroke-width="1.8" stroke-linejoin="round" opacity="0.85"/>
     </svg>`,
     iconSize: [30, 30], iconAnchor: [15, 15],
   });
 }
 
-function lingerDashedIcon(color) {
+function lingerDashedIcon(color, heading) {
   return L.divIcon({
     className: 'linger-marker',
-    html: `<svg width="30" height="30" viewBox="0 0 30 30">
+    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
       <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
       <circle cx="15" cy="15" r="3.75" fill="${color}" opacity="0.7"/>
     </svg>`,
@@ -381,12 +381,16 @@ function updateVehiclesOnMap(vehicles) {
     // Determine marker icon based on vehicle state
     const isLingering = !isGhost && lingeringVids[v._id];
     const isPortalLinger = isGhost && v._lingersAtPortal;
-    const hdg = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
+    let hdg = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
+    // For ghost/linger vehicles without a heading, derive from direction
+    if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
+      hdg = v._direction === 'eastbound' ? 90 : 270;
+    }
 
     function pickIcon() {
-      if (isLingering) return lingerSolidIcon(color);
-      if (isPortalLinger) return lingerDashedIcon(color);
-      if (isGhost) return ghostIcon(color);
+      if (isLingering) return lingerSolidIcon(color, hdg);
+      if (isPortalLinger) return lingerDashedIcon(color, hdg);
+      if (isGhost) return ghostIcon(color, hdg);
       return realIcon(color, hdg);
     }
 
@@ -395,7 +399,7 @@ function updateVehiclesOnMap(vehicles) {
     if (vehicleMarkers[v._id]) {
       vehicleMarkers[v._id].setLatLng([lat, lng]).setPopupContent(popupHtml);
       if (vehicleMarkers[v._id]._markerState !== markerState ||
-          (markerState === 'real' && vehicleMarkers[v._id]._lastHeading !== hdg)) {
+          vehicleMarkers[v._id]._lastHeading !== hdg) {
         vehicleMarkers[v._id].setIcon(pickIcon());
         vehicleMarkers[v._id]._markerState = markerState;
         vehicleMarkers[v._id]._isGhost = isGhost || isPortalLinger;
@@ -477,7 +481,16 @@ function getRoutePathIndex(routeKey) {
     const ci = spur.cutoffIndex;
     shapeCoords = spur.end === 'start' ? shapeCoords.slice(ci) : shapeCoords.slice(0, ci + 1);
   }
-  const path = shapeCoords.map(c => ({ lat: c[0], lng: c[1] }));
+  let path = shapeCoords.map(c => ({ lat: c[0], lng: c[1] }));
+  // Orient shape so index 0 = start (outer) terminus, matching server orientation.
+  // Without this, movingForward can be inverted for routes like T3/T5 whose raw
+  // GTFS shapes run in the opposite direction from the server's convention.
+  const term = SHAPE_TERMINI[routeKey];
+  if (term && path.length >= 2) {
+    const d0 = distLatLng(path[0], { lat: term.startLat, lng: term.startLng });
+    const dn = distLatLng(path[path.length - 1], { lat: term.startLat, lng: term.startLng });
+    if (dn < d0) path = path.slice().reverse();
+  }
   const cumDist = [0];
   for (let i = 1; i < path.length; i++) {
     cumDist.push(cumDist[i - 1] + distLatLng(path[i - 1], path[i]));
@@ -553,6 +566,10 @@ function computeStopArrivals(stop, vehicles, now) {
       const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
       if (!vehProj) continue;
 
+      // Always use server-provided direction when available (shape-oriented,
+      // consistent with server's terminus conventions)
+      const hasServerDir = !isGhost && v.computed_direction != null;
+
       // Prefer server-provided speed data (available instantly, no warmup)
       if (!isGhost && v.speed_mps != null && v.dist_along != null && v.first_dist_along != null) {
         D_cs = Math.abs(v.dist_along - v.first_dist_along);
@@ -587,7 +604,10 @@ function computeStopArrivals(stop, vehicles, now) {
         D_cs = Math.abs(vehProj.distAlong - startProj.distAlong);
         if (D_cs < 50) continue;
 
-        movingForward = vehProj.distAlong >= startProj.distAlong;
+        // Use server direction when available; fall back to client projection
+        movingForward = hasServerDir
+          ? v.computed_direction !== 'reverse'
+          : vehProj.distAlong >= startProj.distAlong;
       }
       const D_ch = movingForward
         ? stopProj.distAlong - vehProj.distAlong
@@ -646,22 +666,15 @@ function computeStopArrivals(stop, vehicles, now) {
       // through ALL tunnel stops.  This applies to stops both behind AND
       // ahead of the vehicle (stops ahead get both a direct eastbound
       // arrival and a later westbound turnaround arrival).
-      // 13th & Market is at the END of the shape for T1/T2/T4,
-      // and at the START of the shape for T3/T5.
+      // With oriented shapes, 13th St (inner terminus) is always at the
+      // END of the shape (high distAlong) for all trolley routes.
       if (TUNNEL_ROUTES.has(rk) && rk !== 'T-ALL' && !isGhost) {
-        const terminusAtEnd = (rk === 'T1' || rk === 'T2' || rk === 'T4');
-        const headingToTerminus = terminusAtEnd ? movingForward : !movingForward;
+        // movingForward = heading toward end of shape = toward 13th St
+        const headingToTerminus = movingForward;
         if (headingToTerminus) {
-          let D_turn;
-          if (terminusAtEnd) {
-            const toEnd = pathIdx.totalLen - vehProj.distAlong;
-            const endToStop = pathIdx.totalLen - stopProj.distAlong;
-            D_turn = toEnd + endToStop;
-          } else {
-            const toStart = vehProj.distAlong;
-            const startToStop = stopProj.distAlong;
-            D_turn = toStart + startToStop;
-          }
+          const toEnd = pathIdx.totalLen - vehProj.distAlong;
+          const endToStop = pathIdx.totalLen - stopProj.distAlong;
+          const D_turn = toEnd + endToStop;
           // Skip if stop is at/near the terminus itself (no westbound re-arrival)
           if (D_turn > 100) {
             const T_turn = T_s * D_turn / D_cs;
@@ -687,7 +700,12 @@ function computeStopArrivals(stop, vehicles, now) {
     }
   }
 
-  return arrivals.sort((a, b) => a.T_star - b.T_star);
+  // Sort by best available time: official (server) when present, else calc
+  return arrivals.sort((a, b) => {
+    const ta = a.T_official != null ? a.T_official : a.T_star;
+    const tb = b.T_official != null ? b.T_official : b.T_star;
+    return ta - tb;
+  });
 }
 
 function stopKey(stop) {
@@ -778,20 +796,27 @@ function formatOneArrival(a, showRoute, dirLabels) {
   const color = getRouteColor(a.route) || selectedRoute?.color || '#2f69f3';
   const routeBadge = `<span style="background:${color};color:#000;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:600;margin-right:4px;">${a.route}</span>`;
 
-  let calcText;
-  if (a.isGhost && a.T_low != null && a.T_high != null) {
+  // Primary: use official (server-cached) prediction when available
+  const hasOfficial = !a.isGhost && a.T_official != null;
+
+  let primaryText;
+  if (hasOfficial) {
+    const statusColor = (a.officialStatus === 'ON-TIME' || a.officialStatus === 'EARLY') ? '#22c55e' : a.officialStatus === 'LATE' ? '#f59e0b' : '#e0e8f0';
+    primaryText = `<span style="color:${statusColor}">${Math.round(a.T_official)} min</span>`;
+  } else if (a.isGhost && a.T_low != null && a.T_high != null) {
     const lo = Math.round(a.T_low);
     const hi = Math.round(a.T_high);
-    calcText = lo === hi ? `${lo} min` : `${lo}–${hi} min`;
+    primaryText = lo === hi ? `${lo} min` : `${lo}–${hi} min`;
   } else {
-    calcText = `${Math.round(a.T_star)} min`;
+    primaryText = `${Math.round(a.T_star)} min`;
   }
 
-  // Official from SEPTA v2 stop-schedule + live delay
-  let officialText = '–';
-  if (!a.isGhost && a.T_official != null) {
-    const statusColor = (a.officialStatus === 'ON-TIME' || a.officialStatus === 'EARLY') ? '#22c55e' : a.officialStatus === 'LATE' ? '#f59e0b' : '#78818c';
-    officialText = `<span style="color:${statusColor}">${Math.round(a.T_official)} min</span>`;
+  // Secondary: show calc estimate for comparison when official is available
+  let secondaryText = '';
+  if (hasOfficial) {
+    secondaryText = ` <span style="color:#555;font-size:9px;">(calc. ${Math.round(a.T_star)})</span>`;
+  } else if (!a.isGhost) {
+    secondaryText = ' <span style="color:#555;font-size:9px;">(est.)</span>';
   }
 
   const dirLabel = a.dirFwd ? dirLabels.fwd : dirLabels.rev;
@@ -799,7 +824,7 @@ function formatOneArrival(a, showRoute, dirLabels) {
 
   let html = `<div style="margin-bottom:4px;border-bottom:1px solid #25292f;padding-bottom:3px;">`;
   html += `<div style="font-size:11px;">${routeBadge}<b>${a.dest}</b> <span style="color:#555;font-size:9px;">${dirLabel}</span>${turnTag}</div>`;
-  html += `<div style="font-size:10px;color:#78818c;">${calcText} <span style="color:#555">(calc.)</span> · ${officialText} <span style="color:#555">(official)</span></div>`;
+  html += `<div style="font-size:10px;color:#78818c;">${primaryText}${secondaryText}</div>`;
   html += `</div>`;
   return html;
 }

@@ -109,10 +109,24 @@ const DETOUR_PATH_EB = [
   [39.948129,-75.221790],
 ];
 
+// ── Terminus coordinates (must match server's direction.py TERMINI) ────────
+// Used to orient client-side shapes so index 0 = start (outer) terminus,
+// ensuring movingForward matches the server's computed_direction.
+const SHAPE_TERMINI = {
+  T1: { startLat: 39.9838, startLng: -75.2460, endLat: 39.9525, endLng: -75.1626 },
+  T2: { startLat: 39.9440, startLng: -75.2463, endLat: 39.9525, endLng: -75.1626 },
+  T3: { startLat: 39.9191, startLng: -75.2624, endLat: 39.9525, endLng: -75.1626 },
+  T4: { startLat: 39.9171, startLng: -75.2464, endLat: 39.9525, endLng: -75.1626 },
+  T5: { startLat: 39.9140, startLng: -75.2426, endLat: 39.9525, endLng: -75.1626 },
+  G1: { startLat: 39.9702, startLng: -75.2446, endLat: 39.9843, endLng: -75.0996 },
+  MFL: { startLat: 39.9623, startLng: -75.2586, endLat: 40.0229, endLng: -75.0779 },
+  BSL: { startLat: 39.9054, startLng: -75.1739, endLat: 40.0419, endLng: -75.1368 },
+};
+
 // ── Route spur definitions ──────────────────────────────────────────────
 // Spurs are sections of the GTFS shape used for vehicle supply/storage,
 // not revenue service.  Drawn as thin lines with no stops.
-// Each entry: { route, end: 'start'|'end', cutoffIndex }
+// Each entry: { end: 'start'|'end', cutoffIndex }
 // 'start' means indices 0..cutoffIndex are the spur;
 // 'end' means indices cutoffIndex..last are the spur.
 const ROUTE_SPURS = {
