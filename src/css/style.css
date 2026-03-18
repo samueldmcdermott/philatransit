@@ -118,9 +118,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .ghost-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em;
   color: #93c5fd; margin-bottom: 2px; }
 @keyframes ghost-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-.ghost-marker-svg { animation: ghost-pulse 2s ease-in-out infinite; }
+.ghost-marker-svg svg { animation: ghost-pulse 2s ease-in-out infinite; }
 @keyframes linger-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.55); } }
-.linger-marker { animation: linger-pulse 1.5s ease-in-out infinite; transform-origin: center; }
+.linger-marker svg { animation: linger-pulse 1.5s ease-in-out infinite; transform-origin: center; }
 
 .vcard-dest { font-size: 12px; color: var(--muted); margin-top: 7px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
