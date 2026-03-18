@@ -668,9 +668,21 @@ function renderVehicles(vehicles) {
 
 function updateTunnelClosureBanner() {
   const status = getTunnelClosureStatus();
-  const label = status === 'official' ? 'Tunnel closed (official)' : 'Tunnel closed (likely)';
-  const cls = status === 'official' ? 'tunnel-closure-banner official' : 'tunnel-closure-banner likely';
-  const content = `<span class="tunnel-closure-icon">&#x26A0;</span> ${label} — trolleys operating on surface detour`;
+
+  let label, cls, mapCls;
+  if (status) {
+    if (status.alert) {
+      const timeStr = status.reopenTime ? status.reopenTime : 'TBD';
+      label = `Trolley tunnel closed; reopening ${timeStr}`;
+    } else {
+      label = 'Trolley tunnel closed (unofficial)';
+    }
+    // Always red when trolleys are in the diversion loop or alert confirms closure
+    cls = 'tunnel-closure-banner official';
+    mapCls = 'tunnel-closure-map-banner official';
+  }
+
+  const content = status ? `<span class="tunnel-closure-icon">&#x26A0;</span> ${label}` : '';
 
   // Live panel: insert as first child
   let liveBanner = document.getElementById('tunnelClosureBanner_live');
@@ -699,8 +711,7 @@ function updateTunnelClosureBanner() {
       mapBanner.className = 'tunnel-closure-map-banner';
       document.getElementById('mapPanel').appendChild(mapBanner);
     }
-    const bannerCls = status === 'official' ? 'tunnel-closure-map-banner official' : 'tunnel-closure-map-banner likely';
-    mapBanner.className = bannerCls;
+    mapBanner.className = mapCls;
     mapBanner.innerHTML = content;
     mapBanner.style.display = '';
   }

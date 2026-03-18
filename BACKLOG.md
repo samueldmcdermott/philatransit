@@ -40,11 +40,11 @@
 - [x] if the estimated aft position of a westbound trolley is at the portal (which is as far as it should be allowed to go), it should linger as a dashed dot that shrinks and expands
 
 ### Diversion logic
-- [ ] reexamine the alerts API to see if there's a better way to do this than by keywords
-- [ ] if trolleys are _currently in_ the diversion loop:
-  - [ ] show banner as red regardless of announcement
-  - [ ] if no pertinent alert, say "Trolley tunnel closed (unofficial)"
-  - [ ] if pertinent alert, say "Trolley tunnel closed; reopening <time>" where <time> is TBD if no reopening is noted in the alert and time is given if sufficient information
+- [x] reexamine the alerts API to see if there's a better way to do this than by keywords
+- [x] if trolleys are _currently in_ the diversion loop:
+  - [x] show banner as red regardless of announcement
+  - [x] if no pertinent alert, say "Trolley tunnel closed (unofficial)"
+  - [x] if pertinent alert, say "Trolley tunnel closed; reopening <time>" where <time> is TBD if no reopening is noted in the alert and time is given if sufficient information
 
 ### General
 - [ ] make the default opacity 55% instead of 35%
