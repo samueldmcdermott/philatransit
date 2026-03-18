@@ -550,6 +550,11 @@ function processTransitData(rawVehicles, routeId, isMulti) {
         computed_heading: v.computed_heading,
         computed_direction: v.computed_direction,
         toward_terminus: v.toward_terminus,
+        dist_along: v.dist_along,
+        first_seen_ts: v.first_seen_ts,
+        first_dist_along: v.first_dist_along,
+        speed_mps: v.speed_mps,
+        shape_total_len: v.shape_total_len,
         _routeLabel: isMulti ? actualRoute : null,
       };
     });

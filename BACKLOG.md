@@ -18,14 +18,20 @@
 - [x] *priority:* this should be "server side" aka with the cache so that it's available instantly whenever anyone loads the page
 
 ### Stops
-- [ ] stops should be a little larger / easier to click on (especially on mobile)
-- [ ] next-to-arrive logic should improve
-  - [ ] *priority:* this should be "server side" aka with the cache so that it's available instantly whenever anyone loads the page
-  - [ ] make sure the "reflection" behavior after a trolley reaches 13th & Market is properly implemented and accounts for all westbound trolley trips
-  - [ ] make sure the fore/aft timing difference is self-consistent, ie the gap in estimated arrival times is based on the time to traverse the fore/aft distance
-- [ ] 33rd St currently is not listed as stop for T2, T3, T4, T5 but it should be
-- [ ] conversely, T2, T3, T4, T5 routes are depicted as passing by the 36th St portal but should _not_ be
+- [x] stops should be a little larger / easier to click on (especially on mobile)
+- [x] next-to-arrive logic should improve
+  - [x] *priority:* this should be "server side" aka with the cache so that it's available instantly whenever anyone loads the page
+  - [x] make sure the "reflection" behavior after a trolley reaches 13th & Market is properly implemented and is accounted for as a westbound trolley arrival at all other stations
+  - [x] make sure the fore/aft timing difference is self-consistent, ie the gap in estimated arrival times is based on the time to traverse the fore/aft distance
+- [x] 33rd St should be included as a stop for _every_ trolley route
+- [x] the T2, T3, T4, T5 should _not_ by the 36th St portal near 36th and Ludlow but should _instead_ pass through a stop at 36th and Sansom (only the T1 passes 36th and Ludlow)
+- [x] the T2, T3, T4, T5 should continue to stop at 37th and Spruce
 - [ ] show stops for all bus routes (currently shown on some but not all)
+
+### West terminus trolley behavior
+- [ ] on the official app, some trolleys at the western termini are about to embark on eastbound trips
+- [ ] figure out which trolleys that have finished a complete loop and are near the western terminus are about to start a new trip
+- [ ] before these start, show them as a solid dot that shrinks and expands
 
 ### Tunnel entrance and reappearance
 - [ ] trains move slowly through the yard near the portal; don't mistake this slow motion for tunnel entry

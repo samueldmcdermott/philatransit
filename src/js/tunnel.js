@@ -5,8 +5,9 @@ const TUNNEL_ROUTES = new Set(['T1','T2','T3','T4','T5','T-ALL']);
 
 const TUNNEL_STOPS = [
   { name:'40th St Portal', lat:39.949588, lng:-75.203171 },
-  { name:'37th-Spruce',    lat:39.9510, lng:-75.1966 },
-  { name:'36th-Sansom',    lat:39.9539, lng:-75.1945 },
+  { name:'37th & Spruce',  lat:39.9510, lng:-75.1969 },
+  { name:'36th & Sansom',  lat:39.9539, lng:-75.1947 },
+  { name:'36th St Portal', lat:39.9553, lng:-75.1942 },
   { name:'33rd St',        lat:39.9548, lng:-75.1895 },
   { name:'30th St',        lat:39.9548, lng:-75.1835 },
   { name:'22nd St',        lat:39.9540, lng:-75.1767 },
@@ -41,8 +42,9 @@ const TUNNEL_40TH = [
   {name:'19th St',           lat:39.9533, lng:-75.1716},
   {name:'22nd St',           lat:39.9540, lng:-75.1767},
   {name:'30th St',           lat:39.9548, lng:-75.1835},
-  {name:'36th-Sansom',       lat:39.9539, lng:-75.1945},
-  {name:'37th-Spruce',       lat:39.9510, lng:-75.1966},
+  {name:'33rd St',           lat:39.9548, lng:-75.1895},
+  {name:'36th & Sansom',     lat:39.9539, lng:-75.1947},
+  {name:'37th & Spruce',     lat:39.9510, lng:-75.1969},
   {name:'40th St Portal',    lat:39.949588, lng:-75.203171},
 ];
 

@@ -118,7 +118,7 @@ async function drawMap() {
     const underground = isPointUnderground(rk, s.lat, s.lng);
     if (!s.stopId) s.stopId = findNearestStopId(s.lat, s.lng);
     const marker = L.circleMarker([s.lat, s.lng], {
-      radius: 4, color: '#0c0e12', weight: 1.5,
+      radius: 7, color: '#0c0e12', weight: 1.5,
       fillColor: underground ? '#4a7fff' : sc, fillOpacity: 0.9,
     }).bindPopup(`<b>${s.name}</b>${underground ? '<br><i>Underground</i>' : ''}`);
     stopLayerGroup.addLayer(marker);
@@ -511,31 +511,48 @@ function computeStopArrivals(stop, vehicles, now) {
       if (isNaN(lat) || isNaN(lng)) continue;
 
       const isGhost = v._ghost === true;
-      let startLat, startLng, T_s_ms;
+      let D_cs, T_s, movingForward;
+      let useServerSpeed = false;
 
-      if (isGhost) {
-        startLat = v._enterLat;
-        startLng = v._enterLng;
-        T_s_ms = now - v._enterTs;
-      } else {
-        const reg = liveRegistry[v._id];
-        if (!reg || reg.firstLat == null) continue;
-        startLat = reg.firstLat;
-        startLng = reg.firstLng;
-        T_s_ms = now - reg.firstSeen;
+      const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
+      if (!vehProj) continue;
+
+      // Prefer server-provided speed data (available instantly, no warmup)
+      if (!isGhost && v.speed_mps != null && v.dist_along != null && v.first_dist_along != null) {
+        D_cs = Math.abs(v.dist_along - v.first_dist_along);
+        const elapsed_s = (now / 1000) - v.first_seen_ts;
+        if (D_cs >= 50 && elapsed_s >= 30) {
+          T_s = elapsed_s / 60;
+          movingForward = v.computed_direction !== 'reverse';
+          useServerSpeed = true;
+        }
       }
 
-      if (T_s_ms < 30000) continue;
-      const T_s = T_s_ms / 60000;
+      if (!useServerSpeed) {
+        let startLat, startLng, T_s_ms;
+        if (isGhost) {
+          startLat = v._enterLat;
+          startLng = v._enterLng;
+          T_s_ms = now - v._enterTs;
+        } else {
+          const reg = liveRegistry[v._id];
+          if (!reg || reg.firstLat == null) continue;
+          startLat = reg.firstLat;
+          startLng = reg.firstLng;
+          T_s_ms = now - reg.firstSeen;
+        }
 
-      const startProj = projectOntoPathIdx(pathIdx, startLat, startLng);
-      const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
-      if (!startProj || !vehProj) continue;
+        if (T_s_ms < 30000) continue;
+        T_s = T_s_ms / 60000;
 
-      const D_cs = Math.abs(vehProj.distAlong - startProj.distAlong);
-      if (D_cs < 50) continue;
+        const startProj = projectOntoPathIdx(pathIdx, startLat, startLng);
+        if (!startProj) continue;
 
-      const movingForward = vehProj.distAlong >= startProj.distAlong;
+        D_cs = Math.abs(vehProj.distAlong - startProj.distAlong);
+        if (D_cs < 50) continue;
+
+        movingForward = vehProj.distAlong >= startProj.distAlong;
+      }
       const D_ch = movingForward
         ? stopProj.distAlong - vehProj.distAlong
         : vehProj.distAlong - stopProj.distAlong;
@@ -588,27 +605,29 @@ function computeStopArrivals(stop, vehicles, now) {
         }
       }
 
-      // Turnaround arrival: vehicle heading toward 13th & Market will
-      // reverse there and come back. Only for trolley tunnel routes.
+      // Turnaround (reflection) arrival: an eastbound trolley heading
+      // toward 13th & Market will reverse there and come back westbound
+      // through ALL tunnel stops.  This applies to stops both behind AND
+      // ahead of the vehicle (stops ahead get both a direct eastbound
+      // arrival and a later westbound turnaround arrival).
       // 13th & Market is at the END of the shape for T1/T2/T4,
       // and at the START of the shape for T3/T5.
       if (TUNNEL_ROUTES.has(rk) && rk !== 'T-ALL' && !isGhost) {
         const terminusAtEnd = (rk === 'T1' || rk === 'T2' || rk === 'T4');
         const headingToTerminus = terminusAtEnd ? movingForward : !movingForward;
-        if (headingToTerminus && stopProj.distAlong !== vehProj.distAlong) {
+        if (headingToTerminus) {
           let D_turn;
-          if (terminusAtEnd && stopProj.distAlong < vehProj.distAlong) {
-            // Moving toward end, stop is behind — turnaround at end
+          if (terminusAtEnd) {
             const toEnd = pathIdx.totalLen - vehProj.distAlong;
             const endToStop = pathIdx.totalLen - stopProj.distAlong;
             D_turn = toEnd + endToStop;
-          } else if (!terminusAtEnd && stopProj.distAlong > vehProj.distAlong) {
-            // Moving toward start, stop is ahead in fwd sense — turnaround at start
+          } else {
             const toStart = vehProj.distAlong;
             const startToStop = stopProj.distAlong;
             D_turn = toStart + startToStop;
           }
-          if (D_turn != null && D_turn > 0) {
+          // Skip if stop is at/near the terminus itself (no westbound re-arrival)
+          if (D_turn > 100) {
             const T_turn = T_s * D_turn / D_cs;
             if (T_turn > 0 && T_turn <= 120) {
               arrivals.push({

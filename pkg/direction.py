@@ -36,7 +36,8 @@ _cum_dist = {}     # route_id → [cumulative distance in meters]
 _total_len = {}    # route_id → total shape length in meters
 
 # ── Per-vehicle state ──────────────────────────────────────────────
-_vstate = {}       # vid → {dist_along, forward, route, ts}
+# vid → {dist_along, forward, route, ts, first_ts, first_da}
+_vstate = {}
 _lock = threading.Lock()
 
 _MIN_MOVE = 20     # meters — minimum movement to update direction
@@ -194,6 +195,11 @@ def enrich_vehicles(transit_routes):
       computed_heading:   bearing (0-360°) along shape in direction of travel
       computed_direction: 'forward' (toward end terminus) or 'reverse'
       toward_terminus:    name of the terminus the vehicle is heading toward
+      dist_along:         distance along shape in meters (from start terminus)
+      first_seen_ts:      epoch timestamp when vehicle was first tracked
+      first_dist_along:   distance along shape at first sighting
+      speed_mps:          speed in meters per second (null if < 30s tracking)
+      shape_total_len:    total shape length in meters
     """
     now = time.time()
 
@@ -257,11 +263,35 @@ def enrich_vehicles(transit_routes):
                 if toward:
                     v['toward_terminus'] = toward
 
+                # First-seen tracking for NTA speed computation
+                if prev and prev['route'] == route_id:
+                    first_ts = prev['first_ts']
+                    first_da = prev['first_da']
+                else:
+                    first_ts = now
+                    first_da = da
+
+                # Compute speed (meters/second) from first sighting
+                elapsed = now - first_ts
+                travel = abs(da - first_da)
+                if elapsed >= 30 and travel >= 50:
+                    speed = travel / elapsed
+                else:
+                    speed = None
+
+                v['dist_along'] = round(da, 1)
+                v['first_seen_ts'] = round(first_ts, 3)
+                v['first_dist_along'] = round(first_da, 1)
+                v['speed_mps'] = round(speed, 2) if speed is not None else None
+                v['shape_total_len'] = round(tlen, 1)
+
                 _vstate[vid] = {
                     'dist_along': da,
                     'forward': forward,
                     'route': route_id,
                     'ts': now,
+                    'first_ts': first_ts,
+                    'first_da': first_da,
                 }
 
         # Prune stale state
