@@ -685,15 +685,20 @@ function updateTunnelClosureBanner() {
 
   let label, cls, mapCls;
   if (status) {
-    if (status.alert) {
-      const timeStr = status.reopenTime ? status.reopenTime : 'TBD';
-      label = `Trolley tunnel closed; reopening ${timeStr}`;
+    if (status.gps) {
+      // Trolleys observed in the diversion loop — confirmed closure
+      label = 'Trolley tunnel closed';
+      cls = 'tunnel-closure-banner official';
+      mapCls = 'tunnel-closure-map-banner official';
     } else {
-      label = 'Trolley tunnel closed (unofficial)';
+      // Alert/detour only — yellow advisory
+      const allTrolley = ['T1','T2','T3','T4','T5'];
+      const routes = status.alertRoutes || [];
+      const routeStr = routes.length >= allTrolley.length ? 'all trolleys' : routes.join(', ');
+      label = `Detour active (${routeStr}) \u2014 see Alerts for details`;
+      cls = 'tunnel-closure-banner likely';
+      mapCls = 'tunnel-closure-map-banner likely';
     }
-    // Always red when trolleys are in the diversion loop or alert confirms closure
-    cls = 'tunnel-closure-banner official';
-    mapCls = 'tunnel-closure-map-banner official';
   }
 
   const content = status ? `<span class="tunnel-closure-icon">&#x26A0;</span> ${label}` : '';

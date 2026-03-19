@@ -151,7 +151,7 @@ const ROUTE_SPURS = {
 // are NORTH of Baltimore Ave, an area they never reach during normal ops.
 const DETOUR_ZONE = { minLat: 39.952, maxLat: 39.970, minLng: -75.210, maxLng: -75.195 };
 
-let tunnelClosureState = { gps: false, alert: false, reopenTime: null };
+let tunnelClosureState = { gps: false, alert: false, reopenTime: null, alertRoutes: [] };
 
 function isInDetourZone(lat, lng) {
   return lat >= DETOUR_ZONE.minLat && lat <= DETOUR_ZONE.maxLat
@@ -179,38 +179,40 @@ function detectTunnelClosureFromGPS(vehicles) {
 }
 
 /** Detect tunnel closure from alerts.  Looks for ALERT/DETOUR items
- *  on T1-T5 whose message mentions tunnel/station closure keywords.
- *  Also extracts reopening time when available. */
+ *  on trolley routes whose message mentions tunnel/station closure keywords.
+ *  Collects affected route names for display in the banner. */
 function detectTunnelClosureFromAlerts() {
   tunnelClosureState.alert = false;
   tunnelClosureState.reopenTime = null;
+  tunnelClosureState.alertRoutes = [];
   if (typeof alertsData === 'undefined' || !alertsData.length) return false;
 
   const trolleyAlertIds = new Set(['T1','T2','T3','T4','T5']);
   const closureKw = /tunnel|15th\s*st|13th\s*st|subway.?surface|shuttle|divert|diversion|bypass|not\s+serv/i;
   const reopenKw  = /resum|restor|reopen|back\s+in\s+service|normal\s+service/i;
-  // Extract time like "5:00 AM", "3:30 PM", "5 AM", "15:00"
-  const timeRe = /(?:at|by|around|approximately)\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm|a\.m\.|p\.m\.)?)/i;
+
+  const affectedRoutes = new Set();
 
   for (const a of alertsData) {
     if (a.type !== 'ALERT' && a.type !== 'DETOUR') continue;
-    if (!a.routes || !a.routes.some(r => trolleyAlertIds.has(r))) continue;
+    if (!a.routes) continue;
+    const matchedRoutes = a.routes.filter(r => trolleyAlertIds.has(r));
+    if (!matchedRoutes.length) continue;
     const text = (a.message || '') + ' ' + (a.subject || '');
 
-    // DETOUR-type on trolley routes is a strong closure signal
     const isDetour = a.type === 'DETOUR';
     const hasClosureKeyword = closureKw.test(text);
     const hasReopenKeyword = reopenKw.test(text);
 
     if (isDetour || (hasClosureKeyword && !hasReopenKeyword)) {
-      tunnelClosureState.alert = true;
-      // Try to extract reopening time from alert text
-      const timeMatch = text.match(timeRe);
-      if (timeMatch) {
-        tunnelClosureState.reopenTime = timeMatch[1].trim();
-      }
-      return true;
+      for (const r of matchedRoutes) affectedRoutes.add(r);
     }
+  }
+
+  if (affectedRoutes.size > 0) {
+    tunnelClosureState.alert = true;
+    tunnelClosureState.alertRoutes = [...affectedRoutes].sort();
+    return true;
   }
   return false;
 }
@@ -222,7 +224,7 @@ function getTunnelClosureStatus() {
   return {
     gps,
     alert,
-    reopenTime: tunnelClosureState.reopenTime,
+    alertRoutes: tunnelClosureState.alertRoutes,
   };
 }
 
