@@ -274,14 +274,28 @@ class TripManager:
 
                 # Fallback: if stops show movement opposite to current direction, flip.
                 if trip.prev_stop_da is not None:
+                    flipped = False
                     if (trip.forward
                             and trip.last_stop_da < trip.prev_stop_da):
                         self._flip_reverse(trip)
-                        _update_stop_info(trip, shape.stops)
+                        flipped = True
                     elif (not trip.forward
                             and trip.last_stop_da > trip.prev_stop_da):
                         self._flip_forward(trip)
+                        flipped = True
+
+                    if flipped:
+                        # Resync stops and history after the flip so the
+                        # changed current_stop doesn't immediately trigger
+                        # a reverse flip on the next cycle.
                         _update_stop_info(trip, shape.stops)
+                        trip.prev_stop_da = None
+                        if trip.current_stop:
+                            for name, sda in shape.stops:
+                                if name == trip.current_stop:
+                                    trip.last_stop_name = trip.current_stop
+                                    trip.last_stop_da = sda
+                                    break
 
     def _flip_reverse(self, trip):
         """Flip from forward=True to forward=False."""
