@@ -33,6 +33,7 @@ _STALE_S = 600         # seconds — drop trip after this long without update
 _TERMINUS_RADIUS = 200 # meters — "at terminus" threshold
 
 
+
 # ── Trip dataclass ────────────────────────────────────────────────────
 
 @dataclass
@@ -230,6 +231,10 @@ class TripManager:
                     trip.last_stop_name = trip.current_stop
                     trip.last_stop_da = sda
                     break
+            # Seed prev_stop_da from the initial projection so the very
+            # first stop transition can trigger a direction correction
+            # (normally requires two stop changes).
+            trip.prev_stop_da = da
 
         return trip
 
@@ -267,18 +272,30 @@ class TripManager:
                 trip.last_stop_name = trip.current_stop
                 trip.last_stop_da = cur_da
 
-                # Fallback: if forward but stops show reverse movement, flip
-                if (trip.forward and trip.prev_stop_da is not None
-                        and trip.last_stop_da < trip.prev_stop_da):
-                    self._flip_reverse(trip)
-                    # Recompute stops with corrected direction
-                    _update_stop_info(trip, shape.stops)
+                # Fallback: if stops show movement opposite to current direction, flip.
+                if trip.prev_stop_da is not None:
+                    if (trip.forward
+                            and trip.last_stop_da < trip.prev_stop_da):
+                        self._flip_reverse(trip)
+                        _update_stop_info(trip, shape.stops)
+                    elif (not trip.forward
+                            and trip.last_stop_da > trip.prev_stop_da):
+                        self._flip_forward(trip)
+                        _update_stop_info(trip, shape.stops)
 
     def _flip_reverse(self, trip):
-        """One-way flip from forward=True to forward=False."""
+        """Flip from forward=True to forward=False."""
         trip.forward = False
         trip.original_forward = False
         trip.passed_destination = True
+        trip.origin, trip.destination = trip.destination, trip.origin
+        trip.bearing = (trip.bearing + 180) % 360
+
+    def _flip_forward(self, trip):
+        """Correct a wrong reverse back to forward."""
+        trip.forward = True
+        trip.original_forward = True
+        trip.passed_destination = False
         trip.origin, trip.destination = trip.destination, trip.origin
         trip.bearing = (trip.bearing + 180) % 360
 
