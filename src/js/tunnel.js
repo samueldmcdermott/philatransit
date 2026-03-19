@@ -4,7 +4,7 @@
 const TUNNEL_ROUTES = new Set(['T1','T2','T3','T4','T5','T-ALL']);
 
 const TUNNEL_STOPS = [
-  { name:'40th St Portal', lat:39.949588, lng:-75.203171 },
+  { name:'40th St Portal', lat:39.9502, lng:-75.2010 },
   { name:'37th & Spruce',  lat:39.9510, lng:-75.1969 },
   { name:'36th & Sansom',  lat:39.9539, lng:-75.1947 },
   { name:'36th St Portal', lat:39.9553, lng:-75.1942 },
@@ -27,13 +27,22 @@ const UNDERGROUND_ZONES = {
 
 const PORTALS = {
   T1:  {name:'36th St Portal',  lat:39.9553,   lng:-75.1942  },
-  T2:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
-  T3:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
-  T4:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
-  T5:  {name:'40th St Portal',  lat:39.949588, lng:-75.203171},
+  T2:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
+  T3:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
+  T4:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
+  T5:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
 };
 
 const TUNNEL_EAST_END = {lat:39.9525, lng:-75.1626};
+
+// Mouth-entrance triangle at the east tip of the 40th St yard.
+// East of 40th St, between Baltimore Ave (north) and Woodland Ave (south).
+const MOUTH_40TH = [
+  {lat:39.9515, lng:-75.2035},  // north vertex  (Baltimore Ave at ~40th St)
+  {lat:39.9502, lng:-75.2010},  // east vertex   (portal mouth)
+  {lat:39.9488, lng:-75.2035},  // south vertex  (Woodland Ave at ~40th St)
+];
+const MOUTH_40TH_ROUTES = new Set(['T2','T3','T4','T5']);
 
 // Tunnel stop sequences (east → west)
 const TUNNEL_40TH = [
@@ -45,7 +54,7 @@ const TUNNEL_40TH = [
   {name:'33rd St',           lat:39.9548, lng:-75.1895},
   {name:'36th & Sansom',     lat:39.9539, lng:-75.1947},
   {name:'37th & Spruce',     lat:39.9510, lng:-75.1969},
-  {name:'40th St Portal',    lat:39.949588, lng:-75.203171},
+  {name:'40th St Portal',    lat:39.9502,   lng:-75.2010  },
 ];
 
 const TUNNEL_36TH = [
@@ -220,12 +229,23 @@ function getTunnelClosureStatus() {
 // ── Tunnel estimation constants ────────────────────────────────────────────
 const HISTORY_LEN         = 6;       // keep more history for linger detection
 const GHOST_MAX_AGE_MS    = 25 * 60 * 1000;
-const LINGER_RADIUS       = 0.002;   // distance to portal to be "near" it (east end of yard only)
+const LINGER_RADIUS       = 0.002;   // distance to portal to be "near" it (T1 and east end)
 const LINGER_TIME_MS      = 60000;   // 60s of frozen GPS to trigger ghost
 const STATIONARY_THRESH   = 0.0005;  // max position change to count as "frozen"
 
 // Destinations that indicate eastbound (into tunnel from west portal)
 const EASTBOUND_DESTS = ['13th', 'market'];
+
+/** Return true if (lat, lng) is inside the triangle defined by tri (array of 3 {lat,lng}). */
+function pointInTriangle(lat, lng, tri) {
+  const [a, b, c] = tri;
+  const d1 = (lat - b.lat) * (a.lng - b.lng) - (a.lat - b.lat) * (lng - b.lng);
+  const d2 = (lat - c.lat) * (b.lng - c.lng) - (b.lat - c.lat) * (lng - c.lng);
+  const d3 = (lat - a.lat) * (c.lng - a.lng) - (c.lat - a.lat) * (lng - a.lng);
+  const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+  const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+  return !(hasNeg && hasPos);
+}
 
 // ── Portal linger tracking ───────────────────────────────────────────────
 // vid → { firstTs, route, direction, lat, lng }
@@ -392,12 +412,19 @@ function isHeadingEast(dest, v) {
 }
 
 function getPortalAndDirection(lat, lng, routeKey, dest, v) {
-  // Check if near a west portal AND heading eastbound into tunnel
-  const portal = PORTALS[routeKey];
-  if (portal) {
-    const dWest = Math.abs(lat - portal.lat) + Math.abs(lng - portal.lng);
-    if (dWest < LINGER_RADIUS && isHeadingEast(dest, v)) {
-      return { near: true, direction: 'eastbound', portal };
+  // Check if near a west portal AND heading eastbound into tunnel.
+  // T2-T5 use the tight mouth-entrance triangle; T1 uses a radius.
+  if (MOUTH_40TH_ROUTES.has(routeKey)) {
+    if (pointInTriangle(lat, lng, MOUTH_40TH) && isHeadingEast(dest, v)) {
+      return { near: true, direction: 'eastbound', portal: PORTALS[routeKey] };
+    }
+  } else {
+    const portal = PORTALS[routeKey];
+    if (portal) {
+      const dWest = Math.abs(lat - portal.lat) + Math.abs(lng - portal.lng);
+      if (dWest < LINGER_RADIUS && isHeadingEast(dest, v)) {
+        return { near: true, direction: 'eastbound', portal };
+      }
     }
   }
   // Check if near 13th St (east end) AND heading westbound into tunnel

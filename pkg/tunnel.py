@@ -13,13 +13,22 @@ from .trip import trip_manager, _make_vid
 _TUNNEL_ROUTES = {'T1', 'T2', 'T3', 'T4', 'T5'}
 _PORTALS = {
     'T1': (39.9553, -75.1942),
-    'T2': (39.949588, -75.203171),
-    'T3': (39.949588, -75.203171),
-    'T4': (39.949588, -75.203171),
-    'T5': (39.949588, -75.203171),
+    'T2': (39.9502, -75.2010),
+    'T3': (39.9502, -75.2010),
+    'T4': (39.9502, -75.2010),
+    'T5': (39.9502, -75.2010),
 }
 _TUNNEL_EAST = (39.9525, -75.1626)
 _LINGER_RADIUS = 0.002
+
+# Mouth-entrance triangle at the east tip of the 40th St yard.
+# East of 40th St, between Baltimore Ave (north) and Woodland Ave (south).
+_MOUTH_40TH = (
+    (39.9515, -75.2035),   # north vertex  (Baltimore Ave at ~40th St)
+    (39.9502, -75.2010),   # east vertex   (portal mouth)
+    (39.9488, -75.2035),   # south vertex  (Woodland Ave at ~40th St)
+)
+_MOUTH_40TH_ROUTES = {'T2', 'T3', 'T4', 'T5'}
 _LINGER_TIME_S = 60
 _STATIONARY_THRESH = 0.0005
 _GHOST_MAX_AGE_S = 25 * 60
@@ -46,11 +55,24 @@ def _heading_east(dest):
     return any(k in d for k in _EASTBOUND_KW)
 
 
+def _point_in_triangle(lat, lng, tri):
+    """Return True if (lat, lng) is inside the triangle defined by tri."""
+    (ax, ay), (bx, by), (cx, cy) = tri
+    d1 = (lat - bx) * (ay - by) - (ax - bx) * (lng - by)
+    d2 = (lat - cx) * (by - cy) - (bx - cx) * (lng - cy)
+    d3 = (lat - ax) * (cy - ay) - (cx - ax) * (lng - ay)
+    has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+    has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+    return not (has_neg and has_pos)
+
+
 def _check_portal(lat, lng, route, dest, vid=None):
     """Return direction if vehicle is near a portal heading into tunnel, else None.
 
     Uses computed direction from Trip model (via vid) with fallback
-    to destination-keyword detection.
+    to destination-keyword detection.  For T2-T5, the west portal check
+    uses a tight mouth-entrance triangle at the east tip of the 40th St
+    yard rather than a simple radius.
     """
     heading_east = None
     if vid is not None:
@@ -60,11 +82,18 @@ def _check_portal(lat, lng, route, dest, vid=None):
     if heading_east is None:
         heading_east = _heading_east(dest)
 
-    portal = _PORTALS.get(route)
-    if portal:
-        d = abs(lat - portal[0]) + abs(lng - portal[1])
-        if d < _LINGER_RADIUS and heading_east:
+    # West portal check
+    if route in _MOUTH_40TH_ROUTES:
+        if _point_in_triangle(lat, lng, _MOUTH_40TH) and heading_east:
             return 'eastbound'
+    else:
+        portal = _PORTALS.get(route)
+        if portal:
+            d = abs(lat - portal[0]) + abs(lng - portal[1])
+            if d < _LINGER_RADIUS and heading_east:
+                return 'eastbound'
+
+    # East end (13th St) check — same for all routes
     d_east = abs(lat - _TUNNEL_EAST[0]) + abs(lng - _TUNNEL_EAST[1])
     if d_east < _LINGER_RADIUS and not heading_east:
         return 'westbound'
