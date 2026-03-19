@@ -663,7 +663,7 @@ function renderVehicles(vehicles) {
         <div class="next-stop-name tunnel-stop">${nextStop || '—'}</div>
         ${progressInfo}
       </div>
-      <div class="vcard-dest">${v.dest || '—'}</div>
+      <div class="vcard-dest">${v.destination_terminus || v.dest || '—'}</div>
       <div class="vcard-tags">${tags.join('')}</div>`;
     grid.appendChild(card);
   }

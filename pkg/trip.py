@@ -56,6 +56,8 @@ class Trip:
     stops_remaining: int = 0
     speed_mps: float | None = None
 
+    total_travel: float = 0.0              # cumulative distance (never shrinks)
+
     passed_destination: bool = False
     retired: bool = False
 
@@ -233,6 +235,8 @@ class TripManager:
 
     def _update_trip(self, trip, new_da, shape, now):
         """Advance an existing trip: direction, lifecycle, stops."""
+        prev_da = trip.dist_along
+        trip.total_travel += abs(new_da - prev_da)
         trip.dist_along = new_da
         trip.last_update = now
 
@@ -244,10 +248,9 @@ class TripManager:
         if trip.passed_destination and new_da <= _TERMINUS_RADIUS:
             trip.retired = True
 
-        # Speed from first sighting
+        # Speed from cumulative travel (survives direction changes)
         elapsed = now - trip.start_time
-        travel = abs(new_da - trip.first_dist_along)
-        trip.speed_mps = round(travel / elapsed, 2) if elapsed >= 30 and travel >= 50 else None
+        trip.speed_mps = round(trip.total_travel / elapsed, 2) if elapsed >= 30 and trip.total_travel >= 50 else None
 
         # Stop info
         _update_stop_info(trip, shape.stops)

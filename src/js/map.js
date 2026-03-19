@@ -363,7 +363,7 @@ function updateVehiclesOnMap(vehicles) {
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.label}</div>
         ${ghostInfo}
         ${nextStop ? `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>` : ''}
-        <div style="font-size:11px;color:#78818c;">${v.dest || '—'}</div>
+        <div style="font-size:11px;color:#78818c;">${v.destination_terminus || v.dest || '—'}</div>
         <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · → '+dir:''}</div>
         ${stopProgress}
       </div>`;
@@ -568,8 +568,8 @@ function computeStopArrivals(stop, vehicles, now) {
       if (isNaN(lat) || isNaN(lng)) continue;
 
       const isGhost = v._ghost === true;
-      let D_cs, T_s, movingForward;
-      let useServerSpeed = false;
+      let speedMpm, movingForward;  // speed in meters-per-minute
+      let hasSpeed = false;
 
       const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
       if (!vehProj) continue;
@@ -578,18 +578,14 @@ function computeStopArrivals(stop, vehicles, now) {
       // consistent with server's terminus conventions)
       const hasServerDir = !isGhost && v.computed_direction != null;
 
-      // Prefer server-provided speed data (available instantly, no warmup)
-      if (!isGhost && v.speed_mps != null && v.dist_along != null && v.first_dist_along != null) {
-        D_cs = Math.abs(v.dist_along - v.first_dist_along);
-        const elapsed_s = (now / 1000) - v.first_seen_ts;
-        if (D_cs >= 50 && elapsed_s >= 30) {
-          T_s = elapsed_s / 60;
-          movingForward = v.computed_direction !== 'reverse';
-          useServerSpeed = true;
-        }
+      // Prefer server-provided speed (cumulative travel, survives turnarounds)
+      if (!isGhost && v.speed_mps != null && v.speed_mps > 0) {
+        speedMpm = v.speed_mps * 60;
+        movingForward = v.computed_direction !== 'reverse';
+        hasSpeed = true;
       }
 
-      if (!useServerSpeed) {
+      if (!hasSpeed) {
         let startLat, startLng, T_s_ms;
         if (isGhost) {
           startLat = v._enterLat;
@@ -604,18 +600,20 @@ function computeStopArrivals(stop, vehicles, now) {
         }
 
         if (T_s_ms < 30000) continue;
-        T_s = T_s_ms / 60000;
 
         const startProj = projectOntoPathIdx(pathIdx, startLat, startLng);
         if (!startProj) continue;
 
-        D_cs = Math.abs(vehProj.distAlong - startProj.distAlong);
+        const D_cs = Math.abs(vehProj.distAlong - startProj.distAlong);
         if (D_cs < 50) continue;
+
+        speedMpm = D_cs / (T_s_ms / 60000);
 
         // Use server direction when available; fall back to client projection
         movingForward = hasServerDir
           ? v.computed_direction !== 'reverse'
           : vehProj.distAlong >= startProj.distAlong;
+        hasSpeed = true;
       }
       const D_ch = movingForward
         ? stopProj.distAlong - vehProj.distAlong
@@ -623,7 +621,7 @@ function computeStopArrivals(stop, vehicles, now) {
 
       // Check direct arrival (stop is ahead in current direction)
       if (D_ch >= 0 && D_ch <= pathIdx.totalLen * 0.9) {
-        const T_star = T_s * D_ch / D_cs;
+        const T_star = D_ch / speedMpm;
         if (T_star <= 120) {
           let T_official = null;
           let officialStatus = null;
@@ -648,14 +646,14 @@ function computeStopArrivals(stop, vehicles, now) {
               const D_ch_a = movingForward
                 ? stopProj.distAlong - aftProj.distAlong
                 : aftProj.distAlong - stopProj.distAlong;
-              if (D_ch_f >= 0) T_low = T_s * D_ch_f / D_cs;
-              if (D_ch_a >= 0) T_high = T_s * D_ch_a / D_cs;
+              if (D_ch_f >= 0) T_low = D_ch_f / speedMpm;
+              if (D_ch_a >= 0) T_high = D_ch_a / speedMpm;
             }
           }
 
           arrivals.push({
             label: v.label,
-            dest: v.dest || '—',
+            dest: v.destination_terminus || v.dest || '—',
             route: rk,
             T_star,
             T_official,
@@ -685,11 +683,11 @@ function computeStopArrivals(stop, vehicles, now) {
           const D_turn = toEnd + endToStop;
           // Skip if stop is at/near the terminus itself (no westbound re-arrival)
           if (D_turn > 100) {
-            const T_turn = T_s * D_turn / D_cs;
+            const T_turn = D_turn / speedMpm;
             if (T_turn > 0 && T_turn <= 120) {
               arrivals.push({
                 label: v.label,
-                dest: v.dest || '—',
+                dest: v.origin_terminus || v.dest || '—',
                 route: rk,
                 T_star: T_turn,
                 T_official: null,
