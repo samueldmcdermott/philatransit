@@ -109,7 +109,7 @@ const DETOUR_PATH_EB = [
   [39.948129,-75.221790],
 ];
 
-// ── Terminus coordinates (must match server's direction.py TERMINI) ────────
+// ── Terminus coordinates (must match server's shapes.py TERMINI) ──────────
 // Used to orient client-side shapes so index 0 = start (outer) terminus,
 // ensuring movingForward matches the server's computed_direction.
 const SHAPE_TERMINI = {

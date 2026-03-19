@@ -287,7 +287,7 @@ function realIcon(color, heading) {
   return L.divIcon({
     className: '',
     html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
-      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="${color}" stroke="white" stroke-width="1.8" stroke-linejoin="round"/>
+      <polygon points="15,2.1 10,21.5 20,21.5" fill="${color}" stroke="white" stroke-width="1.8" stroke-linejoin="round"/>
     </svg>`,
     iconSize: [30, 30], iconAnchor: [15, 15],
   });
@@ -297,7 +297,7 @@ function ghostIcon(color, heading) {
   return L.divIcon({
     className: 'ghost-marker-svg',
     html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
-      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round"/>
+      <polygon points="15,2.1 10,21.5 20,21.5" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round"/>
       <circle cx="15" cy="15" r="3.75" fill="#93c5fd" opacity="0.8"/>
     </svg>`,
     iconSize: [30, 30], iconAnchor: [15, 15],
@@ -308,7 +308,7 @@ function lingerSolidIcon(color, heading) {
   return L.divIcon({
     className: 'linger-marker',
     html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
-      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="${color}" stroke="white" stroke-width="1.8" stroke-linejoin="round" opacity="0.85"/>
+      <polygon points="15,2.1 10,21.5 20,21.5" fill="${color}" stroke="white" stroke-width="1.8" stroke-linejoin="round" opacity="0.85"/>
     </svg>`,
     iconSize: [30, 30], iconAnchor: [15, 15],
   });
@@ -318,7 +318,7 @@ function lingerDashedIcon(color, heading) {
   return L.divIcon({
     className: 'linger-marker',
     html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
-      <polygon points="15,4.5 5.9,20.3 24.1,20.3" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
+      <polygon points="15,2.1 10,21.5 20,21.5" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
       <circle cx="15" cy="15" r="3.75" fill="${color}" opacity="0.7"/>
     </svg>`,
     iconSize: [30, 30], iconAnchor: [15, 15],
@@ -347,14 +347,17 @@ function updateVehiclesOnMap(vehicles) {
     const isGhost = v._ghost === true;
     const tunneled = isGhost || inTunnel(v);
     let nextStop = '';
-    if (tunneled) nextStop = nearestTunnelStop(v);
+    if (v.next_stop && !isGhost) nextStop = v.next_stop;
+    else if (tunneled) nextStop = nearestTunnelStop(v);
     else nextStop = nearestStop(lat, lng);
 
     const lateText = isGhost ? 'In tunnel' : (v.late <= 0 ? 'On time' : `${v.late} min late`);
-    const dir = v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
+    const dir = v.destination_terminus || v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
     const aftPct = isGhost ? Math.round((v._aftFraction || 0) * 100) : 0;
     const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
     const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${aftPct}–${forePct}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
+    const stopProgress = (!isGhost && v.stops_passed != null && v.stops_remaining != null)
+      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${v.stops_passed} stops passed · ${v.stops_remaining} remaining</div>` : '';
     const popupHtml = `
       <div style="background:#191c22;padding:8px 10px;border-radius:5px;color:#e0e8f0;min-width:140px;">
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.label}</div>
@@ -362,6 +365,7 @@ function updateVehiclesOnMap(vehicles) {
         ${nextStop ? `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>` : ''}
         <div style="font-size:11px;color:#78818c;">${v.dest || '—'}</div>
         <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · → '+dir:''}</div>
+        ${stopProgress}
       </div>`;
 
     // Ghost band polyline
@@ -381,7 +385,11 @@ function updateVehiclesOnMap(vehicles) {
     // Determine marker icon based on vehicle state
     const isLingering = !isGhost && lingeringVids[v._id];
     const isPortalLinger = isGhost && v._lingersAtPortal;
-    let hdg = v.computed_heading != null ? +v.computed_heading : (v.heading != null ? +v.heading : 0);
+    // Prefer trip_bearing (fixed for the trip's lifetime) for icon orientation;
+    // fall back to computed_heading (dynamic) or raw GPS heading.
+    let hdg = v.trip_bearing != null ? +v.trip_bearing
+            : v.computed_heading != null ? +v.computed_heading
+            : v.heading != null ? +v.heading : 0;
     // For ghost/linger vehicles without a heading, derive from direction
     if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
       hdg = v._direction === 'eastbound' ? 90 : 270;

@@ -59,6 +59,10 @@ class Trip:
     passed_destination: bool = False
     retired: bool = False
 
+    last_stop_name: str | None = None   # most recent stop observed
+    last_stop_da: float | None = None   # its dist_along
+    prev_stop_da: float | None = None   # dist_along of the stop before that
+
     meta: dict = field(default_factory=dict)
 
     @property
@@ -178,14 +182,13 @@ class TripManager:
                     del self._trips[vid]
 
     def _create_trip(self, vid, route_id, lat, lng, da, shape, term, now):
-        """Create a new Trip for a first-seen vehicle."""
-        # Determine initial direction: closer to start → heading toward end
-        if term:
-            d_to_start = geo.distance(lat, lng, term[1], term[2])
-            d_to_end = geo.distance(lat, lng, term[4], term[5])
-            forward = d_to_start < d_to_end
-        else:
-            forward = True
+        """Create a new Trip for a first-seen vehicle.
+
+        Always starts forward=True (toward end terminus).  Direction is
+        corrected once two distinct stops have been observed — see
+        _update_trip for the stop-history fallback.
+        """
+        forward = True
 
         if term:
             if forward:
@@ -202,7 +205,7 @@ class TripManager:
             origin, destination = '', ''
             trip_bearing = 0.0
 
-        return Trip(
+        trip = Trip(
             id=f"{vid}_{int(now)}",
             vehicle_id=vid,
             route=route_id,
@@ -217,38 +220,29 @@ class TripManager:
             last_update=now,
         )
 
+        # Populate stop info on first cycle and seed stop history
+        _update_stop_info(trip, shape.stops)
+        if trip.current_stop:
+            for name, sda in shape.stops:
+                if name == trip.current_stop:
+                    trip.last_stop_name = trip.current_stop
+                    trip.last_stop_da = sda
+                    break
+
+        return trip
+
     def _update_trip(self, trip, new_da, shape, now):
         """Advance an existing trip: direction, lifecycle, stops."""
-        prev_da = trip.dist_along
-        delta = new_da - prev_da
-
-        # Phase 1: direction locked until destination reached
-        if not trip.passed_destination:
-            if trip.forward:
-                if new_da >= shape.total_len - _TERMINUS_RADIUS:
-                    trip.passed_destination = True
-            else:
-                if new_da <= _TERMINUS_RADIUS:
-                    trip.passed_destination = True
-
-        # Phase 2: direction unlocked
-        if trip.passed_destination and abs(delta) > _MIN_MOVE:
-            new_forward = delta > 0
-            if new_forward != trip.forward:
-                trip.forward = new_forward
-                trip.origin, trip.destination = trip.destination, trip.origin
-
-        # Retirement: back at original origin
-        if trip.passed_destination:
-            if trip.original_forward:
-                if new_da <= _TERMINUS_RADIUS:
-                    trip.retired = True
-            else:
-                if new_da >= shape.total_len - _TERMINUS_RADIUS:
-                    trip.retired = True
-
         trip.dist_along = new_da
         trip.last_update = now
+
+        # forward→False flip at destination terminus (permanent, one-way)
+        if trip.forward and new_da >= shape.total_len - _TERMINUS_RADIUS:
+            self._flip_reverse(trip)
+
+        # Retirement: back at origin after having flipped
+        if trip.passed_destination and new_da <= _TERMINUS_RADIUS:
+            trip.retired = True
 
         # Speed from first sighting
         elapsed = now - trip.start_time
@@ -257,6 +251,33 @@ class TripManager:
 
         # Stop info
         _update_stop_info(trip, shape.stops)
+
+        # Track stop history; fallback direction correction (only while forward)
+        if trip.current_stop and trip.current_stop != trip.last_stop_name:
+            cur_da = None
+            for name, sda in shape.stops:
+                if name == trip.current_stop:
+                    cur_da = sda
+                    break
+            if cur_da is not None:
+                trip.prev_stop_da = trip.last_stop_da
+                trip.last_stop_name = trip.current_stop
+                trip.last_stop_da = cur_da
+
+                # Fallback: if forward but stops show reverse movement, flip
+                if (trip.forward and trip.prev_stop_da is not None
+                        and trip.last_stop_da < trip.prev_stop_da):
+                    self._flip_reverse(trip)
+                    # Recompute stops with corrected direction
+                    _update_stop_info(trip, shape.stops)
+
+    def _flip_reverse(self, trip):
+        """One-way flip from forward=True to forward=False."""
+        trip.forward = False
+        trip.original_forward = False
+        trip.passed_destination = True
+        trip.origin, trip.destination = trip.destination, trip.origin
+        trip.bearing = (trip.bearing + 180) % 360
 
     def _write_vehicle_fields(self, v, trip, shape, da, now):
         """Write backward-compatible + new Trip fields onto a vehicle dict."""

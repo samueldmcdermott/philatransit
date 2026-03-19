@@ -557,6 +557,17 @@ function processTransitData(rawVehicles, routeId, isMulti) {
         first_dist_along: v.first_dist_along,
         speed_mps: v.speed_mps,
         shape_total_len: v.shape_total_len,
+        // Trip model fields
+        trip_id: v.trip_id,
+        trip_bearing: v.trip_bearing,
+        origin_terminus: v.origin_terminus,
+        destination_terminus: v.destination_terminus,
+        current_stop: v.current_stop,
+        next_stop: v.next_stop,
+        trip_start_time: v.trip_start_time,
+        trip_elapsed: v.trip_elapsed,
+        stops_passed: v.stops_passed,
+        stops_remaining: v.stops_remaining,
         _routeLabel: isMulti ? actualRoute : null,
       };
     });
@@ -616,15 +627,15 @@ function renderVehicles(vehicles) {
 
     let nextStop = '';
     let isTunneled = isGhost || tunneled;
-    if (isGhost) {
-      nextStop = nearestTunnelStop(v);
-    } else if (tunneled) {
+    if (v.next_stop && !isGhost) {
+      nextStop = v.next_stop;
+    } else if (isGhost || tunneled) {
       nextStop = nearestTunnelStop(v);
     } else if (!isNaN(lat) && !isNaN(lng)) {
       nextStop = nearestStop(lat, lng);
     }
 
-    const dir = v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
+    const dir = v.destination_terminus || v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
     const tags = [];
     if (v._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${v._routeLabel}</span>`);
     if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${v._direction || 'tunnel'}${v._leg === 'second' ? ' (return)' : ''}</span>`);
@@ -639,6 +650,8 @@ function renderVehicles(vehicles) {
     const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
     const ghostDir = v._direction || '';
     const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${aftPct}–${forePct}% ${ghostDir}${v._leg === 'second' ? ' (return)' : ''}</div>` : '';
+    const progressInfo = (!isGhost && v.stops_passed != null && v.stops_remaining != null)
+      ? `<div class="vcard-progress">${v.stops_passed} passed · ${v.stops_remaining} remaining</div>` : '';
     card.innerHTML = `
       ${ghostBanner}
       <div class="vcard-hdr">
@@ -648,6 +661,7 @@ function renderVehicles(vehicles) {
       <div class="next-stop-block" style="border-left:3px solid ${isGhost ? '#93c5fd' : vColor}">
         <div class="next-stop-label">Next Stop</div>
         <div class="next-stop-name tunnel-stop">${nextStop || '—'}</div>
+        ${progressInfo}
       </div>
       <div class="vcard-dest">${v.dest || '—'}</div>
       <div class="vcard-tags">${tags.join('')}</div>`;
