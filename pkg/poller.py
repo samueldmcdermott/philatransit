@@ -1,6 +1,6 @@
 """Background SEPTA data poller and in-memory caches.
 
-All SEPTA transitview/trainview data is fetched here on a 15s cycle.
+All SEPTA transitview/trainview data is fetched here on a 15 s cycle.
 Client requests are served from these caches — SEPTA sees a fixed call
 rate regardless of how many users are active.
 """
@@ -11,8 +11,9 @@ import time
 import requests as req
 
 from .helpers import SEPTA, SEPTA_V2, HEADERS
-from .ghosts import process_tunnel_ghosts
-from .direction import load_shapes, enrich_vehicles
+from .shapes import load_shapes
+from .trip import trip_manager
+from .tunnel import process_tunnel_ghosts
 
 POLL_INTERVAL = 15  # seconds
 
@@ -44,17 +45,17 @@ def _poll_loop():
                 for route_id, vehicles in group.items():
                     by_route[route_id] = vehicles
 
-            # Enrich vehicles with computed direction & heading from shapes
+            # Enrich vehicles with Trip-based direction, heading, and stop info
             try:
-                enrich_vehicles(by_route)
+                trip_manager.enrich_vehicles(by_route)
             except Exception as e:
-                print(f"  [direction] enrichment error: {e}")
+                print(f"  [trip] enrichment error: {e}")
 
             with transit_lock:
                 transit_cache["routes"] = by_route
                 transit_cache["ts"] = time.time()
         except Exception as e:
-            print(f"  [cache] TransitViewAll error: {e}")
+            print(f"  [poller] TransitViewAll error: {e}")
 
         # -- Tunnel ghost tracking --
         try:
@@ -62,7 +63,7 @@ def _poll_loop():
                 routes_snap = dict(transit_cache["routes"])
             process_tunnel_ghosts(routes_snap)
         except Exception as e:
-            print(f"  [ghost] error: {e}")
+            print(f"  [tunnel] error: {e}")
 
         # -- TrainView (regional rail) --
         try:
@@ -71,7 +72,7 @@ def _poll_loop():
                 trainview_cache["data"] = r.json()
                 trainview_cache["ts"] = time.time()
         except Exception as e:
-            print(f"  [cache] TrainView error: {e}")
+            print(f"  [poller] TrainView error: {e}")
 
         time.sleep(POLL_INTERVAL)
 
@@ -79,12 +80,12 @@ def _poll_loop():
 def start_poller():
     """Launch the background SEPTA data poller thread."""
     load_shapes()
-    t = threading.Thread(target=_poll_loop, daemon=True, name="SeptaCache")
+    t = threading.Thread(target=_poll_loop, daemon=True, name="SeptaPoller")
     t.start()
-    print("  [cache] SEPTA poller started")
+    print("  [poller] SEPTA poller started")
 
 
-# ── Prediction helpers (used by stop-predictions route) ──────────
+# ── Prediction helpers (used by stop-predictions route) ───────────────
 
 def is_gps_tracked(trip):
     """Return True if the trip has real GPS tracking (not a scheduled ghost)."""

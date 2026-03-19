@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 
 from .helpers import TRIPS, DAILY_CDFS, load, dump, rail_line_key
-from .cache import transit_lock, transit_cache, trainview_lock, trainview_cache
+from .poller import transit_lock, transit_cache, trainview_lock, trainview_cache
 
 
 # ── Startup cleanup: discard data before 2026-03-17 ──────────────────────────

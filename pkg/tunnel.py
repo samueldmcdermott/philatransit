@@ -1,12 +1,14 @@
 """Server-side tunnel ghost detection for trolley routes.
 
-Runs every poll cycle.  Clients fetch /api/ghosts to get current state.
+When a trolley's GPS freezes near a portal for long enough, or a vehicle
+disappears near a portal, it is presumed to have entered the tunnel.
+Clients fetch /api/ghosts to get the current ghost list.
 """
 
 import threading
 import time
 
-from .direction import is_heading_to_end
+from .trip import trip_manager, _make_vid
 
 _TUNNEL_ROUTES = {'T1', 'T2', 'T3', 'T4', 'T5'}
 _PORTALS = {
@@ -47,13 +49,12 @@ def _heading_east(dest):
 def _check_portal(lat, lng, route, dest, vid=None):
     """Return direction if vehicle is near a portal heading into tunnel, else None.
 
-    Uses computed direction from shape projection (via vid) with fallback
+    Uses computed direction from Trip model (via vid) with fallback
     to destination-keyword detection.
     """
-    # Determine if vehicle is heading east (toward 13th St / end terminus)
     heading_east = None
     if vid is not None:
-        computed = is_heading_to_end(vid)
+        computed = trip_manager.is_heading_to_end(vid)
         if computed is not None:
             heading_east = computed
     if heading_east is None:
@@ -70,20 +71,6 @@ def _check_portal(lat, lng, route, dest, vid=None):
     return None
 
 
-def _trolley_vid(v):
-    """Match client-side vehicle ID logic (processTransitData)."""
-    trip = v.get('trip')
-    if trip and str(trip) not in ('0', 'None', ''):
-        return str(trip)
-    vid = v.get('VehicleID')
-    if vid and str(vid) not in ('0', 'None', '') and 'schedBased' not in str(vid):
-        return str(vid)
-    label = v.get('label', '')
-    if label and str(label) not in ('None', '0'):
-        return f"{label}_{v.get('lat')}_{v.get('lng')}"
-    return None
-
-
 def process_tunnel_ghosts(transit_routes):
     """Called each poll cycle to detect tunnel entries/exits for trolley routes."""
     now = time.time()
@@ -97,7 +84,7 @@ def process_tunnel_ghosts(transit_routes):
             label = v.get('label', '')
             if label in ('None', None, '', '0'):
                 continue
-            vid = _trolley_vid(v)
+            vid = _make_vid(v)
             if not vid:
                 continue
             lat = _safe_float(v.get('lat'))
@@ -141,7 +128,6 @@ def process_tunnel_ghosts(transit_routes):
                     existing['lat'] = tv['lat']
                     existing['lng'] = tv['lng']
             else:
-                # Credit time from previous position if GPS was already frozen
                 seed_ts = now
                 prev = _prev_positions.get(vid)
                 if prev:
@@ -211,7 +197,6 @@ def process_tunnel_ghosts(transit_routes):
 
             tv = vehicles.get(vid)
             if tv:
-                # Real vehicle reappeared — check if it moved from frozen position
                 entry_moved = abs(tv['lat'] - ghost['entryLat']) + abs(tv['lng'] - ghost['entryLng'])
                 if entry_moved > _LINGER_RADIUS:
                     del _ghosts[vid]
@@ -231,7 +216,7 @@ def get_ghost_list():
 
 
 def get_lingering_vids():
-    """Return set of vehicle IDs currently lingering near a portal.
+    """Return vehicle IDs currently lingering near a portal.
 
     These vehicles have frozen GPS near a portal and are about to enter the
     tunnel, but haven't yet crossed the linger time threshold to become ghosts.
