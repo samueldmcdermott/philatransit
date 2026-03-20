@@ -14,6 +14,7 @@ Production (via Docker / gunicorn):
 import argparse
 
 from pkg.app import create_app
+from pkg.version import get_version
 
 app = create_app()
 
@@ -22,5 +23,5 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5000)
     args = parser.parse_args()
 
-    print(f"\n  SEPTA Live  →  http://localhost:{args.port}\n")
+    print(f"\n  SEPTA Live v{get_version()}  →  http://localhost:{args.port}\n")
     app.run(host="127.0.0.1", port=args.port, debug=False)

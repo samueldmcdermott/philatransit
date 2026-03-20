@@ -13,8 +13,16 @@ from .poller import (
 )
 from .tunnel import get_ghost_list, get_lingering_vids
 from .tracker import tracker
+from .version import get_version
 
 api = Blueprint("api", __name__)
+
+# ── Version ──────────────────────────────────────────────────
+
+@api.route("/api/version")
+def version():
+    return jsonify(version=get_version())
+
 
 # ── SEPTA proxy endpoints (served from cache) ────────────────
 
