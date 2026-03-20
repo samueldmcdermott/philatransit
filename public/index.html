@@ -56,13 +56,15 @@
       <div class="tb-spacer"></div>
       <span id="statusTxt" class="status-txt">Connecting…</span>
       <select id="refreshSelect" class="refresh-select" onchange="onRefreshChange()" title="Auto-refresh interval">
+        <option value="5000">5s</option>
+        <option value="7000" selected>7s</option>
         <option value="10000">10s</option>
-        <option value="20000" selected>20s</option>
-        <option value="30000">30s</option>
+        <option value="15000">15s</option>
+        <option value="20000">20s</option>
       </select>
       <button class="btn" id="refreshBtn" onclick="fetchNow()">Refresh</button>
       <button class="btn btn-on" id="tunnelBtn" onclick="toggleTunnelEstimation()" style="display:none" title="Estimate trolley positions inside the subway tunnel">Tunnel: On</button>
-      <input type="range" id="bandOpacity" min="0" max="100" value="35" style="display:none;width:60px" oninput="onBandOpacityChange()" title="Band opacity">
+      <input type="range" id="bandOpacity" min="0" max="100" value="55" style="display:none;width:60px" oninput="onBandOpacityChange()" title="Band opacity">
       <button class="btn" id="trackerBtn" onclick="toggleTracker()">Tracker: Off</button>
     </div>
 

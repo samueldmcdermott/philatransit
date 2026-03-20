@@ -15,7 +15,7 @@ from .shapes import load_shapes
 from .trip import trip_manager
 from .tunnel import process_tunnel_ghosts
 
-POLL_INTERVAL = 15  # seconds
+POLL_INTERVAL = 5  # seconds (matches SEPTA website default)
 
 # transit cache: route_id -> list of vehicle dicts (from TransitViewAll)
 transit_cache = {"routes": {}, "ts": 0.0}

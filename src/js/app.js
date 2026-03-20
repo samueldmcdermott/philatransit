@@ -16,8 +16,8 @@ let serverTrackerRunning = false;
 let modelCardOpen        = true;
 let aboutOpen            = true;
 let refreshTimer         = null;
-let refreshIntervalMs    = 20000;
-let bandOpacity          = 0.35;
+let refreshIntervalMs    = 7000;
+let bandOpacity          = 0.55;
 
 // Map state
 let leafletMap       = null;
@@ -260,6 +260,27 @@ async function selectRoute(route, type) {
   else if (activePanel === 'stats')  loadStats();
 }
 
+/** Sample a shape polyline at approximately every `spacingM` meters. */
+function sampleShapeStops(coords, spacingM = 350) {
+  if (!coords || coords.length < 2) return [];
+  const stops = [{ name: 'Start', lat: coords[0][0], lng: coords[0][1] }];
+  let accum = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const dlat = (coords[i][0] - coords[i-1][0]) * 111320;
+    const dlng = (coords[i][1] - coords[i-1][1]) * 111320 * Math.cos(coords[i][0] * Math.PI / 180);
+    accum += Math.sqrt(dlat * dlat + dlng * dlng);
+    if (accum >= spacingM) {
+      stops.push({ name: `Stop ${stops.length}`, lat: coords[i][0], lng: coords[i][1] });
+      accum = 0;
+    }
+  }
+  const last = coords[coords.length - 1];
+  if (accum > spacingM * 0.3) {
+    stops.push({ name: `Stop ${stops.length}`, lat: last[0], lng: last[1] });
+  }
+  return stops;
+}
+
 async function fetchRouteStops() {
   if (!selectedRoute) return;
   const key = selectedRoute.id;
@@ -284,6 +305,15 @@ async function fetchRouteStops() {
     seen.add(k);
     return s.lat && s.lng;
   }).map(s => ({ name: s.stopname, lat: +s.lat, lng: +s.lng }));
+
+  // If no official stops, sample the shape at ~every 4th intersection
+  if (routeStops.length === 0) {
+    const shape = shapesData[key] || shapesData[apiIds[0]];
+    if (shape) {
+      routeStops = sampleShapeStops(shape);
+      routeStopsOrdered = true;
+    }
+  }
 }
 
 function toggleModelCard() {
