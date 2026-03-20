@@ -127,6 +127,13 @@ function renderAlertsPanel() {
     empty.style.display = ''; content.style.display = 'none';
     return;
   }
+  // Run tunnel closure detection from alerts for trolley routes
+  if (TUNNEL_ROUTES.has(selectedRoute.id)) {
+    try {
+      detectTunnelClosureFromAlerts();
+      updateTunnelClosureBanner();
+    } catch (_) {}
+  }
   const alerts = getRouteAlerts(selectedRoute);
   if (alerts.length === 0) {
     empty.style.display = '';
@@ -778,6 +785,22 @@ function updateTunnelClosureBanner() {
     mapBanner.className = mapCls;
     mapBanner.innerHTML = content;
     mapBanner.style.display = '';
+  }
+
+  // Alerts panel: insert as first child
+  let alertsBanner = document.getElementById('tunnelClosureBanner_alerts');
+  if (!status) {
+    if (alertsBanner) alertsBanner.style.display = 'none';
+  } else {
+    if (!alertsBanner) {
+      alertsBanner = document.createElement('div');
+      alertsBanner.id = 'tunnelClosureBanner_alerts';
+      const alertsPanel = document.getElementById('alertsPanel');
+      alertsPanel.insertBefore(alertsBanner, alertsPanel.firstChild);
+    }
+    alertsBanner.className = cls;
+    alertsBanner.innerHTML = content;
+    alertsBanner.style.display = '';
   }
 }
 

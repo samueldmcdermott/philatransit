@@ -327,6 +327,15 @@ function nearestTunnelStop(v) {
 function isPointUnderground(routeKey, lat, lng) {
   const zone = UNDERGROUND_ZONES[routeKey];
   if (!zone) return false;
+  // For T2-T5, use the portal triangle for precision at the tunnel mouth.
+  // Points west of the portal mouth are underground only if inside the triangle;
+  // points east of the portal use the rectangular box as before.
+  if (MOUTH_40TH_ROUTES.has(routeKey)) {
+    const portalLng = MOUTH_40TH[1].lng;  // east vertex = portal mouth
+    if (lng < portalLng) {
+      return pointInTriangle(lat, lng, MOUTH_40TH);
+    }
+  }
   return lat >= zone.minLat && lat <= zone.maxLat
       && lng >= zone.minLng && lng <= zone.maxLng;
 }

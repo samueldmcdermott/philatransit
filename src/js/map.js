@@ -274,7 +274,21 @@ async function refreshMapVehicles() {
     // Tunnel closure detection — after render so errors don't block it
     if (isTunnelRoute) {
       try {
-        detectTunnelClosureFromGPS(vehicles);
+        // For individual trolley routes, fetch all trolley vehicles for GPS detection
+        let gpsVehicles = vehicles;
+        if (!selectedRoute.multi) {
+          const allIds = ['T1','T2','T3','T4','T5'];
+          const otherIds = allIds.filter(id => !selectedRoute.apiIds.includes(id));
+          if (otherIds.length) {
+            const otherResults = await Promise.all(
+              otherIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
+            );
+            const otherRaw = otherResults.flatMap(r => r?.bus || []);
+            const otherVehicles = processTransitData(otherRaw, 'detect', true);
+            gpsVehicles = [...vehicles, ...otherVehicles];
+          }
+        }
+        detectTunnelClosureFromGPS(gpsVehicles);
         detectTunnelClosureFromAlerts();
         updateTunnelClosureBanner();
         drawDetourPaths(selectedRoute.id, selectedRoute.color || '#2f69f3', []);
