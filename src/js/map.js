@@ -385,11 +385,15 @@ function updateVehiclesOnMap(vehicles) {
     // Determine marker icon based on vehicle state
     const isLingering = !isGhost && lingeringVids[v._id];
     const isPortalLinger = isGhost && v._lingersAtPortal;
-    // Prefer trip_bearing (fixed for the trip's lifetime) for icon orientation;
-    // fall back to computed_heading (dynamic) or raw GPS heading.
-    let hdg = v.trip_bearing != null ? +v.trip_bearing
+    // Trolleys/rail: use trip_bearing (fixed for the trip's lifetime).
+    // Buses (trip_bearing is null — no termini defined): use raw GPS
+    // heading from the transit API, which reflects actual movement and
+    // doesn't depend on direction-correction having kicked in yet.
+    const hasTripBearing = v.trip_bearing != null;
+    let hdg = hasTripBearing ? +v.trip_bearing
+            : v.heading != null ? +v.heading
             : v.computed_heading != null ? +v.computed_heading
-            : v.heading != null ? +v.heading : 0;
+            : 0;
     // For ghost/linger vehicles without a heading, derive from direction
     if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
       hdg = v._direction === 'eastbound' ? 90 : 270;
