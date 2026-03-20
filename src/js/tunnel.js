@@ -493,10 +493,14 @@ function syncServerGhosts(serverGhosts) {
     const mid = ghostPosition(midElapsed, ghostVehicles[vid]);
 
     const g = ghostVehicles[vid];
-    // Westbound: if aft has reached the portal (fraction 1.0), linger at portal
+    // Westbound: if aft has reached the portal (fraction 1.0), linger at portal.
+    // Eastbound return: if aft has reached the portal on the second (westbound)
+    // leg, linger at the portal — the ghost did a round trip and exits west.
     const wbAftAtPortal = sg.direction === 'westbound' && aft.fraction >= 1.0;
-    if ((fore.done && aft.done) || wbAftAtPortal) {
-      const exitPos = sg.direction === 'eastbound' ? TUNNEL_EAST_END : PORTALS[sg.route];
+    const ebReturnAtPortal = sg.direction === 'eastbound' && aft.leg === 'second' && aft.fraction >= 1.0;
+    if ((fore.done && aft.done) || wbAftAtPortal || ebReturnAtPortal) {
+      // Both eastbound (round-trip) and westbound ghosts exit at the west portal.
+      const exitPos = PORTALS[sg.route];
       if (exitPos) { g._lingersAtPortal = true; g.lat = exitPos.lat; g.lng = exitPos.lng; }
     } else {
       g._lingersAtPortal = false;

@@ -441,11 +441,14 @@ function tickGhosts() {
     const midElapsed = (totalElapsed + aftElapsed) / 2;
     const mid  = ghostPosition(midElapsed, ghost);
 
-    if (fore.done && aft.done) {
+    // Linger when both aft & fore are done, OR when an eastbound ghost's
+    // aft has completed the return (second) leg back to the portal.
+    const ebReturnAtPortal = ghost.direction === 'eastbound' && aft.leg === 'second' && aft.fraction >= 1.0;
+    if ((fore.done && aft.done) || ebReturnAtPortal) {
       // Estimate exhausted but real vehicle hasn't emerged — freeze at exit portal.
+      // Both eastbound (round-trip) and westbound ghosts exit at the west portal.
       if (!ghost._lingersAtPortal) {
-        const exitPos = ghost.direction === 'eastbound'
-          ? TUNNEL_EAST_END : PORTALS[ghost.route];
+        const exitPos = PORTALS[ghost.route];
         if (exitPos) {
           ghost._lingersAtPortal = true;
           ghost.lat = exitPos.lat;

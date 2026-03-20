@@ -308,13 +308,15 @@ function realIcon(color, heading) {
 }
 
 function ghostIcon(color, heading) {
+  // 20% larger than real markers — dashed outlines on the uncertainty band
+  // are hard to see at the normal 30px size.
   return L.divIcon({
     className: 'ghost-marker-svg',
-    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
+    html: `<svg width="36" height="36" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
       <polygon points="15,2.1 10,21.5 20,21.5" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round"/>
       <circle cx="15" cy="15" r="3.75" fill="#93c5fd" opacity="0.8"/>
     </svg>`,
-    iconSize: [30, 30], iconAnchor: [15, 15],
+    iconSize: [36, 36], iconAnchor: [18, 18],
   });
 }
 
@@ -331,11 +333,11 @@ function lingerSolidIcon(color, heading) {
 function lingerDashedIcon(color, heading) {
   return L.divIcon({
     className: 'linger-marker',
-    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
+    html: `<svg width="36" height="36" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
       <polygon points="15,2.1 10,21.5 20,21.5" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
       <circle cx="15" cy="15" r="3.75" fill="${color}" opacity="0.7"/>
     </svg>`,
-    iconSize: [30, 30], iconAnchor: [15, 15],
+    iconSize: [36, 36], iconAnchor: [18, 18],
   });
 }
 
@@ -501,21 +503,24 @@ function getRoutePathIndex(routeKey) {
   if (routePathIndices[routeKey]) return routePathIndices[routeKey];
   let shapeCoords = shapesData[routeKey];
   if (!shapeCoords || shapeCoords.length < 2) return null;
-  // Exclude spur sections — they distort distance-along calculations
-  const spur = ROUTE_SPURS[routeKey];
-  if (spur) {
-    const ci = spur.cutoffIndex;
-    shapeCoords = spur.end === 'start' ? shapeCoords.slice(ci) : shapeCoords.slice(0, ci + 1);
-  }
   let path = shapeCoords.map(c => ({ lat: c[0], lng: c[1] }));
   // Orient shape so index 0 = start (outer) terminus, matching server orientation.
   // Without this, movingForward can be inverted for routes like T3/T5 whose raw
   // GTFS shapes run in the opposite direction from the server's convention.
+  // IMPORTANT: orient BEFORE trimming — must match the order in shapes.py
+  // load_shapes(), because cutoffIndex is defined relative to the oriented shape.
   const term = SHAPE_TERMINI[routeKey];
   if (term && path.length >= 2) {
     const d0 = distLatLng(path[0], { lat: term.startLat, lng: term.startLng });
     const dn = distLatLng(path[path.length - 1], { lat: term.startLat, lng: term.startLng });
     if (dn < d0) path = path.slice().reverse();
+  }
+  // Exclude spur sections — they distort distance-along calculations.
+  // Applied after orientation so cutoffIndex matches the server's trim.
+  const spur = ROUTE_SPURS[routeKey];
+  if (spur) {
+    const ci = spur.cutoffIndex;
+    path = spur.end === 'start' ? path.slice(ci) : path.slice(0, ci + 1);
   }
   const cumDist = [0];
   for (let i = 1; i < path.length; i++) {
@@ -637,8 +642,12 @@ function computeStopArrivals(stop, vehicles, now) {
         ? stopProj.distAlong - vehProj.distAlong
         : vehProj.distAlong - stopProj.distAlong;
 
-      // Check direct arrival (stop is ahead in current direction)
-      if (D_ch >= 0 && D_ch <= pathIdx.totalLen * 0.9) {
+      // Check direct arrival (stop is ahead in current direction).
+      // Use full path length — the T_star <= 120 min guard below already
+      // limits unreasonable distances.  A 0.9 multiplier here would block
+      // legitimate arrivals at inner-terminus stops (13th/15th St) which
+      // sit at 95-100% of the shape length.
+      if (D_ch >= 0 && D_ch <= pathIdx.totalLen) {
         const T_star = D_ch / speedMpm;
         if (T_star <= 120) {
           let T_official = null;
