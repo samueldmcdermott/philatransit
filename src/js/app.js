@@ -14,7 +14,6 @@ let shapesData           = {};
 let tunnelTimesData      = {};
 let serverTrackerRunning = false;
 let modelCardOpen        = true;
-let aboutOpen            = true;
 let refreshTimer         = null;
 let refreshIntervalMs    = 7000;
 let bandOpacity          = 0.55;
@@ -325,14 +324,32 @@ async function fetchRouteStops() {
 
 function toggleModelCard() {
   modelCardOpen = !modelCardOpen;
-  document.getElementById('mcBody').classList.toggle('hidden', !modelCardOpen);
-  document.getElementById('mcArrow').textContent = modelCardOpen ? '▾' : '▸';
+  // Toggle all visible legend bodies (whichever tab legend is showing)
+  for (const el of document.querySelectorAll('.model-card-body')) {
+    el.classList.toggle('hidden', !modelCardOpen);
+  }
+  for (const el of document.querySelectorAll('#mcArrow, .mc-arrow')) {
+    el.textContent = modelCardOpen ? '▾' : '▸';
+  }
 }
 
 function toggleAbout() {
-  aboutOpen = !aboutOpen;
-  document.getElementById('aboutBody').classList.toggle('hidden', !aboutOpen);
-  document.getElementById('aboutArrow').textContent = aboutOpen ? '▾' : '▸';
+  const overlay = document.getElementById('aboutOverlay');
+  overlay.classList.toggle('open');
+}
+
+function closeAboutOverlay(e) {
+  // Close when clicking the backdrop (not the panel itself)
+  if (e.target === e.currentTarget) toggleAbout();
+}
+
+function updateLegendForPanel(panel) {
+  const live   = document.getElementById('legendLive');
+  const map    = document.getElementById('legendMap');
+  const alerts = document.getElementById('legendAlerts');
+  if (live)   live.style.display   = panel === 'live'   ? '' : 'none';
+  if (map)    map.style.display    = panel === 'map'    ? '' : 'none';
+  if (alerts) alerts.style.display = panel === 'alerts' ? '' : 'none';
 }
 
 // ── Panel switching ─────────────────────────────────────────────────────────
@@ -346,6 +363,7 @@ function setPanel(panel) {
   document.getElementById('mapPanel').style.display    = panel === 'map'    ? '' : 'none';
   document.getElementById('alertsPanel').style.display = panel === 'alerts' ? '' : 'none';
   document.getElementById('statsPanel').style.display  = panel === 'stats'  ? '' : 'none';
+  updateLegendForPanel(panel);
   if (panel === 'stats'  && selectedRoute) loadStats();
   if (panel === 'live'   && selectedRoute) fetchNow();
   if (panel === 'alerts') renderAlertsPanel();
@@ -707,10 +725,12 @@ function renderVehicles(vehicles) {
     const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${aftPct}–${forePct}% ${ghostDir}${v._leg === 'second' ? ' (return)' : ''}</div>` : '';
     const progressInfo = (!isGhost && v.stops_passed != null && v.stops_remaining != null)
       ? `<div class="vcard-progress">${v.stops_passed} passed · ${v.stops_remaining} remaining</div>` : '';
+    const dest = v.destination_terminus || v.dest || '—';
     card.innerHTML = `
       ${ghostBanner}
       <div class="vcard-hdr">
         <span class="vcard-id">${v.label}</span>
+        <span class="vcard-dest">${dest}</span>
         <span class="late-pill" style="background:${isGhost ? '#1e3a6e' : lateColor}">${isGhost ? 'In tunnel' : lateText}</span>
       </div>
       <div class="next-stop-block" style="border-left:3px solid ${isGhost ? '#93c5fd' : vColor}">
@@ -718,7 +738,6 @@ function renderVehicles(vehicles) {
         <div class="next-stop-name tunnel-stop">${nextStop || '—'}</div>
         ${progressInfo}
       </div>
-      <div class="vcard-dest">${v.destination_terminus || v.dest || '—'}</div>
       <div class="vcard-tags">${tags.join('')}</div>`;
     grid.appendChild(card);
   }

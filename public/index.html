@@ -13,19 +13,28 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-header">
-      <div class="app-title">Philadelphia Transit Tracker</div>
-      <div class="app-subtitle">Real-time transit</div>
+      <div class="sidebar-header-top">
+        <div>
+          <div class="app-title">Philadelphia Transit Tracker</div>
+          <div class="app-subtitle">Real-time transit</div>
+        </div>
+        <button class="about-btn about-btn-desktop" onclick="toggleAbout()">About</button>
+      </div>
     </div>
     <div class="mode-tabs">
       <div class="mode-tab active" data-mode="TROLLEY" onclick="setMode('TROLLEY')">TROL</div>
       <div class="mode-tab"        data-mode="BUS"     onclick="setMode('BUS')">BUS</div>
       <div class="mode-tab"        data-mode="RAIL"    onclick="setMode('RAIL')">RAIL</div>
       <div class="mode-tab"        data-mode="SUBWAY"  onclick="setMode('SUBWAY')">SUB</div>
+      <div class="mode-tab about-btn-mobile" onclick="toggleAbout()">ABOUT</div>
     </div>
     <div id="routeList" class="route-section"></div>
-    <div class="model-card">
+
+    <!-- Tab-specific legends -->
+    <div class="model-card" id="legendLive">
       <div class="model-card-hdr" onclick="toggleModelCard()">Legend <span id="mcArrow">▾</span></div>
       <div class="model-card-body" id="mcBody">
+        <div class="legend-row"><span class="lp lp-gray">1234</span><span>Vehicle number (SEPTA fleet ID)</span></div>
         <div class="legend-row"><span class="lp lp-green">On time</span><span>≤ 0 min late</span></div>
         <div class="legend-row"><span class="lp lp-yellow">1–5 min</span><span>Minor delay</span></div>
         <div class="legend-row"><span class="lp lp-red">5+ min</span><span>Significant delay</span></div>
@@ -36,10 +45,21 @@
         <div class="legend-row"><span class="lp lp-gray">Next stop</span><span>Nearest stop by GPS distance (lat/lon)</span></div>
       </div>
     </div>
-    <div class="about">
-      <div class="about-hdr" onclick="toggleAbout()">About <span id="aboutArrow">▾</span></div>
-      <div class="about-body" id="aboutBody">
-        <div class="legend-row"><span>This website helps track transit in the Philadelphia area. The name is French for "seven ooos", since you might say "ooo" every time a transit option is late.</span></div>
+    <div class="model-card" id="legendMap" style="display:none">
+      <div class="model-card-hdr" onclick="toggleModelCard()">Legend <span class="mc-arrow">▾</span></div>
+      <div class="model-card-body mc-body">
+        <div class="legend-row"><span class="lp" style="background:var(--accent);color:#fff">&#9654;</span><span>Live vehicle (solid arrow; direction and color indicate route and heading)</span></div>
+        <div class="legend-row"><span class="lp lp-tunnel" style="border-style:dashed">&#9654;</span><span>Estimated tunnel position</span></div>
+        <div class="legend-row"><span class="lp" style="background:var(--accent);color:#fff;opacity:0.5">&#9679;</span><span>Uncertainty band (shaded region)</span></div>
+        <div class="legend-row"><span class="lp lp-green">&#9679;</span><span>Stop marker (tap for arrival predictions)</span></div>
+      </div>
+    </div>
+    <div class="model-card" id="legendAlerts" style="display:none">
+      <div class="model-card-hdr" onclick="toggleModelCard()">Legend <span class="mc-arrow">▾</span></div>
+      <div class="model-card-body mc-body">
+        <div class="legend-row"><span class="lp" style="background:var(--red);color:#fff">Severe</span><span>Service suspended or major disruption</span></div>
+        <div class="legend-row"><span class="lp" style="background:var(--yellow);color:#000">Warning</span><span>Delays, detours, or reduced service</span></div>
+        <div class="legend-row"><span class="lp" style="background:var(--accent);color:#fff">Info</span><span>General service advisory</span></div>
       </div>
     </div>
   </aside>
@@ -142,6 +162,21 @@
           <button class="btn" onclick="exportCsvAll()">Export CSV (raw, all)</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- About overlay (outside .app so position:fixed isn't clipped) -->
+<div class="about-overlay" id="aboutOverlay" onclick="closeAboutOverlay(event)">
+  <div class="about-panel">
+    <div class="about-panel-hdr">
+      <span>About</span>
+      <button class="about-close" onclick="toggleAbout()">&times;</button>
+    </div>
+    <div class="about-panel-body">
+      <p>This website helps track transit in the Philadelphia area. The name is French for "seven ooos", since you might say "ooo" every time a transit option is late.</p>
+      <p><a href="https://github.com/samueldmcdermott/philatransit" target="_blank" rel="noopener">More info and code repository here</a></p>
+      <p class="about-copyright">&copy; Sam McDermott 2026 &ndash;</p>
     </div>
   </div>
 </div>

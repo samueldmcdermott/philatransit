@@ -67,15 +67,31 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .lp-tunnel { background: #1e3a6e; color: #93c5fd; border: 1px solid #3b5998; }
 .lp-gray   { background: var(--border); color: var(--muted); }
 
-/* about */
-.about { margin: 8px 8px 12px; border: 1px solid var(--border); border-radius: 7px;
-  overflow: hidden; flex-shrink: 0; }
-.about-hdr { display: flex; justify-content: space-between; align-items: center;
-  padding: 7px 10px; background: var(--card); cursor: pointer; font-size: 10px; font-weight: 600;
-  color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; user-select: none; }
-.about-body { padding: 10px; font-size: 11px; line-height: 1.7; color: var(--muted); }
-.about-body.hidden { display: none; }
-.legend-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+/* about button — desktop: in header row; mobile: fifth mode tab */
+.sidebar-header-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.about-btn { padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);
+  background: var(--card); color: var(--muted); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.05em; cursor: pointer; white-space: nowrap; }
+.about-btn:hover { background: var(--border); color: var(--text); }
+.about-btn-mobile { display: none; }
+
+/* about overlay */
+.about-overlay { display: none; position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.55); align-items: center; justify-content: center; }
+.about-overlay.open { display: flex; }
+.about-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  width: 360px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+.about-panel-hdr { display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  font-size: 14px; font-weight: 700; color: var(--text); }
+.about-close { background: none; border: none; color: var(--muted); font-size: 22px;
+  cursor: pointer; line-height: 1; padding: 0 4px; }
+.about-close:hover { color: var(--text); }
+.about-panel-body { padding: 16px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.about-panel-body p { margin-bottom: 10px; }
+.about-panel-body p:last-child { margin-bottom: 0; }
+.about-panel-body a { color: var(--accent); text-decoration: underline; }
+.about-copyright { font-size: 11px; color: var(--border); }
 
 /* toolbar */
 .panel-tabs { display: flex; gap: 2px; background: var(--card); border-radius: 6px; padding: 2px; }
@@ -123,8 +139,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 @keyframes linger-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.55); } }
 .linger-marker svg { animation: linger-pulse 1.5s ease-in-out infinite; transform-origin: center; }
 
-.vcard-dest { font-size: 12px; color: var(--muted); margin-top: 7px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vcard-dest { font-size: 12px; color: var(--muted); flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; margin-right: 8px; }
 .vcard-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .tag { background: var(--border); color: var(--muted); padding: 2px 6px;
   border-radius: 3px; font-size: 10px; }
@@ -247,9 +263,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 @media (max-width: 768px) {
   .sidebar { width: 180px; }
   .status-txt { max-width: 120px; }
-  /* Collapse legend and about by default on tablet — still accessible */
-  .model-card-body, .about-body { display: none; }
-  #mcArrow, #aboutArrow { content: '▸'; }
+  /* Collapse legend by default on tablet — still accessible */
+  .model-card-body, .mc-body { display: none; }
 }
 
 /* ── Mobile ─────────────────────────────────────────────────── */
@@ -267,12 +282,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
     overflow: visible;
   }
 
-  /* Hide title block and legend/about — not useful at this size */
-  .sidebar-header, .model-card, .about { display: none; }
+  /* Hide title block and legends — not useful at this size */
+  .sidebar-header, .model-card { display: none; }
 
-  /* Mode tabs: even 4-column grid */
-  .mode-tabs { display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 8px; gap: 4px; }
+  /* Mode tabs: 5-column grid (4 modes + About) */
+  .mode-tabs { display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 8px; gap: 4px; }
   .mode-tab { padding: 7px 0; font-size: 11px; }
+  .about-btn-mobile { display: block; }
+  .about-btn-desktop { display: none; }
 
   /* Route list: horizontal chip scroll */
   #routeList {
