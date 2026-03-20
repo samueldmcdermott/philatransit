@@ -276,6 +276,29 @@ _SHAPE_TRIM = {
 routes: dict[str, RouteShape] = {}
 
 
+_SAMPLE_SPACING_M = 350  # auto-generate a stop roughly every 350 m
+
+
+def _sample_stops(pts, cum_dist, spacing=_SAMPLE_SPACING_M):
+    """Generate evenly-spaced synthetic stops along a shape polyline.
+
+    Returns [(name, dist_along), ...] — same format as projected real stops.
+    """
+    if not cum_dist:
+        return []
+    total = cum_dist[-1]
+    stops = [('Start', 0.0)]
+    accum = 0.0
+    for i in range(1, len(cum_dist)):
+        seg = cum_dist[i] - cum_dist[i - 1]
+        accum += seg
+        if accum >= spacing:
+            stops.append((f'Stop {len(stops)}', round(cum_dist[i], 1)))
+            accum = 0.0
+    stops.append(('End', round(total, 1)))
+    return stops
+
+
 def load_shapes():
     """Load GTFS shapes, orient them, project stops, and populate `routes`."""
     shapes_path = BASE / "static" / "shapes.json"
@@ -328,6 +351,12 @@ def load_shapes():
             da = geo.project(pts, cum, slat, slng)
             stop_dists.append((name, round(da, 1)))
         stop_dists.sort(key=lambda s: s[1])
+
+        # Auto-generate synthetic stops for routes with no defined stops,
+        # so the Trip direction-correction logic has stop transitions to
+        # detect actual movement direction.
+        if not stop_dists:
+            stop_dists = _sample_stops(pts, cum)
 
         routes[route_id] = RouteShape(
             route_id=route_id,
