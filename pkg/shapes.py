@@ -264,6 +264,16 @@ class RouteShape:
     origin_bearing: float = 0.0  # bearing from start to end terminus
 
 
+# Non-revenue shape prefixes to strip before projection.
+# The T2 GTFS shape includes the Elmwood Loop supply spur (indices 0-103)
+# AND a backtrack from the junction to 61st-Baltimore (indices 103-174).
+# Stripping everything before the western terminus (index 174) gives a
+# clean one-directional shape (61st → 13th) with no doubled-back segments
+# that would cause ambiguous projections.
+_SHAPE_TRIM = {
+    'T2': 174,   # strip spur + backtrack; start at 61st-Baltimore terminus
+}
+
 # Module-level registry — populated by load_shapes()
 routes: dict[str, RouteShape] = {}
 
@@ -292,6 +302,13 @@ def load_shapes():
             dn = geo.distance(pts[-1][0], pts[-1][1], s_lat, s_lng)
             if dn < d0:
                 pts = list(reversed(pts))
+
+        # Strip non-revenue prefix (spur + backtrack) so vehicles on the
+        # revenue route don't get ambiguous projections onto overlapping
+        # shape segments.
+        trim = _SHAPE_TRIM.get(route_id)
+        if trim is not None:
+            pts = pts[trim:]
 
         # Build cumulative distance
         cum = [0.0]

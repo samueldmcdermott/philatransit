@@ -139,10 +139,11 @@ const SHAPE_TERMINI = {
 // 'start' means indices 0..cutoffIndex are the spur;
 // 'end' means indices cutoffIndex..last are the spur.
 const ROUTE_SPURS = {
-  // T2: Elmwood Loop spur — 49th St / Elmwood Av supply track from
-  // Elmwood Loop (shape start) to Baltimore Av junction.
-  // Shape idx 0-103 is the spur; idx 103+ is the revenue route.
-  T2: { end: 'start', cutoffIndex: 103 },
+  // T2: GTFS shape includes Elmwood Loop spur (idx 0-103) plus a
+  // backtrack from the junction to 61st-Baltimore (idx 103-174).
+  // Strip everything before the western terminus for a clean
+  // one-directional shape (61st → 13th) with no doubled-back segments.
+  T2: { end: 'start', cutoffIndex: 174 },
 };
 
 // ── Tunnel closure detection ──────────────────────────────────────────────
