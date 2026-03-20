@@ -1,0 +1,66 @@
+{
+  "T1": {
+    "start_name": "63rd-Malvern",
+    "start_lat": 39.9838,
+    "start_lng": -75.246,
+    "end_name": "13th St",
+    "end_lat": 39.9525,
+    "end_lng": -75.1626
+  },
+  "T2": {
+    "start_name": "61st-Baltimore",
+    "start_lat": 39.944,
+    "start_lng": -75.2463,
+    "end_name": "13th St",
+    "end_lat": 39.9525,
+    "end_lng": -75.1626
+  },
+  "T3": {
+    "start_name": "Darby TC",
+    "start_lat": 39.9191,
+    "start_lng": -75.2624,
+    "end_name": "13th St",
+    "end_lat": 39.9525,
+    "end_lng": -75.1626
+  },
+  "T4": {
+    "start_name": "Island Av",
+    "start_lat": 39.9171,
+    "start_lng": -75.2464,
+    "end_name": "13th St",
+    "end_lat": 39.9525,
+    "end_lng": -75.1626
+  },
+  "T5": {
+    "start_name": "Elmwood Loop",
+    "start_lat": 39.914,
+    "start_lng": -75.2426,
+    "end_name": "13th St",
+    "end_lat": 39.9525,
+    "end_lng": -75.1626
+  },
+  "G1": {
+    "start_name": "63rd & Girard",
+    "start_lat": 39.9702,
+    "start_lng": -75.2446,
+    "end_name": "Richmond & Westmoreland",
+    "end_lat": 39.9843,
+    "end_lng": -75.0996
+  },
+  "MFL": {
+    "start_name": "69th St TC",
+    "start_lat": 39.9623,
+    "start_lng": -75.2586,
+    "end_name": "Frankford TC",
+    "end_lat": 40.0229,
+    "end_lng": -75.0779
+  },
+  "BSL": {
+    "start_name": "NRG Station",
+    "start_lat": 39.9054,
+    "start_lng": -75.1739,
+    "end_name": "Fern Rock TC",
+    "end_lat": 40.0419,
+    "end_lng": -75.1368
+  }
+}
