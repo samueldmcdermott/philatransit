@@ -32,8 +32,6 @@ _MIN_MOVE = 20         # meters — ignore jitter below this
 _STALE_S = 600         # seconds — drop trip after this long without update
 _TERMINUS_RADIUS = 200 # meters — "at terminus" threshold
 
-
-
 # ── Trip dataclass ────────────────────────────────────────────────────
 
 @dataclass
@@ -75,6 +73,14 @@ class Trip:
 
 
 # ── Stop computation ──────────────────────────────────────────────────
+
+def _stop_da(stop_dists, name):
+    """Return the dist_along for a stop by name, or None."""
+    for n, da in stop_dists:
+        if n == name:
+            return da
+    return None
+
 
 def _update_stop_info(trip, stop_dists):
     """Compute current_stop, next_stop, stops_passed, stops_remaining.
@@ -188,22 +194,11 @@ class TripManager:
         """Create a new Trip for a first-seen vehicle.
 
         Always starts forward=True (toward end terminus).  Direction is
-        corrected once two distinct stops have been observed — see
-        _update_trip for the stop-history fallback.
+        corrected on the first stop transition — see _update_trip.
         """
-        forward = True
-
         if term:
-            if forward:
-                origin, destination = term[0], term[3]
-            else:
-                origin, destination = term[3], term[0]
-            trip_bearing = geo.bearing(
-                term[1] if forward else term[4],
-                term[2] if forward else term[5],
-                term[4] if forward else term[1],
-                term[5] if forward else term[2],
-            )
+            origin, destination = term[0], term[3]
+            trip_bearing = geo.bearing(term[1], term[2], term[4], term[5])
         else:
             origin, destination = '', ''
             trip_bearing = 0.0
@@ -215,25 +210,20 @@ class TripManager:
             origin=origin,
             destination=destination,
             bearing=round(trip_bearing, 1),
-            forward=forward,
-            original_forward=forward,
+            forward=True,
+            original_forward=True,
             dist_along=da,
             first_dist_along=da,
             start_time=now,
             last_update=now,
         )
 
-        # Populate stop info on first cycle and seed stop history
+        # Populate stop info and seed stop history so the first stop
+        # transition can trigger a direction correction.
         _update_stop_info(trip, shape.stops)
         if trip.current_stop:
-            for name, sda in shape.stops:
-                if name == trip.current_stop:
-                    trip.last_stop_name = trip.current_stop
-                    trip.last_stop_da = sda
-                    break
-            # Seed prev_stop_da from the initial projection so the very
-            # first stop transition can trigger a direction correction
-            # (normally requires two stop changes).
+            trip.last_stop_name = trip.current_stop
+            trip.last_stop_da = _stop_da(shape.stops, trip.current_stop)
             trip.prev_stop_da = da
 
         return trip
@@ -260,42 +250,31 @@ class TripManager:
         # Stop info
         _update_stop_info(trip, shape.stops)
 
-        # Track stop history; fallback direction correction (only while forward)
+        # Track stop history; correct direction if stops contradict it.
         if trip.current_stop and trip.current_stop != trip.last_stop_name:
-            cur_da = None
-            for name, sda in shape.stops:
-                if name == trip.current_stop:
-                    cur_da = sda
-                    break
+            cur_da = _stop_da(shape.stops, trip.current_stop)
             if cur_da is not None:
                 trip.prev_stop_da = trip.last_stop_da
                 trip.last_stop_name = trip.current_stop
                 trip.last_stop_da = cur_da
 
-                # Fallback: if stops show movement opposite to current direction, flip.
+                flipped = False
                 if trip.prev_stop_da is not None:
-                    flipped = False
-                    if (trip.forward
-                            and trip.last_stop_da < trip.prev_stop_da):
+                    if trip.forward and cur_da < trip.prev_stop_da:
                         self._flip_reverse(trip)
                         flipped = True
-                    elif (not trip.forward
-                            and trip.last_stop_da > trip.prev_stop_da):
+                    elif not trip.forward and cur_da > trip.prev_stop_da:
                         self._flip_forward(trip)
                         flipped = True
 
-                    if flipped:
-                        # Resync stops and history after the flip so the
-                        # changed current_stop doesn't immediately trigger
-                        # a reverse flip on the next cycle.
-                        _update_stop_info(trip, shape.stops)
-                        trip.prev_stop_da = None
-                        if trip.current_stop:
-                            for name, sda in shape.stops:
-                                if name == trip.current_stop:
-                                    trip.last_stop_name = trip.current_stop
-                                    trip.last_stop_da = sda
-                                    break
+                if flipped:
+                    # Resync: the flip changes how current_stop is computed,
+                    # so update history to prevent an immediate re-flip.
+                    _update_stop_info(trip, shape.stops)
+                    trip.prev_stop_da = None
+                    if trip.current_stop:
+                        trip.last_stop_name = trip.current_stop
+                        trip.last_stop_da = _stop_da(shape.stops, trip.current_stop)
 
     def _flip_reverse(self, trip):
         """Flip from forward=True to forward=False."""

@@ -133,16 +133,11 @@ const SHAPE_TERMINI = {
 };
 
 // ── Route spur definitions ──────────────────────────────────────────────
-// Spurs are sections of the GTFS shape used for vehicle supply/storage,
-// not revenue service.  Drawn as thin lines with no stops.
-// Each entry: { end: 'start'|'end', cutoffIndex }
-// 'start' means indices 0..cutoffIndex are the spur;
-// 'end' means indices cutoffIndex..last are the spur.
+// Non-revenue shape prefixes.  Drawn as thin dashed lines; stripped from
+// the projection path used for next-to-arrive calculations.
+// cutoffIndex must stay in sync with _SHAPE_TRIM in shapes.py.
 const ROUTE_SPURS = {
-  // T2: GTFS shape includes Elmwood Loop spur (idx 0-103) plus a
-  // backtrack from the junction to 61st-Baltimore (idx 103-174).
-  // Strip everything before the western terminus for a clean
-  // one-directional shape (61st → 13th) with no doubled-back segments.
+  // T2: Elmwood Loop spur (0-103) + backtrack to 61st terminus (103-174).
   T2: { end: 'start', cutoffIndex: 174 },
 };
 

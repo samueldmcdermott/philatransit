@@ -264,14 +264,12 @@ class RouteShape:
     origin_bearing: float = 0.0  # bearing from start to end terminus
 
 
-# Non-revenue shape prefixes to strip before projection.
-# The T2 GTFS shape includes the Elmwood Loop supply spur (indices 0-103)
-# AND a backtrack from the junction to 61st-Baltimore (indices 103-174).
-# Stripping everything before the western terminus (index 174) gives a
-# clean one-directional shape (61st → 13th) with no doubled-back segments
-# that would cause ambiguous projections.
+# Non-revenue shape prefix indices to strip before projection.
+# Must stay in sync with ROUTE_SPURS.cutoffIndex in tunnel.js.
 _SHAPE_TRIM = {
-    'T2': 174,   # strip spur + backtrack; start at 61st-Baltimore terminus
+    # T2 GTFS shape: Elmwood Loop spur (0-103) + backtrack to 61st (103-174).
+    # Trim to start at the western terminus for a clean one-directional shape.
+    'T2': 174,
 }
 
 # Module-level registry — populated by load_shapes()
