@@ -311,7 +311,7 @@ class TripManager:
 
         # New Trip fields
         v['trip_id'] = trip.id
-        v['trip_bearing'] = trip.bearing
+        v['trip_bearing'] = trip.bearing if trip.bearing else None
         v['origin_terminus'] = trip.origin
         v['destination_terminus'] = trip.destination
         v['current_stop'] = trip.current_stop
