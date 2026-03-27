@@ -156,6 +156,22 @@
         </div>
         <canvas id="tripChart" height="300"></canvas>
         <div class="chart-legend" id="chartLegend"></div>
+        <div class="pdf-section-hdr">
+          <div class="pdf-section-title">
+            <span class="cdf-label">Trains started per</span>
+            <select id="pdfBucketSelect" class="cdf-select" onchange="onPdfBucketChange()">
+              <option value="5">5 min</option>
+              <option value="10" selected>10 min</option>
+              <option value="15">15 min</option>
+              <option value="20">20 min</option>
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+            </select>
+            <span class="cdf-label">window</span>
+          </div>
+          <div id="lastTrainStr" class="last-train-str"></div>
+        </div>
+        <canvas id="pdfChart" height="220"></canvas>
         <div class="export-row">
           <button class="btn" onclick="exportCsvPlot()">Export CSV (plot)</button>
           <button class="btn" onclick="exportCsvRoute()">Export CSV (raw, this route)</button>

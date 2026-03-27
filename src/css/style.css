@@ -193,6 +193,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 
 #tripChart { width: 100%; border-radius: 8px; display: block; cursor: crosshair; }
 .chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; align-items: center; }
+.pdf-section-hdr { display: flex; flex-direction: column; align-items: flex-start;
+  gap: 4px; margin-top: 18px; margin-bottom: 6px; }
+.pdf-section-title { display: flex; align-items: center; gap: 6px; }
+.last-train-str { font-size: 15px; color: var(--muted); line-height: 1.3; }
+.last-train-n { font-size: 30px; font-weight: 700; color: var(--text); line-height: 1; }
+#pdfChart { width: 100%; border-radius: 8px; display: block; cursor: crosshair; }
 .ld { display: inline-block; width: 14px; height: 3px; border-radius: 2px;
   vertical-align: middle; margin-right: 4px; }
 .export-row { margin-top: 12px; display: flex; gap: 8px; align-items: center; }

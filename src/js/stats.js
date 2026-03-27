@@ -23,6 +23,9 @@ let chartState = {
   hoverMin: null, // minute value under cursor (null = no hover)
 };
 
+// PDF histogram hover state
+let pdfState = { hoverMin: null };
+
 // Series colors
 const CDF_COLORS = {
   scheduled: '#78818c',
@@ -118,9 +121,10 @@ function renderStats() {
   chartState._todayStr = todayStr;
   chartState._today = today;
 
-  redrawChart();
+  redrawChart(); // also redraws PDF chart internally
   updateLegend();
   initChartInteraction();
+  initPdfChartInteraction();
 }
 
 // ── CDF value at a given minute ──────────────────────────────────────────────
@@ -371,6 +375,9 @@ function redrawChart() {
     ? 'Scroll to zoom \u00b7 Double-click to reset'
     : 'Scroll to zoom \u00b7 Click+drag to select range \u00b7 Double-click to reset';
   ctx.fillText(hint, W - PAD.right, canvas.height - 4);
+
+  // Keep PDF chart in sync (shared zoom state)
+  redrawPdfChart();
 }
 
 function drawCdfSteps(ctx, s, minX, maxX, maxY, toX, toY, PAD, cw) {
@@ -617,6 +624,351 @@ function initChartInteraction() {
     chartState.minX = chartState.fullMinX;
     chartState.maxX = chartState.fullMaxX;
     redrawChart();
+  });
+
+  // ── Touch support ─────────────────────────────────────────────────────────
+  // Single finger: show hover tooltip (like mousemove)
+  // Two fingers:   pinch to zoom
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    if (e.touches.length === 2) {
+      chartState.hoverMin = null;
+      chartState.selecting = false;
+      canvas._pinchDist0 = Math.hypot(
+        e.touches[1].clientX - e.touches[0].clientX,
+        e.touches[1].clientY - e.touches[0].clientY
+      );
+      canvas._pinchZoom0 = { minX: chartState.minX, maxX: chartState.maxX };
+      const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left) * (canvas.width / rect.width);
+      canvas._pinchCenter = xToMin(cx);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    if (e.touches.length === 1) {
+      const px = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
+      const minPx = PAD.left, maxPx = PAD.left + (canvas.width - PAD.left - PAD.right);
+      chartState.hoverMin = (px >= minPx && px <= maxPx) ? xToMin(px) : null;
+      chartState.selecting = false;
+      redrawChart();
+    } else if (e.touches.length === 2 && canvas._pinchDist0) {
+      const dist = Math.hypot(
+        e.touches[1].clientX - e.touches[0].clientX,
+        e.touches[1].clientY - e.touches[0].clientY
+      );
+      const ratio = canvas._pinchDist0 / dist;
+      const z0 = canvas._pinchZoom0;
+      const range = z0.maxX - z0.minX;
+      const newRange = Math.max(30, Math.min(chartState.fullMaxX - chartState.fullMinX, range * ratio));
+      const frac = (canvas._pinchCenter - z0.minX) / range;
+      chartState.minX = Math.max(chartState.fullMinX, canvas._pinchCenter - frac * newRange);
+      chartState.maxX = Math.min(chartState.fullMaxX, chartState.minX + newRange);
+      if (chartState.maxX - chartState.minX < 30) chartState.maxX = chartState.minX + 30;
+      redrawChart();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    if (e.touches.length === 0) {
+      chartState.hoverMin = null;
+      chartState.selecting = false;
+      redrawChart();
+      canvas._pinchDist0 = null;
+      canvas._pinchZoom0 = null;
+    }
+  });
+}
+
+// ── PDF histogram chart ───────────────────────────────────────────────────────
+
+function getPdfBucketSize() {
+  const sel = document.getElementById('pdfBucketSelect');
+  return sel ? (parseInt(sel.value, 10) || 10) : 10;
+}
+
+function onPdfBucketChange() {
+  redrawPdfChart();
+}
+
+function updatePdfHeader() {
+  const el = document.getElementById('lastTrainStr');
+  if (!el) return;
+  const routeCdfs = chartState._routeCdfs || {};
+  const todayStr = chartState._todayStr || fmtDate(new Date());
+  const todayMins = routeCdfs[todayStr] || [];
+  if (!todayMins.length) { el.textContent = ''; return; }
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  let lastStart = null;
+  for (let i = todayMins.length - 1; i >= 0; i--) {
+    if (todayMins[i] <= nowMin) { lastStart = todayMins[i]; break; }
+  }
+  if (lastStart === null) { el.textContent = ''; return; }
+  const minAgo = Math.round(nowMin - lastStart);
+  el.innerHTML = '<span class="last-train-n">' + minAgo + '</span> min since last train started';
+}
+
+function buildPdfData() {
+  const series = buildCdfSeries();
+  const bucketSize = getPdfBucketSize();
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  const result = [];
+  for (const s of series) {
+    const bins = {};
+    for (const m of s.mins) {
+      if (s.stopAtCurrent && m > nowMin) break;
+      const bucket = Math.floor(m / bucketSize) * bucketSize;
+      bins[bucket] = (bins[bucket] || 0) + 1;
+    }
+    const data = Object.entries(bins)
+      .map(([k, v]) => ({ x: +k, y: v / s.divisor }))
+      .sort((a, b) => a.x - b.x);
+    result.push({ key: s.key, label: s.label, color: s.color, alpha: s.alpha, divisor: s.divisor, data });
+  }
+  return result;
+}
+
+function redrawPdfChart() {
+  updatePdfHeader();
+  const canvas = document.getElementById('pdfChart');
+  if (!canvas) return;
+  const W = canvas.offsetWidth || 680;
+  canvas.width = W; canvas.height = 220;
+  const ctx = canvas.getContext('2d');
+  const PAD = { top: 16, right: 20, bottom: 38, left: 46 };
+  const cw = W - PAD.left - PAD.right, ch = canvas.height - PAD.top - PAD.bottom;
+  const minX = chartState.minX, maxX = chartState.maxX;
+  const bucketSize = getPdfBucketSize();
+  const series = buildPdfData();
+
+  ctx.fillStyle = '#191c22'; ctx.fillRect(0, 0, W, canvas.height);
+
+  if (!series.length) return;
+
+  // maxY
+  let maxY = 1;
+  for (const s of series) {
+    for (const pt of s.data) {
+      if (pt.x + bucketSize <= minX || pt.x >= maxX) continue;
+      if (pt.y > maxY) maxY = pt.y;
+    }
+  }
+  maxY = Math.ceil(maxY * 1.1) || 1;
+
+  function toX(m) { return PAD.left + ((m - minX) / (maxX - minX)) * cw; }
+  function toY(n) { return PAD.top + (1 - n / maxY) * ch; }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(PAD.left, PAD.top, cw, ch);
+  ctx.clip();
+
+  // Grid
+  ctx.strokeStyle = '#25292f'; ctx.lineWidth = 1;
+  const hStep = (maxX - minX) > 6 * 60 ? 3 : (maxX - minX) > 2 * 60 ? 1 : 0.5;
+  for (let h = Math.ceil(minX / 60); h * 60 <= maxX; h += hStep) {
+    const x = toX(h * 60);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + ch); ctx.stroke();
+  }
+  const yStep = Math.max(1, Math.ceil(maxY / 5));
+  for (let y = 0; y <= maxY; y += yStep) {
+    const yy = toY(y);
+    ctx.beginPath(); ctx.moveTo(PAD.left, yy); ctx.lineTo(PAD.left + cw, yy); ctx.stroke();
+  }
+
+  // Draw grouped bars per bucket
+  const nS = series.length;
+  const bucketPx = toX(minX + bucketSize) - toX(minX);
+  const gap = Math.max(1, bucketPx * 0.06);
+  const barW = Math.max(1, (bucketPx - gap * 2) / nS);
+
+  for (let si = 0; si < nS; si++) {
+    const s = series[si];
+    ctx.save();
+    ctx.globalAlpha = s.alpha;
+    ctx.fillStyle = s.color;
+    for (const pt of s.data) {
+      if (pt.x + bucketSize <= minX || pt.x >= maxX) continue;
+      const bx = toX(pt.x) + gap + si * barW;
+      const by = toY(pt.y);
+      const bh = PAD.top + ch - by;
+      if (bh > 0) ctx.fillRect(bx, by, barW, bh);
+    }
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Hover tooltip
+  if (pdfState.hoverMin != null) {
+    drawPdfHoverTooltip(ctx, series, pdfState.hoverMin, minX, maxX, maxY, toX, toY, PAD, cw, ch, W, bucketSize);
+  }
+
+  // X axis labels
+  ctx.fillStyle = '#78818c'; ctx.font = '10px Helvetica Neue'; ctx.textAlign = 'center';
+  for (let h = Math.ceil(minX / 60); h * 60 <= maxX; h += hStep) {
+    const hh = h % 24;
+    ctx.fillText(`${hh % 12 || 12}${hh < 12 ? 'a' : 'p'}`, toX(h * 60), PAD.top + ch + 14);
+  }
+  // Y axis labels
+  const hasFrac = series.some(s => s.divisor > 1);
+  ctx.textAlign = 'right';
+  for (let y = 0; y <= maxY; y += yStep) {
+    ctx.fillStyle = '#78818c';
+    ctx.fillText(hasFrac ? y.toFixed(1) : y, PAD.left - 5, toY(y) + 4);
+  }
+}
+
+function drawPdfHoverTooltip(ctx, series, hoverMin, minX, maxX, maxY, toX, toY, PAD, cw, ch, W, bucketSize) {
+  const bucketStart = Math.floor(hoverMin / bucketSize) * bucketSize;
+  const bucketEnd = bucketStart + bucketSize;
+
+  // Highlight hovered bucket
+  ctx.save();
+  ctx.fillStyle = 'rgba(224, 232, 240, 0.06)';
+  const hbx = Math.max(PAD.left, toX(bucketStart));
+  const hbw = Math.min(PAD.left + cw, toX(bucketEnd)) - hbx;
+  ctx.fillRect(hbx, PAD.top, hbw, ch);
+  ctx.restore();
+
+  const lines = [];
+  for (const s of series) {
+    const pt = s.data.find(d => d.x === bucketStart);
+    const val = pt ? pt.y : 0;
+    lines.push({ label: s.label, val: s.divisor > 1 ? val.toFixed(1) : String(Math.round(val)), color: s.color });
+  }
+
+  ctx.save();
+  ctx.font = '10px Helvetica Neue';
+  const timeStr = fmtMin(bucketStart) + '\u2013' + fmtMin(bucketEnd);
+  const lineHeight = 14, padding = 6, dotSize = 6, dotGap = 4;
+  let boxW = ctx.measureText(timeStr).width;
+  for (const l of lines) {
+    const tw = ctx.measureText(l.label + ': ' + l.val).width + dotSize + dotGap;
+    if (tw > boxW) boxW = tw;
+  }
+  boxW += padding * 2;
+  const boxH = lineHeight * (1 + lines.length) + padding * 2 - 4;
+  const hx = toX(bucketStart + bucketSize / 2);
+  let tx = hx + 10;
+  if (tx + boxW > W - PAD.right) tx = hx - boxW - 10;
+  const ty = PAD.top + 8;
+
+  ctx.fillStyle = 'rgba(18, 21, 26, 0.92)';
+  ctx.strokeStyle = '#25292f'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(tx, ty, boxW, boxH, 4); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = '#e0e8f0'; ctx.textAlign = 'left';
+  ctx.fillText(timeStr, tx + padding, ty + padding + 10);
+  let row = 1;
+  for (const l of lines) {
+    const ry = ty + padding + 10 + lineHeight * row;
+    ctx.fillStyle = l.color;
+    ctx.beginPath(); ctx.arc(tx + padding + dotSize / 2, ry - 3, dotSize / 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#b0b8c4';
+    ctx.fillText(l.label + ': ' + l.val, tx + padding + dotSize + dotGap, ry);
+    row++;
+  }
+  ctx.restore();
+}
+
+function initPdfChartInteraction() {
+  const canvas = document.getElementById('pdfChart');
+  if (!canvas || canvas._pdfListenersAdded) return;
+  canvas._pdfListenersAdded = true;
+  const PAD = { top: 16, right: 20, bottom: 38, left: 46 };
+
+  function xToMin(px) {
+    const cw = canvas.width - PAD.left - PAD.right;
+    return chartState.minX + ((px - PAD.left) / cw) * (chartState.maxX - chartState.minX);
+  }
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const centerMin = xToMin(px);
+    const range = chartState.maxX - chartState.minX;
+    const factor = e.deltaY > 0 ? 1.3 : 0.7;
+    let newRange = Math.max(30, Math.min(chartState.fullMaxX - chartState.fullMinX, range * factor));
+    const frac = (centerMin - chartState.minX) / range;
+    chartState.minX = Math.max(chartState.fullMinX, centerMin - frac * newRange);
+    chartState.maxX = Math.min(chartState.fullMaxX, chartState.minX + newRange);
+    if (chartState.maxX - chartState.minX < 30) chartState.maxX = chartState.minX + 30;
+    redrawChart(); // redraws both charts (redrawChart calls redrawPdfChart)
+  }, { passive: false });
+
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const minPx = PAD.left, maxPx = PAD.left + (canvas.width - PAD.left - PAD.right);
+    pdfState.hoverMin = (px >= minPx && px <= maxPx) ? xToMin(px) : null;
+    redrawPdfChart();
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    pdfState.hoverMin = null;
+    redrawPdfChart();
+  });
+
+  canvas.addEventListener('dblclick', () => {
+    chartState.minX = chartState.fullMinX;
+    chartState.maxX = chartState.fullMaxX;
+    redrawChart();
+  });
+
+  // Touch: single-finger hover tooltip, two-finger pinch-zoom
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    if (e.touches.length === 2) {
+      pdfState.hoverMin = null;
+      canvas._pinchDist0 = Math.hypot(
+        e.touches[1].clientX - e.touches[0].clientX,
+        e.touches[1].clientY - e.touches[0].clientY
+      );
+      canvas._pinchZoom0 = { minX: chartState.minX, maxX: chartState.maxX };
+      const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left) * (canvas.width / rect.width);
+      canvas._pinchCenter = xToMin(cx);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    if (e.touches.length === 1) {
+      const px = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
+      const minPx = PAD.left, maxPx = PAD.left + (canvas.width - PAD.left - PAD.right);
+      pdfState.hoverMin = (px >= minPx && px <= maxPx) ? xToMin(px) : null;
+      redrawPdfChart();
+    } else if (e.touches.length === 2 && canvas._pinchDist0) {
+      const dist = Math.hypot(
+        e.touches[1].clientX - e.touches[0].clientX,
+        e.touches[1].clientY - e.touches[0].clientY
+      );
+      const ratio = canvas._pinchDist0 / dist;
+      const z0 = canvas._pinchZoom0;
+      const range = z0.maxX - z0.minX;
+      const newRange = Math.max(30, Math.min(chartState.fullMaxX - chartState.fullMinX, range * ratio));
+      const frac = (canvas._pinchCenter - z0.minX) / range;
+      chartState.minX = Math.max(chartState.fullMinX, canvas._pinchCenter - frac * newRange);
+      chartState.maxX = Math.min(chartState.fullMaxX, chartState.minX + newRange);
+      if (chartState.maxX - chartState.minX < 30) chartState.maxX = chartState.minX + 30;
+      redrawChart();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    if (e.touches.length === 0) {
+      pdfState.hoverMin = null;
+      redrawPdfChart();
+      canvas._pinchDist0 = null;
+      canvas._pinchZoom0 = null;
+    }
   });
 }
 
