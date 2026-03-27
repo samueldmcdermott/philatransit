@@ -249,6 +249,13 @@ def get_lingering_vids():
 
     These vehicles have frozen GPS near a portal and are about to enter the
     tunnel, but haven't yet crossed the linger time threshold to become ghosts.
+    Includes timing and route info so clients can draw forward-uncertainty bands.
     """
     with _ghost_lock:
-        return {vid: info['direction'] for vid, info in _portal_linger.items()}
+        return {vid: {
+            'direction': info['direction'],
+            'route': info['route'],
+            'first_ts': int(info['first_ts'] * 1000),
+            'lat': info['lat'],
+            'lng': info['lng'],
+        } for vid, info in _portal_linger.items()}

@@ -308,15 +308,12 @@ function realIcon(color, heading) {
 }
 
 function ghostIcon(color, heading) {
-  // 20% larger than real markers — dashed outlines on the uncertainty band
-  // are hard to see at the normal 30px size.
   return L.divIcon({
     className: 'ghost-marker-svg',
-    html: `<svg width="36" height="36" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
-      <polygon points="15,2.1 10,21.5 20,21.5" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round"/>
-      <circle cx="15" cy="15" r="3.75" fill="#93c5fd" opacity="0.8"/>
+    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
+      <polygon points="15,2.1 10,21.5 20,21.5" fill="${color}" stroke="white" stroke-width="1.8" stroke-linejoin="round" opacity="0.45"/>
     </svg>`,
-    iconSize: [36, 36], iconAnchor: [18, 18],
+    iconSize: [30, 30], iconAnchor: [15, 15],
   });
 }
 
@@ -349,6 +346,63 @@ let stopMarkerInfos = [];   // [{marker, stop}]
 let routePathIndices = {};  // routeKey → {path, cumDist, totalLen}
 let stopPredictions = {};   // stopId → [{trip, vehicle, route, minutes}]
 
+function computeNextStopInfo(v, lat, lng) {
+  const pathIdx = getRoutePathIndex(v._rkey);
+  if (!pathIdx) return null;
+  const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
+  if (!vehProj) return null;
+
+  // Determine direction
+  const isGhost = v._ghost === true;
+  let movingForward = true;
+  if (!isGhost && v.computed_direction != null) {
+    movingForward = v.computed_direction !== 'reverse';
+  } else if (isGhost && v._direction) {
+    movingForward = v._direction === 'eastbound';
+  }
+
+  // Find the nearest stop ahead in the vehicle's direction
+  let bestStop = null, bestDist = Infinity;
+  for (const info of stopMarkerInfos) {
+    const s = info.stop;
+    const routes = s.routes || [s.routeKey];
+    if (!routes.includes(v._rkey)) continue;
+    const sProj = projectOntoPathIdx(pathIdx, s.lat, s.lng);
+    if (!sProj) continue;
+    const dist = movingForward
+      ? sProj.distAlong - vehProj.distAlong
+      : vehProj.distAlong - sProj.distAlong;
+    if (dist > 10 && dist < bestDist) {  // >10m to skip the stop we're at
+      bestDist = dist;
+      bestStop = s;
+    }
+  }
+
+  if (!bestStop) return null;
+
+  // Compute ETA
+  let speedMpm = null;
+  if (!isGhost && v.speed_mps != null && v.speed_mps > 0) {
+    speedMpm = v.speed_mps * 60;
+  } else {
+    const reg = liveRegistry[v._id];
+    const now = Date.now();
+    if (reg && reg.firstLat != null) {
+      const T_ms = now - reg.firstSeen;
+      if (T_ms > 30000) {
+        const startProj = projectOntoPathIdx(pathIdx, reg.firstLat, reg.firstLng);
+        if (startProj) {
+          const D = Math.abs(vehProj.distAlong - startProj.distAlong);
+          if (D > 50) speedMpm = D / (T_ms / 60000);
+        }
+      }
+    }
+  }
+
+  const etaMin = speedMpm ? bestDist / speedMpm : null;
+  return { name: bestStop.name, etaMin };
+}
+
 function updateVehiclesOnMap(vehicles) {
   if (!mapInitialized) return;
   const defaultColor = selectedRoute?.color || '#2f69f3';
@@ -374,11 +428,22 @@ function updateVehiclesOnMap(vehicles) {
     const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${aftPct}–${forePct}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
     const stopProgress = (!isGhost && v.stops_passed != null && v.stops_remaining != null)
       ? `<div style="font-size:10px;color:#555;margin-top:2px;">${v.stops_passed} stops passed · ${v.stops_remaining} remaining</div>` : '';
+
+    // Next stop and ETA
+    const nsInfo = computeNextStopInfo(v, lat, lng);
+    let nextStopLine = '';
+    if (nsInfo) {
+      const etaStr = nsInfo.etaMin != null ? ` · ~${Math.round(nsInfo.etaMin)} min` : '';
+      nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nsInfo.name}${etaStr}${tunneled?' (tunnel)':''}</div>`;
+    } else if (nextStop) {
+      nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>`;
+    }
+
     const popupHtml = `
       <div style="background:#191c22;padding:8px 10px;border-radius:5px;color:#e0e8f0;min-width:140px;">
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.label}</div>
         ${ghostInfo}
-        ${nextStop ? `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>` : ''}
+        ${nextStopLine}
         <div style="font-size:11px;color:#78818c;">${v.destination_terminus || v.dest || '—'}</div>
         <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · → '+dir:''}</div>
         ${stopProgress}
@@ -398,6 +463,37 @@ function updateVehiclesOnMap(vehicles) {
       }
     }
 
+    // Forward-uncertainty band for lingering vehicles (propagates into tunnel)
+    const lingerInfo = !isGhost && lingeringVids[v._id];
+    if (lingerInfo && typeof lingerInfo === 'object' && lingerInfo.route) {
+      const lingerElapsed = (Date.now() - lingerInfo.first_ts) / 1000;
+      const halfTime = getHalfTunnelTime(lingerInfo.route);
+      const foreFrac = Math.min(lingerElapsed / halfTime, 1.0);
+      if (foreFrac > 0) {
+        const shapePath = getTunnelShapePath(lingerInfo.route);
+        if (shapePath && shapePath.length >= 2) {
+          const path = lingerInfo.direction === 'eastbound' ? shapePath : [...shapePath].reverse();
+          const bandPts = extractSubPath(path, 0, foreFrac);
+          if (bandPts.length >= 2) {
+            const bandCoords = bandPts.map(p => [p.lat, p.lng]);
+            if (ghostBandLayers[v._id]) {
+              ghostBandLayers[v._id].setLatLngs(bandCoords);
+            } else {
+              const band = L.polyline(bandCoords, {
+                color, weight: 10, opacity: bandOpacity,
+                lineCap: 'round', lineJoin: 'round',
+              }).addTo(vehicleLayerGroup);
+              ghostBandLayers[v._id] = band;
+            }
+          }
+        }
+      }
+    } else if (!isGhost && ghostBandLayers[v._id]) {
+      // No longer lingering — remove stale band
+      vehicleLayerGroup.removeLayer(ghostBandLayers[v._id]);
+      delete ghostBandLayers[v._id];
+    }
+
     // Determine marker icon based on vehicle state
     const isLingering = !isGhost && lingeringVids[v._id];
     const isPortalLinger = isGhost && v._lingersAtPortal;
@@ -413,6 +509,11 @@ function updateVehiclesOnMap(vehicles) {
     // For ghost/linger vehicles without a heading, derive from direction
     if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
       hdg = v._direction === 'eastbound' ? 90 : 270;
+    }
+    if (hdg === 0 && isLingering && lingeringVids[v._id]) {
+      const lingerDir = typeof lingeringVids[v._id] === 'object'
+        ? lingeringVids[v._id].direction : lingeringVids[v._id];
+      hdg = lingerDir === 'eastbound' ? 90 : 270;
     }
 
     function pickIcon() {
