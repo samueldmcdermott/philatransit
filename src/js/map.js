@@ -206,18 +206,46 @@ function drawDetourPaths(routeKey, color, bounds) {
   }
   detourLayerGroup.clearLayers();
 
-  const detourColor = '#f59e0b';  // amber
-  // Draw both directions of the detour
-  L.polyline(DETOUR_PATH_WB, {
-    color: detourColor, weight: 4, opacity: 0.8, dashArray: '10 6',
-  }).addTo(detourLayerGroup);
-  L.polyline(DETOUR_PATH_EB, {
-    color: detourColor, weight: 4, opacity: 0.8, dashArray: '10 6',
-  }).addTo(detourLayerGroup);
+  const detourColor = '#e74c3c';  // red — distinct from all trolley line colors
+  const lineOpts = { color: detourColor, weight: 4, opacity: 0.8, dashArray: '10 6' };
 
-  // Add bounds so map fits the detour
-  for (const p of DETOUR_PATH_WB) bounds.push(p);
-  for (const p of DETOUR_PATH_EB) bounds.push(p);
+  // Determine which routes are affected by the closure
+  const affected = new Set(status.alertRoutes || []);
+  const showT25 = routeKey === 'T-ALL'
+    || ['T2','T3','T4','T5'].includes(routeKey)
+    || ['T2','T3','T4','T5'].some(r => affected.has(r));
+  const showT1 = routeKey === 'T-ALL'
+    || routeKey === 'T1'
+    || affected.has('T1');
+
+  // T2-T5 detour loop (42nd ↔ Spruce ↔ 38th ↔ Market ↔ 40th)
+  if (showT25) {
+    L.polyline(DETOUR_PATH_WB, lineOpts).addTo(detourLayerGroup);
+    L.polyline(DETOUR_PATH_EB, lineOpts).addTo(detourLayerGroup);
+    for (const p of DETOUR_PATH_WB) bounds.push(p);
+    for (const p of DETOUR_PATH_EB) bounds.push(p);
+  }
+
+  // T1 detour spur (36th St Portal ↔ 40th & Market via Lancaster Ave)
+  if (showT1) {
+    L.polyline(DETOUR_T1_NB, lineOpts).addTo(detourLayerGroup);
+    L.polyline(DETOUR_T1_SB, lineOpts).addTo(detourLayerGroup);
+    for (const p of DETOUR_T1_NB) bounds.push(p);
+    for (const p of DETOUR_T1_SB) bounds.push(p);
+  }
+
+  // Clickable detour stop markers
+  const activeRoutes = showT25 && showT1 ? null : (showT1 ? ['T1'] : ['T2','T3','T4','T5']);
+  for (const s of DETOUR_STOPS) {
+    // Skip stops not relevant to the shown detour routes
+    if (activeRoutes && !s.routes.some(r => activeRoutes.includes(r))) continue;
+    L.circleMarker([s.lat, s.lng], {
+      radius: 6, color: '#0c0e12', weight: 1.5,
+      fillColor: detourColor, fillOpacity: 0.9,
+    }).bindPopup(`<b>${s.name}</b><br><i style="color:#e74c3c;">Detour stop</i>`)
+      .addTo(detourLayerGroup);
+    bounds.push([s.lat, s.lng]);
+  }
 }
 
 function orderStops(stops) {
