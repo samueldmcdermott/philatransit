@@ -572,7 +572,9 @@ async function fetchNow() {
             const otherResults = await Promise.all(
               otherIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
             );
-            const otherRaw = otherResults.flatMap(r => r?.bus || []);
+            const otherRaw = otherResults.flatMap((r, i) =>
+              (r?.bus || []).map(v => ({ ...v, route_id: otherIds[i] }))
+            );
             const otherVehicles = processTransitData(otherRaw, 'detect', true);
             gpsVehicles = [...vehicles, ...otherVehicles];
           }

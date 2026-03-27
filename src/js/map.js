@@ -209,14 +209,10 @@ function drawDetourPaths(routeKey, color, bounds) {
   const detourColor = '#e74c3c';  // red — distinct from all trolley line colors
   const lineOpts = { color: detourColor, weight: 4, opacity: 0.8, dashArray: '10 6' };
 
-  // Determine which routes are affected by the closure
-  const affected = new Set(status.alertRoutes || []);
-  const showT25 = routeKey === 'T-ALL'
-    || ['T2','T3','T4','T5'].includes(routeKey)
-    || ['T2','T3','T4','T5'].some(r => affected.has(r));
-  const showT1 = routeKey === 'T-ALL'
-    || routeKey === 'T1'
-    || affected.has('T1');
+  // The tunnel is shared — any detection method means all routes are affected.
+  // Show the detour paths relevant to the currently viewed route.
+  const showT25 = routeKey === 'T-ALL' || ['T2','T3','T4','T5'].includes(routeKey);
+  const showT1 = routeKey === 'T-ALL' || routeKey === 'T1';
 
   // T2-T5 detour loop (42nd ↔ Spruce ↔ 38th ↔ Market ↔ 40th)
   if (showT25) {
@@ -311,7 +307,9 @@ async function refreshMapVehicles() {
             const otherResults = await Promise.all(
               otherIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
             );
-            const otherRaw = otherResults.flatMap(r => r?.bus || []);
+            const otherRaw = otherResults.flatMap((r, i) =>
+              (r?.bus || []).map(v => ({ ...v, route_id: otherIds[i] }))
+            );
             const otherVehicles = processTransitData(otherRaw, 'detect', true);
             gpsVehicles = [...vehicles, ...otherVehicles];
           }
