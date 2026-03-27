@@ -439,12 +439,12 @@ function updateVehiclesOnMap(vehicles) {
       nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>`;
     }
 
+    const destLabel = v.destination_terminus || v.dest || '';
     const popupHtml = `
       <div style="background:#191c22;padding:8px 10px;border-radius:5px;color:#e0e8f0;min-width:140px;">
-        <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.label}</div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.label}${destLabel ? ` <span style="font-weight:400;color:#93c5fd;">(to ${destLabel})</span>` : ''}</div>
         ${ghostInfo}
         ${nextStopLine}
-        <div style="font-size:11px;color:#78818c;">${v.destination_terminus || v.dest || '—'}</div>
         <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · → '+dir:''}</div>
         ${stopProgress}
       </div>`;
@@ -531,12 +531,9 @@ function updateVehiclesOnMap(vehicles) {
     }
 
     const markerState = isPortalLinger ? 'portal-linger' : isLingering ? 'linger' : isGhost ? 'ghost' : 'real';
-    const destLabel = v.destination_terminus || v.dest || '';
-    const tooltipText = destLabel ? `${v.label} (to ${destLabel})` : v.label;
 
     if (vehicleMarkers[v._id]) {
       vehicleMarkers[v._id].setLatLng([lat, lng]).setPopupContent(popupHtml);
-      vehicleMarkers[v._id].setTooltipContent(tooltipText);
       if (vehicleMarkers[v._id]._markerState !== markerState ||
           vehicleMarkers[v._id]._lastHeading !== hdg) {
         vehicleMarkers[v._id].setIcon(pickIcon());
@@ -548,10 +545,6 @@ function updateVehiclesOnMap(vehicles) {
       const icon = pickIcon();
       const m = L.marker([lat, lng], { icon })
         .bindPopup(popupHtml, { className: 'map-vehicle-popup' })
-        .bindTooltip(tooltipText, {
-          permanent: true, direction: 'right', offset: [12, 0],
-          className: 'vehicle-label-tooltip',
-        })
         .addTo(vehicleLayerGroup);
       m._isGhost = isGhost || isPortalLinger;
       m._markerState = markerState;
