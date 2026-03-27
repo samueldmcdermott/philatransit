@@ -134,8 +134,16 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .vcard.ghost-card { opacity: 0.75; border-style: dashed; }
 .ghost-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em;
   color: #93c5fd; margin-bottom: 2px; }
-@keyframes ghost-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-.ghost-marker-svg svg { animation: ghost-pulse 2s ease-in-out infinite; }
+.vehicle-label-tooltip {
+  background: transparent !important; border: none !important; box-shadow: none !important;
+  color: #e0e8f0; font-size: 11px; font-weight: 600; white-space: nowrap;
+  padding: 0 !important; pointer-events: none;
+  text-shadow: 0 0 4px #000, 0 0 2px #000;
+}
+.vehicle-label-tooltip::before { display: none !important; }
+
+@keyframes ghost-blink { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+.ghost-marker-svg svg { animation: ghost-blink 2s ease-in-out infinite; }
 @keyframes linger-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.55); } }
 .linger-marker svg { animation: linger-pulse 1.5s ease-in-out infinite; transform-origin: center; }
 

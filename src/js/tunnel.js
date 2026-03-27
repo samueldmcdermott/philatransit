@@ -35,13 +35,11 @@ const PORTALS = {
 
 const TUNNEL_EAST_END = {lat:39.9525, lng:-75.1626};
 
-// Mouth-entrance triangle at the east tip of the 40th St yard.
-// East of 40th St, between Baltimore Ave (north) and Woodland Ave (south).
-const MOUTH_40TH = [
-  {lat:39.9515, lng:-75.2035},  // north vertex  (Baltimore Ave at ~40th St)
-  {lat:39.9502, lng:-75.2010},  // east vertex   (portal mouth)
-  {lat:39.9488, lng:-75.2035},  // south vertex  (Woodland Ave at ~40th St)
-];
+// Tight bounding box around the 40th St tunnel mouth (T2-T5 portal entrance).
+const MOUTH_40TH_BOX = {
+  minLat: 39.949499, maxLat: 39.949647,
+  minLng: -75.203387, maxLng: -75.202749,
+};
 const MOUTH_40TH_ROUTES = new Set(['T2','T3','T4','T5']);
 
 // Tunnel stop sequences (east → west)
@@ -327,13 +325,13 @@ function nearestTunnelStop(v) {
 function isPointUnderground(routeKey, lat, lng) {
   const zone = UNDERGROUND_ZONES[routeKey];
   if (!zone) return false;
-  // For T2-T5, use the portal triangle for precision at the tunnel mouth.
-  // Points west of the portal mouth are underground only if inside the triangle;
-  // points east of the portal use the rectangular box as before.
+  // For T2-T5, use the tight mouth box at the tunnel entrance.
+  // Points west of the box's east edge are underground only if inside the box;
+  // points east of it use the rectangular UNDERGROUND_ZONES box as before.
   if (MOUTH_40TH_ROUTES.has(routeKey)) {
-    const portalLng = MOUTH_40TH[1].lng;  // east vertex = portal mouth
-    if (lng < portalLng) {
-      return pointInTriangle(lat, lng, MOUTH_40TH);
+    if (lng < MOUTH_40TH_BOX.maxLng) {
+      return lat >= MOUTH_40TH_BOX.minLat && lat <= MOUTH_40TH_BOX.maxLat
+          && lng >= MOUTH_40TH_BOX.minLng && lng <= MOUTH_40TH_BOX.maxLng;
     }
   }
   return lat >= zone.minLat && lat <= zone.maxLat
@@ -420,9 +418,11 @@ function isHeadingEast(dest, v) {
 
 function getPortalAndDirection(lat, lng, routeKey, dest, v) {
   // Check if near a west portal AND heading eastbound into tunnel.
-  // T2-T5 use the tight mouth-entrance triangle; T1 uses a radius.
+  // T2-T5 use the tight mouth box; T1 uses a radius.
   if (MOUTH_40TH_ROUTES.has(routeKey)) {
-    if (pointInTriangle(lat, lng, MOUTH_40TH) && isHeadingEast(dest, v)) {
+    if (lat >= MOUTH_40TH_BOX.minLat && lat <= MOUTH_40TH_BOX.maxLat
+        && lng >= MOUTH_40TH_BOX.minLng && lng <= MOUTH_40TH_BOX.maxLng
+        && isHeadingEast(dest, v)) {
       return { near: true, direction: 'eastbound', portal: PORTALS[routeKey] };
     }
   } else {

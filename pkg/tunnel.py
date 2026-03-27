@@ -21,13 +21,11 @@ _PORTALS = {
 _TUNNEL_EAST = (39.9525, -75.1626)
 _LINGER_RADIUS = 0.002
 
-# Mouth-entrance triangle at the east tip of the 40th St yard.
-# East of 40th St, between Baltimore Ave (north) and Woodland Ave (south).
-_MOUTH_40TH = (
-    (39.9515, -75.2035),   # north vertex  (Baltimore Ave at ~40th St)
-    (39.9502, -75.2010),   # east vertex   (portal mouth)
-    (39.9488, -75.2035),   # south vertex  (Woodland Ave at ~40th St)
-)
+# Tight bounding box around the 40th St tunnel mouth (T2-T5 portal entrance).
+_MOUTH_40TH_BOX = {
+    'minLat': 39.949499, 'maxLat': 39.949647,
+    'minLng': -75.203387, 'maxLng': -75.202749,
+}
 _MOUTH_40TH_ROUTES = {'T2', 'T3', 'T4', 'T5'}
 _LINGER_TIME_S = 60
 _STATIONARY_THRESH = 0.0005
@@ -82,9 +80,12 @@ def _check_portal(lat, lng, route, dest, vid=None):
     if heading_east is None:
         heading_east = _heading_east(dest)
 
-    # West portal check
+    # West portal check — T2-T5 use the tight mouth box
     if route in _MOUTH_40TH_ROUTES:
-        if _point_in_triangle(lat, lng, _MOUTH_40TH) and heading_east:
+        b = _MOUTH_40TH_BOX
+        if (b['minLat'] <= lat <= b['maxLat']
+                and b['minLng'] <= lng <= b['maxLng']
+                and heading_east):
             return 'eastbound'
     else:
         portal = _PORTALS.get(route)

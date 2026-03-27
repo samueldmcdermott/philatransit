@@ -510,10 +510,17 @@ function updateVehiclesOnMap(vehicles) {
     if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
       hdg = v._direction === 'eastbound' ? 90 : 270;
     }
-    if (hdg === 0 && isLingering && lingeringVids[v._id]) {
-      const lingerDir = typeof lingeringVids[v._id] === 'object'
-        ? lingeringVids[v._id].direction : lingeringVids[v._id];
-      hdg = lingerDir === 'eastbound' ? 90 : 270;
+    // Lingering vehicles: preserve the heading from when they were still moving.
+    // Fall back to direction-based heading only if no prior heading is cached.
+    if (isLingering) {
+      const prevHdg = vehicleMarkers[v._id]?._lastHeading;
+      if (prevHdg && prevHdg !== 0) {
+        hdg = prevHdg;
+      } else if (hdg === 0 && lingeringVids[v._id]) {
+        const lingerDir = typeof lingeringVids[v._id] === 'object'
+          ? lingeringVids[v._id].direction : lingeringVids[v._id];
+        hdg = lingerDir === 'eastbound' ? 90 : 270;
+      }
     }
 
     function pickIcon() {
@@ -524,9 +531,12 @@ function updateVehiclesOnMap(vehicles) {
     }
 
     const markerState = isPortalLinger ? 'portal-linger' : isLingering ? 'linger' : isGhost ? 'ghost' : 'real';
+    const destLabel = v.destination_terminus || v.dest || '';
+    const tooltipText = destLabel ? `${v.label} (to ${destLabel})` : v.label;
 
     if (vehicleMarkers[v._id]) {
       vehicleMarkers[v._id].setLatLng([lat, lng]).setPopupContent(popupHtml);
+      vehicleMarkers[v._id].setTooltipContent(tooltipText);
       if (vehicleMarkers[v._id]._markerState !== markerState ||
           vehicleMarkers[v._id]._lastHeading !== hdg) {
         vehicleMarkers[v._id].setIcon(pickIcon());
@@ -538,6 +548,10 @@ function updateVehiclesOnMap(vehicles) {
       const icon = pickIcon();
       const m = L.marker([lat, lng], { icon })
         .bindPopup(popupHtml, { className: 'map-vehicle-popup' })
+        .bindTooltip(tooltipText, {
+          permanent: true, direction: 'right', offset: [12, 0],
+          className: 'vehicle-label-tooltip',
+        })
         .addTo(vehicleLayerGroup);
       m._isGhost = isGhost || isPortalLinger;
       m._markerState = markerState;
