@@ -78,7 +78,7 @@ async function drawMap() {
   }
 
   // Draw surface detour path when tunnel is closed (for T2-T5 / T-ALL)
-  const isTunnelRoute = TUNNEL_ROUTES.has(routeKey);
+  const isTunnelRoute = TUNNEL_ROUTE_IDS.has(routeKey);
   if (isTunnelRoute) {
     drawDetourPaths(routeKey, color, bounds);
   }
@@ -222,25 +222,25 @@ function drawDetourPaths(routeKey, color, bounds) {
     for (const p of DETOUR_PATH_EB) bounds.push(p);
   }
 
-  // T1 detour spur (36th St Portal ↔ 40th & Market via Lancaster Ave)
+  // T1 detour spur (41st & Lancaster ↔ 40th & Filbert)
   if (showT1) {
-    L.polyline(DETOUR_T1_NB, lineOpts).addTo(detourLayerGroup);
-    L.polyline(DETOUR_T1_SB, lineOpts).addTo(detourLayerGroup);
-    for (const p of DETOUR_T1_NB) bounds.push(p);
-    for (const p of DETOUR_T1_SB) bounds.push(p);
+    L.polyline(DETOUR_T1_SPUR, lineOpts).addTo(detourLayerGroup);
+    for (const p of DETOUR_T1_SPUR) bounds.push(p);
   }
 
-  // Clickable detour stop markers
+  // Clickable detour stop markers (added to stopMarkerInfos for arrival predictions)
   const activeRoutes = showT25 && showT1 ? null : (showT1 ? ['T1'] : ['T2','T3','T4','T5']);
   for (const s of DETOUR_STOPS) {
     // Skip stops not relevant to the shown detour routes
     if (activeRoutes && !s.routes.some(r => activeRoutes.includes(r))) continue;
-    L.circleMarker([s.lat, s.lng], {
+    const marker = L.circleMarker([s.lat, s.lng], {
       radius: 6, color: '#0c0e12', weight: 1.5,
       fillColor: detourColor, fillOpacity: 0.9,
     }).bindPopup(`<b>${s.name}</b><br><i style="color:#e74c3c;">Detour stop</i>`)
       .addTo(detourLayerGroup);
     bounds.push([s.lat, s.lng]);
+    // Register for arrival predictions
+    stopMarkerInfos.push({ marker, stop: { ...s, _detour: true } });
   }
 }
 
@@ -261,14 +261,15 @@ async function refreshMapVehicles() {
   try {
     let vehicles;
     if (selectedRoute.type === 'rail') {
-      const data = await apiFetch('/api/septa/trainview');
-      vehicles = processRailData(data);
+      const data = await apiFetch(`/api/vehicles/rail?route=${encodeURIComponent(selectedRoute.id)}`);
+      vehicles = processTrips(data.trips || [], selectedRoute.id, false);
     } else {
       const apiIds = selectedRoute.apiIds || [selectedRoute.id];
       const results = await Promise.all(
-        apiIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
+        apiIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
       );
-      vehicles = processTransitData(results.flatMap(r => r?.bus || []), selectedRoute.id, selectedRoute.multi);
+      const raw = results.flatMap(r => r?.trips || []);
+      vehicles = processTrips(raw, selectedRoute.id, selectedRoute.multi);
     }
     updateVehicleHistory(vehicles);
     // Update liveRegistry so stop arrival predictions work from map refresh
@@ -278,12 +279,12 @@ async function refreshMapVehicles() {
       const ex = liveRegistry[v._id];
       newReg[v._id] = {
         route: v._rkey, firstSeen: ex?.firstSeen ?? now, lastSeen: now,
-        firstLat: ex?.firstLat ?? parseFloat(v.lat), firstLng: ex?.firstLng ?? parseFloat(v.lng),
+        firstLat: ex?.firstLat ?? tripLat(v), firstLng: ex?.firstLng ?? tripLng(v),
       };
     }
     Object.assign(liveRegistry, newReg);
 
-    const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
+    const isTunnelRoute = TUNNEL_ROUTE_IDS.has(selectedRoute.id);
     if (isTunnelRoute) {
       try {
         const ghostResp = await apiFetch('/api/ghosts');
@@ -302,15 +303,14 @@ async function refreshMapVehicles() {
         let gpsVehicles = vehicles;
         if (!selectedRoute.multi) {
           const allIds = ['T1','T2','T3','T4','T5'];
-          const otherIds = allIds.filter(id => !selectedRoute.apiIds.includes(id));
+          const otherIds = allIds.filter(id => !(selectedRoute.apiIds || []).includes(id));
           if (otherIds.length) {
             const otherResults = await Promise.all(
-              otherIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
+              otherIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
             );
-            const otherRaw = otherResults.flatMap((r, i) =>
-              (r?.bus || []).map(v => ({ ...v, route_id: otherIds[i] }))
+            const otherVehicles = otherResults.flatMap(r =>
+              processTrips(r.trips || [], 'detect', true)
             );
-            const otherVehicles = processTransitData(otherRaw, 'detect', true);
             gpsVehicles = [...vehicles, ...otherVehicles];
           }
         }
@@ -373,6 +373,10 @@ let routePathIndices = {};  // routeKey → {path, cumDist, totalLen}
 let stopPredictions = {};   // stopId → [{trip, vehicle, route, minutes}]
 
 function computeNextStopInfo(v, lat, lng) {
+  // On-detour T2-T5: use detour loop path and stops
+  if (v.on_detour && ['T2','T3','T4','T5'].includes(v._rkey)) {
+    return computeDetourNextStop(v, lat, lng);
+  }
   const pathIdx = getRoutePathIndex(v._rkey);
   if (!pathIdx) return null;
   const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
@@ -381,8 +385,8 @@ function computeNextStopInfo(v, lat, lng) {
   // Determine direction
   const isGhost = v._ghost === true;
   let movingForward = true;
-  if (!isGhost && v.computed_direction != null) {
-    movingForward = v.computed_direction !== 'reverse';
+  if (!isGhost && v.toward_destination != null) {
+    movingForward = v.toward_destination;
   } else if (isGhost && v._direction) {
     movingForward = v._direction === 'eastbound';
   }
@@ -408,8 +412,8 @@ function computeNextStopInfo(v, lat, lng) {
 
   // Compute ETA
   let speedMpm = null;
-  if (!isGhost && v.speed_mps != null && v.speed_mps > 0) {
-    speedMpm = v.speed_mps * 60;
+  if (!isGhost && v.position?.speed_mps != null && v.position.speed_mps > 0) {
+    speedMpm = v.position.speed_mps * 60;
   } else {
     const reg = liveRegistry[v._id];
     const now = Date.now();
@@ -435,7 +439,7 @@ function updateVehiclesOnMap(vehicles) {
   const seenIds = new Set();
 
   for (const v of vehicles) {
-    const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+    const lat = tripLat(v), lng = tripLng(v);
     if (isNaN(lat) || isNaN(lng)) continue;
     seenIds.add(v._id);
     const color = getRouteColor(v._rkey) || defaultColor;
@@ -443,17 +447,20 @@ function updateVehiclesOnMap(vehicles) {
     const isGhost = v._ghost === true;
     const tunneled = isGhost || inTunnel(v);
     let nextStop = '';
-    if (v.next_stop && !isGhost) nextStop = v.next_stop;
+    if (tripNextStop(v) && !isGhost) nextStop = tripNextStop(v);
     else if (tunneled) nextStop = nearestTunnelStop(v);
     else nextStop = nearestStop(lat, lng);
 
-    const lateText = isGhost ? 'In tunnel' : (v.late <= 0 ? 'On time' : `${v.late} min late`);
-    const dir = v.destination_terminus || v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
+    const late = tripDelay(v);
+    const lateText = isGhost ? 'In tunnel' : (late <= 0 ? 'On time' : `${late} min late`);
+    const dir = v.destination || headingLabel(tripHeading(v));
     const aftPct = isGhost ? Math.round((v._aftFraction || 0) * 100) : 0;
     const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
     const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${aftPct}–${forePct}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
-    const stopProgress = (!isGhost && v.stops_passed != null && v.stops_remaining != null)
-      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${v.stops_passed} stops passed · ${v.stops_remaining} remaining</div>` : '';
+    const detourInfo = (!isGhost && v.on_detour) ? `<div style="font-size:10px;color:#e74c3c;margin-bottom:3px;font-weight:600;">Detour</div>` : '';
+    const sPassed = tripStopsPassed(v), sRemaining = tripStopsRemaining(v);
+    const stopProgress = (!isGhost && sPassed != null && sRemaining != null)
+      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${sPassed} stops passed · ${sRemaining} remaining</div>` : '';
 
     // Next stop and ETA
     const nsInfo = computeNextStopInfo(v, lat, lng);
@@ -465,11 +472,11 @@ function updateVehiclesOnMap(vehicles) {
       nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>`;
     }
 
-    const destLabel = v.destination_terminus || v.dest || '';
+    const destLabel = v.destination || v.meta?.headsign || '';
     const popupHtml = `
       <div style="background:#191c22;padding:8px 10px;border-radius:5px;color:#e0e8f0;min-width:140px;">
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.label}${destLabel ? ` <span style="font-weight:400;color:#93c5fd;">(to ${destLabel})</span>` : ''}</div>
-        ${ghostInfo}
+        ${ghostInfo}${detourInfo}
         ${nextStopLine}
         <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · → '+dir:''}</div>
         ${stopProgress}
@@ -523,14 +530,13 @@ function updateVehiclesOnMap(vehicles) {
     // Determine marker icon based on vehicle state
     const isLingering = !isGhost && lingeringVids[v._id];
     const isPortalLinger = isGhost && v._lingersAtPortal;
-    // Trolleys/rail: use trip_bearing (fixed for the trip's lifetime).
-    // Buses (trip_bearing is null — no termini defined): use raw GPS
-    // heading from the transit API, which reflects actual movement and
-    // doesn't depend on direction-correction having kicked in yet.
-    const hasTripBearing = v.trip_bearing != null;
-    let hdg = hasTripBearing ? +v.trip_bearing
-            : v.heading != null ? +v.heading
-            : v.computed_heading != null ? +v.computed_heading
+    // Use bearing from Trip (which comes from RouteInfo, flipped with toward_destination).
+    // Fall back to position.heading (shape-based), then API bearing from meta.
+    const posHeading = v.position?.heading;
+    const apiBearing = v.meta?.api_bearing;
+    let hdg = v.bearing != null ? +v.bearing
+            : posHeading != null ? +posHeading
+            : apiBearing != null ? +apiBearing
             : 0;
     // For ghost/linger vehicles without a heading, derive from direction
     if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
@@ -626,7 +632,7 @@ async function fetchStopPredictions() {
       : (selectedRoute.id || '');
     try {
       const data = await apiFetch(
-        `/api/septa/stop-predictions?stops=${batch.join(',')}&routes=${routeFilter}`
+        `/api/stop-predictions?stops=${batch.join(',')}&routes=${routeFilter}`
       );
       Object.assign(stopPredictions, data);
     } catch (_) {}
@@ -665,6 +671,129 @@ function getRoutePathIndex(routeKey) {
 }
 
 // Determine if route runs primarily east-west or north-south from its shape
+// Detour loop path index (built once from DETOUR_LOOP_PATH in tunnel.js)
+let _detourPathIndex = null;
+function getDetourPathIndex() {
+  if (_detourPathIndex) return _detourPathIndex;
+  if (typeof DETOUR_LOOP_PATH === 'undefined' || DETOUR_LOOP_PATH.length < 2) return null;
+  const path = DETOUR_LOOP_PATH.map(c => ({ lat: c[0], lng: c[1] }));
+  const cumDist = [0];
+  for (let i = 1; i < path.length; i++) {
+    cumDist.push(cumDist[i - 1] + distLatLng(path[i - 1], path[i]));
+  }
+  _detourPathIndex = { path, cumDist, totalLen: cumDist[cumDist.length - 1] };
+  return _detourPathIndex;
+}
+
+// Compute next detour stop for an on-detour T2-T5 vehicle (CCW loop).
+function computeDetourNextStop(v, lat, lng) {
+  const pathIdx = getDetourPathIndex();
+  if (!pathIdx) return null;
+  const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
+  if (!vehProj) return null;
+
+  // All vehicles travel forward (CCW) on the detour loop
+  let bestStop = null, bestDist = Infinity;
+  for (const s of DETOUR_LOOP_STOPS) {
+    const sProj = projectOntoPathIdx(pathIdx, s.lat, s.lng);
+    if (!sProj) continue;
+    let dist = sProj.distAlong - vehProj.distAlong;
+    if (dist < 0) dist += pathIdx.totalLen;  // wrap around loop
+    if (dist > 10 && dist < bestDist) {
+      bestDist = dist;
+      bestStop = s;
+    }
+  }
+  if (!bestStop) return null;
+
+  let speedMpm = null;
+  if (v.position?.speed_mps != null && v.position.speed_mps > 0) {
+    speedMpm = v.position.speed_mps * 60;
+  } else {
+    const reg = liveRegistry[v._id];
+    const now = Date.now();
+    if (reg && reg.firstLat != null) {
+      const T_ms = now - reg.firstSeen;
+      if (T_ms > 30000) {
+        const startProj = projectOntoPathIdx(pathIdx, reg.firstLat, reg.firstLng);
+        if (startProj) {
+          const D = Math.abs(vehProj.distAlong - startProj.distAlong);
+          if (D > 50) speedMpm = D / (T_ms / 60000);
+        }
+      }
+    }
+  }
+
+  const etaMin = speedMpm ? bestDist / speedMpm : null;
+  return { name: bestStop.name, etaMin };
+}
+
+// Compute arrivals at a detour stop from on-detour vehicles only.
+function computeDetourStopArrivals(stop, vehicles, now) {
+  const pathIdx = getDetourPathIndex();
+  if (!pathIdx) return [];
+  const stopProj = projectOntoPathIdx(pathIdx, stop.lat, stop.lng);
+  if (!stopProj) return [];
+
+  const arrivals = [];
+  const detourRoutes = new Set(stop.routes || []);
+
+  for (const v of vehicles) {
+    if (!v.on_detour) continue;
+    if (!detourRoutes.has(v._rkey)) continue;
+
+    const lat = tripLat(v), lng = tripLng(v);
+    if (isNaN(lat) || isNaN(lng)) continue;
+
+    const vehProj = projectOntoPathIdx(pathIdx, lat, lng);
+    if (!vehProj) continue;
+
+    // Speed: prefer server-provided, else liveRegistry fallback
+    let speedMpm = null;
+    if (v.position?.speed_mps != null && v.position.speed_mps > 0) {
+      speedMpm = v.position.speed_mps * 60;
+    } else {
+      const reg = liveRegistry[v._id];
+      if (reg && reg.firstLat != null) {
+        const T_ms = now - reg.firstSeen;
+        if (T_ms > 30000) {
+          const startProj = projectOntoPathIdx(pathIdx, reg.firstLat, reg.firstLng);
+          if (startProj) {
+            const D = Math.abs(vehProj.distAlong - startProj.distAlong);
+            if (D > 50) speedMpm = D / (T_ms / 60000);
+          }
+        }
+      }
+    }
+    if (!speedMpm) continue;
+
+    // CCW loop: distance is always forward along path
+    let D_ch = stopProj.distAlong - vehProj.distAlong;
+    if (D_ch < 0) D_ch += pathIdx.totalLen;  // wrap around loop
+
+    if (D_ch > 10 && D_ch <= pathIdx.totalLen) {
+      const T_star = D_ch / speedMpm;
+      if (T_star <= 60) {
+        arrivals.push({
+          label: v.label,
+          dest: v.destination || v.meta?.headsign || '—',
+          route: v._rkey,
+          T_star,
+          T_official: null,
+          officialStatus: null,
+          T_low: null,
+          T_high: null,
+          isGhost: false,
+          late: tripDelay(v),
+          dirFwd: true,  // always CCW on detour loop
+        });
+      }
+    }
+  }
+
+  return arrivals.sort((a, b) => a.T_star - b.T_star);
+}
+
 function getRouteOrientation(routeKey) {
   const shapeCoords = shapesData[routeKey];
   if (!shapeCoords || shapeCoords.length < 2) return 'ew';
@@ -707,6 +836,10 @@ function projectOntoPathIdx(idx, lat, lng) {
 }
 
 function computeStopArrivals(stop, vehicles, now) {
+  // Detour stops: use detour loop projection for on-detour vehicles
+  if (stop._detour) {
+    return computeDetourStopArrivals(stop, vehicles, now);
+  }
   const arrivals = [];
   const routes = stop.routes || [stop.routeKey];
 
@@ -721,7 +854,7 @@ function computeStopArrivals(stop, vehicles, now) {
       if (selectedRoute.multi && v._rkey !== rk) continue;
       if (!selectedRoute.multi && v._rkey !== (selectedRoute?.id || rk)) continue;
 
-      const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+      const lat = tripLat(v), lng = tripLng(v);
       if (isNaN(lat) || isNaN(lng)) continue;
 
       const isGhost = v._ghost === true;
@@ -733,12 +866,12 @@ function computeStopArrivals(stop, vehicles, now) {
 
       // Always use server-provided direction when available (shape-oriented,
       // consistent with server's terminus conventions)
-      const hasServerDir = !isGhost && v.computed_direction != null;
+      const hasServerDir = !isGhost && v.toward_destination != null;
 
       // Prefer server-provided speed (cumulative travel, survives turnarounds)
-      if (!isGhost && v.speed_mps != null && v.speed_mps > 0) {
-        speedMpm = v.speed_mps * 60;
-        movingForward = v.computed_direction !== 'reverse';
+      if (!isGhost && v.position?.speed_mps != null && v.position.speed_mps > 0) {
+        speedMpm = v.position.speed_mps * 60;
+        movingForward = v.toward_destination;
         hasSpeed = true;
       }
 
@@ -768,7 +901,7 @@ function computeStopArrivals(stop, vehicles, now) {
 
         // Use server direction when available; fall back to client projection
         movingForward = hasServerDir
-          ? v.computed_direction !== 'reverse'
+          ? v.toward_destination
           : vehProj.distAlong >= startProj.distAlong;
         hasSpeed = true;
       }
@@ -788,7 +921,7 @@ function computeStopArrivals(stop, vehicles, now) {
           let officialStatus = null;
           if (!isGhost && stop.stopId) {
             const preds = stopPredictions[stop.stopId] || [];
-            const tripId = String(v.trip || '');
+            const tripId = String(v.trip_id || v.meta?.api_trip_id || '');
             const match = preds.find(p => String(p.trip) === tripId);
             if (match) {
               T_official = match.minutes;
@@ -814,7 +947,7 @@ function computeStopArrivals(stop, vehicles, now) {
 
           arrivals.push({
             label: v.label,
-            dest: v.destination_terminus || v.dest || '—',
+            dest: v.destination || v.meta?.headsign || '—',
             route: rk,
             T_star,
             T_official,
@@ -822,7 +955,7 @@ function computeStopArrivals(stop, vehicles, now) {
             T_low,
             T_high,
             isGhost,
-            late: v.late,
+            late: tripDelay(v),
             dirFwd: movingForward,
           });
         }
@@ -835,7 +968,7 @@ function computeStopArrivals(stop, vehicles, now) {
       // arrival and a later westbound turnaround arrival).
       // With oriented shapes, 13th St (inner terminus) is always at the
       // END of the shape (high distAlong) for all trolley routes.
-      if (TUNNEL_ROUTES.has(rk) && rk !== 'T-ALL' && !isGhost) {
+      if (TUNNEL_ROUTE_IDS.has(rk) && rk !== 'T-ALL' && !isGhost) {
         // movingForward = heading toward end of shape = toward 13th St
         const headingToTerminus = movingForward;
         if (headingToTerminus) {
@@ -848,7 +981,7 @@ function computeStopArrivals(stop, vehicles, now) {
             if (T_turn > 0 && T_turn <= 120) {
               arrivals.push({
                 label: v.label,
-                dest: v.origin_terminus || v.dest || '—',
+                dest: v.origin || v.meta?.headsign || '—',
                 route: rk,
                 T_star: T_turn,
                 T_official: null,
@@ -856,7 +989,7 @@ function computeStopArrivals(stop, vehicles, now) {
                 T_low: null,
                 T_high: null,
                 isGhost: false,
-                late: v.late,
+                late: tripDelay(v),
                 dirFwd: !movingForward,  // after turnaround, direction reverses
                 turnaround: true,
               });

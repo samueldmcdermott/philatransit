@@ -32,15 +32,15 @@ let vehicleHistory     = {};
 let ghostVehicles      = {};
 let ghostedVids        = {};
 let tunnelShapePaths   = {};
-let lingeringVids      = {};  // vid → direction ('eastbound'|'westbound')
+let lingeringVids      = {};
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
 async function init() {
+  await loadRouteConfig();
   buildRouteList();
   await Promise.all([checkTrackerStatus(), loadStaticData(), fetchAlerts()]);
   startAutoRefresh();
-  // Refresh alerts every 60s
   setInterval(fetchAlerts, 60000);
 }
 
@@ -58,13 +58,13 @@ async function loadStaticData() {
 
 // ── Alerts ──────────────────────────────────────────────────────────────────
 
-let alertsData = [];         // raw alerts from API
-let alertsByRoute = {};      // routeAlertId → [alerts]
+let alertsData = [];
+let alertsByRoute = {};
 let alertsLoaded = false;
 
 async function fetchAlerts() {
   try {
-    alertsData = await apiFetch('/api/septa/alerts');
+    alertsData = await apiFetch('/api/alerts');
     alertsByRoute = {};
     for (const a of alertsData) {
       for (const rid of (a.routes || [])) {
@@ -72,7 +72,7 @@ async function fetchAlerts() {
       }
     }
     alertsLoaded = true;
-    buildRouteList();  // refresh badges
+    buildRouteList();
     updateAlertsBadge();
   } catch (_) {}
 }
@@ -126,8 +126,7 @@ function renderAlertsPanel() {
     empty.style.display = ''; content.style.display = 'none';
     return;
   }
-  // Run tunnel closure detection from alerts for trolley routes
-  if (TUNNEL_ROUTES.has(selectedRoute.id)) {
+  if (TUNNEL_ROUTE_IDS.has(selectedRoute.id)) {
     try {
       detectTunnelClosureFromAlerts();
       updateTunnelClosureBanner();
@@ -213,6 +212,18 @@ function nearestStop(lat, lng) {
   return bestName;
 }
 
+// ── Trip field accessors (work with both Trip-shaped and ghost objects) ────
+
+function tripLat(t) { return t.position?.lat ?? t.lat ?? 0; }
+function tripLng(t) { return t.position?.lng ?? t.lng ?? 0; }
+function tripHeading(t) { return t.position?.heading ?? t.bearing ?? null; }
+function tripDelay(t) { return t.progress?.delay_minutes ?? t.meta?.delay ?? 0; }
+function tripCurrentStop(t) { return t.progress?.current_stop ?? null; }
+function tripNextStop(t) { return t.progress?.next_stop ?? null; }
+function tripStopsPassed(t) { return t.progress?.stops_passed ?? null; }
+function tripStopsRemaining(t) { return t.progress?.stops_remaining ?? null; }
+function tripOnDetour(t) { return t.on_detour || false; }
+
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 
 function setMode(mode) {
@@ -230,7 +241,6 @@ function buildRouteList() {
   el.innerHTML = `<div class="route-section-label">${activeMode}</div>`;
   for (const r of routes) {
     const alerts = getRouteAlerts(r);
-    // Only show sidebar dot for ALERT type (active disruptions), not DETOUR/ADVISORY
     const activeAlerts = alerts.filter(a => a.type === 'ALERT');
     const hasSevere = activeAlerts.some(a => a.severity === 'SEVERE');
     const alertDot = hasSevere
@@ -254,7 +264,7 @@ async function selectRoute(route, type) {
   vehicleHistory    = {};
   buildRouteList();
   updateAlertsBadge();
-  const isTunnel = TUNNEL_ROUTES.has(route.id);
+  const isTunnel = TUNNEL_ROUTE_IDS.has(route.id);
   const tunnelBtn = document.getElementById('tunnelBtn');
   if (tunnelBtn) tunnelBtn.style.display = isTunnel ? '' : 'none';
   const bandSlider = document.getElementById('bandOpacity');
@@ -266,7 +276,6 @@ async function selectRoute(route, type) {
   else if (activePanel === 'stats')  loadStats();
 }
 
-/** Sample a shape polyline at approximately every `spacingM` meters. */
 function sampleShapeStops(coords, spacingM = 350) {
   if (!coords || coords.length < 2) return [];
   const stops = [{ name: 'Start', lat: coords[0][0], lng: coords[0][1] }];
@@ -300,7 +309,7 @@ async function fetchRouteStops() {
   const apiIds = selectedRoute.apiIds || [selectedRoute.id];
   const results = await Promise.all(
     apiIds.map(id =>
-      fetch(`/api/septa/stops?route=${encodeURIComponent(id)}`)
+      fetch(`/api/stops?route=${encodeURIComponent(id)}`)
         .then(r => r.json()).then(d => Array.isArray(d) ? d : []).catch(() => [])
     )
   );
@@ -312,7 +321,6 @@ async function fetchRouteStops() {
     return s.lat && s.lng;
   }).map(s => ({ name: s.stopname, lat: +s.lat, lng: +s.lng }));
 
-  // If no official stops, sample the shape at ~every 4th intersection
   if (routeStops.length === 0) {
     const shape = shapesData[key] || shapesData[apiIds[0]];
     if (shape) {
@@ -324,7 +332,6 @@ async function fetchRouteStops() {
 
 function toggleModelCard() {
   modelCardOpen = !modelCardOpen;
-  // Toggle all visible legend bodies (whichever tab legend is showing)
   for (const el of document.querySelectorAll('.model-card-body')) {
     el.classList.toggle('hidden', !modelCardOpen);
   }
@@ -339,7 +346,6 @@ function toggleAbout() {
 }
 
 function closeAboutOverlay(e) {
-  // Close when clicking the backdrop (not the panel itself)
   if (e.target === e.currentTarget) toggleAbout();
 }
 
@@ -410,7 +416,6 @@ function onRefreshChange() {
 function onBandOpacityChange() {
   const slider = document.getElementById('bandOpacity');
   bandOpacity = parseInt(slider.value, 10) / 100;
-  // Update existing band polylines
   for (const band of Object.values(ghostBandLayers)) {
     band.setStyle({ opacity: bandOpacity });
   }
@@ -426,7 +431,7 @@ function startAutoRefresh() {
   }, refreshIntervalMs);
   ghostTickTimer = setInterval(() => {
     if (!tunnelEstimationOn || Object.keys(ghostVehicles).length === 0) return;
-    if (!selectedRoute || !TUNNEL_ROUTES.has(selectedRoute.id)) return;
+    if (!selectedRoute || !TUNNEL_ROUTE_IDS.has(selectedRoute.id)) return;
     tickGhosts();
   }, 5000);
 }
@@ -452,19 +457,14 @@ function tickGhosts() {
       continue;
     }
 
-    // Recompute aft/fore/mid positions using same logic as detectTunnelEntries
     const fore = ghostPosition(totalElapsed, ghost);
     const aftElapsed = Math.max(0, totalElapsed - ghost.lingerSec);
     const aft  = ghostPosition(aftElapsed, ghost);
     const midElapsed = (totalElapsed + aftElapsed) / 2;
     const mid  = ghostPosition(midElapsed, ghost);
 
-    // Linger when both aft & fore are done, OR when an eastbound ghost's
-    // aft has completed the return (second) leg back to the portal.
     const ebReturnAtPortal = ghost.direction === 'eastbound' && aft.leg === 'second' && aft.fraction >= 1.0;
     if ((fore.done && aft.done) || ebReturnAtPortal) {
-      // Estimate exhausted but real vehicle hasn't emerged — freeze at exit portal.
-      // Both eastbound (round-trip) and westbound ghosts exit at the west portal.
       if (!ghost._lingersAtPortal) {
         const exitPos = PORTALS[ghost.route];
         if (exitPos) {
@@ -494,11 +494,9 @@ function tickGhosts() {
     ghost.foreFraction = fore.fraction;
     ghost.bandPath = extractBandPath(ghost, aft, fore);
 
-    // Update map marker position
     if (vehicleMarkers[vid]) {
       vehicleMarkers[vid].setLatLng([mid.pos.lat, mid.pos.lng]);
     }
-    // Update band polyline on map
     if (ghostBandLayers[vid] && ghost.bandPath && ghost.bandPath.length >= 2) {
       ghostBandLayers[vid].setLatLngs(ghost.bandPath.map(p => [p.lat, p.lng]));
     }
@@ -523,7 +521,7 @@ function tickGhosts() {
   }
 }
 
-// ── Fetch & render vehicles ─────────────────────────────────────────────────
+// ── Fetch & render trips ────────────────────────────────────────────────────
 
 async function fetchNow() {
   if (!selectedRoute) return;
@@ -531,21 +529,26 @@ async function fetchNow() {
   btn.disabled = true;
   setStatus('Fetching…');
   try {
-    let vehicles;
+    let trips;
     if (selectedRoute.type === 'rail') {
-      const data = await apiFetch('/api/septa/trainview');
-      vehicles = processRailData(data);
+      const data = await apiFetch(`/api/vehicles/rail?route=${encodeURIComponent(selectedRoute.id)}`);
+      trips = (data.trips || []).map(t => ({
+        ...t,
+        _id: t.vehicle_id || t.trip_id || String(Math.random()),
+        _rkey: t.route_id || selectedRoute.id,
+      }));
     } else {
       const apiIds = selectedRoute.apiIds || [selectedRoute.id];
       const results = await Promise.all(
-        apiIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
+        apiIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
       );
-      const raw = results.flatMap(r => r?.bus || []);
-      vehicles = processTransitData(raw, selectedRoute.id, selectedRoute.multi);
+      const raw = results.flatMap(r => r?.trips || []);
+      trips = processTrips(raw, selectedRoute.id, selectedRoute.multi);
     }
-    updateVehicleHistory(vehicles);
-    const isTunnelRoute = TUNNEL_ROUTES.has(selectedRoute.id);
-    // Sync ghost state from server (server tracks tunnel entries centrally)
+
+    updateVehicleHistory(trips);
+    const isTunnelRoute = TUNNEL_ROUTE_IDS.has(selectedRoute.id);
+
     if (isTunnelRoute) {
       try {
         const ghostResp = await apiFetch('/api/ghosts');
@@ -553,30 +556,28 @@ async function fetchNow() {
         lingeringVids = ghostResp.lingering || {};
       } catch (_) {}
     }
+
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
-    const visible = isTunnelRoute ? vehicles.filter(v => !ghostReplacedVids.has(v._id)) : vehicles;
-    const allVehicles = [...visible, ...ghosts];
+    const visible = isTunnelRoute ? trips.filter(t => !ghostReplacedVids.has(t._id)) : trips;
+    const allTrips = [...visible, ...ghosts];
 
-    renderVehicles(allVehicles);
+    renderTrips(allTrips);
 
-    // Tunnel closure detection (for trolley routes) — after render so errors don't block it
+    // Tunnel closure detection
     if (isTunnelRoute) {
       try {
-        // For individual trolley routes, fetch all trolley vehicles for GPS detection
-        // so a closure detected on any line is visible from every trolley view.
-        let gpsVehicles = vehicles;
+        let gpsVehicles = trips;
         if (!selectedRoute.multi) {
           const allIds = ['T1','T2','T3','T4','T5'];
-          const otherIds = allIds.filter(id => !selectedRoute.apiIds.includes(id));
+          const otherIds = allIds.filter(id => !(selectedRoute.apiIds || []).includes(id));
           if (otherIds.length) {
             const otherResults = await Promise.all(
-              otherIds.map(id => apiFetch(`/api/septa/transitview?route=${encodeURIComponent(id)}`))
+              otherIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
             );
-            const otherRaw = otherResults.flatMap((r, i) =>
-              (r?.bus || []).map(v => ({ ...v, route_id: otherIds[i] }))
-            );
-            const otherVehicles = processTransitData(otherRaw, 'detect', true);
-            gpsVehicles = [...vehicles, ...otherVehicles];
+            const otherTrips = otherResults.flatMap((r, i) => {
+              return (r?.trips || []).map(t => ({ ...t, _rkey: otherIds[i] }));
+            });
+            gpsVehicles = [...trips, ...otherTrips];
           }
         }
         detectTunnelClosureFromGPS(gpsVehicles);
@@ -584,8 +585,8 @@ async function fetchNow() {
         updateTunnelClosureBanner();
       } catch (e) { console.warn('tunnel closure detection error:', e); }
     }
-    if (activePanel === 'map') updateVehiclesOnMap(allVehicles);
-    return allVehicles;
+    if (activePanel === 'map') updateVehiclesOnMap(allTrips);
+    return allTrips;
   } catch (e) {
     setStatus(`Error: ${e.message}`);
     return [];
@@ -594,69 +595,35 @@ async function fetchNow() {
   }
 }
 
-function processRailData(trains) {
-  return trains
-    .filter(t => railLineKey(t.line || '', t.dest || '', t.SOURCE || '') === selectedRoute.id)
-    .map(t => ({
-      _id: String(t.trainno || Math.random()),
-      _rkey: selectedRoute.id,
-      label: String(t.trainno || '?'),
-      dest:  t.dest || '',
-      late:  t.late != null ? +t.late : 0,
-      heading: t.heading, lat: t.lat, lng: t.lon, trip: t.trainno,
-    }));
-}
-
-function processTransitData(rawVehicles, routeId, isMulti) {
-  return rawVehicles
-    .filter(v => v.late < 998 && v.label != null && v.label !== 'None' && String(v.label) !== '0'
-              && v.VehicleID != null && v.VehicleID !== 'None' && String(v.VehicleID) !== '0'
-              && !String(v.VehicleID).includes('schedBased'))
-    .map(v => {
-      const trip = v.trip && String(v.trip) !== '0' ? String(v.trip) : '';
-      const vid  = v.VehicleID && String(v.VehicleID) !== '0' ? String(v.VehicleID) : '';
-      const id   = trip || vid || `${v.label}_${v.lat}_${v.lng}`;
-      const actualRoute = isMulti ? (v.route_id || routeId) : routeId;
+function processTrips(rawTrips, routeId, isMulti) {
+  return rawTrips
+    .filter(t => {
+      const delay = tripDelay(t);
+      if (delay === 998) return false;
+      const label = t.label;
+      if (!label || label === 'None' || label === '0') return false;
+      return true;
+    })
+    .map(t => {
+      const actualRoute = isMulti ? (t.route_id || routeId) : routeId;
       return {
-        _id: id,
+        ...t,
+        _id: t.vehicle_id || t.trip_id || `${t.label}_${tripLat(t)}_${tripLng(t)}`,
         _rkey: actualRoute,
-        label: v.label || vid || '?',
-        dest:  v.destination || v.dest || '',
-        late:  v.late != null ? +v.late : 0,
-        heading: v.heading, lat: v.lat, lng: v.lng, trip: v.trip,
-        computed_heading: v.computed_heading,
-        computed_direction: v.computed_direction,
-        toward_terminus: v.toward_terminus,
-        dist_along: v.dist_along,
-        first_seen_ts: v.first_seen_ts,
-        first_dist_along: v.first_dist_along,
-        speed_mps: v.speed_mps,
-        shape_total_len: v.shape_total_len,
-        // Trip model fields
-        trip_id: v.trip_id,
-        trip_bearing: v.trip_bearing,
-        origin_terminus: v.origin_terminus,
-        destination_terminus: v.destination_terminus,
-        current_stop: v.current_stop,
-        next_stop: v.next_stop,
-        trip_start_time: v.trip_start_time,
-        trip_elapsed: v.trip_elapsed,
-        stops_passed: v.stops_passed,
-        stops_remaining: v.stops_remaining,
         _routeLabel: isMulti ? actualRoute : null,
       };
     });
 }
 
-// ── Render vehicle cards ────────────────────────────────────────────────────
+// ── Render trip cards ───────────────────────────────────────────────────────
 
-function renderVehicles(vehicles) {
+function renderTrips(trips) {
   const grid  = document.getElementById('vehicleGrid');
   const empty = document.getElementById('emptyLive');
   const now   = Date.now();
   const color = selectedRoute?.color || '#2f69f3';
 
-  if (vehicles.length === 0) {
+  if (trips.length === 0) {
     grid.style.display = 'none'; empty.style.display = '';
     empty.innerHTML = `<div class="empty-icon">🚌</div><div class="empty-title">No live vehicles</div><div>No active vehicles for this route right now.</div>`;
     setStatus(`No vehicles · ${fmtTime(now)}`);
@@ -664,87 +631,99 @@ function renderVehicles(vehicles) {
     return;
   }
 
-  const curIds = new Set(vehicles.map(v => v._id));
+  const curIds = new Set(trips.map(t => t._id));
   detectCompletions(curIds, now);
   const newReg = {};
-  for (const v of vehicles) {
-    const ex = liveRegistry[v._id];
-    newReg[v._id] = {
-      route: v._rkey, firstSeen: ex?.firstSeen ?? now, lastSeen: now,
-      firstLat: ex?.firstLat ?? parseFloat(v.lat), firstLng: ex?.firstLng ?? parseFloat(v.lng),
+  for (const t of trips) {
+    const ex = liveRegistry[t._id];
+    const lat = tripLat(t), lng = tripLng(t);
+    newReg[t._id] = {
+      route: t._rkey, firstSeen: ex?.firstSeen ?? now, lastSeen: now,
+      firstLat: ex?.firstLat ?? lat, firstLng: ex?.firstLng ?? lng,
     };
   }
   liveRegistry = newReg;
 
-  // Sort by soonest to arrive (least late first); ghosts after real vehicles
-  vehicles.sort((a, b) => {
+  // Sort: ghosts after real, then by delay, then by label
+  trips.sort((a, b) => {
     if (a._ghost && !b._ghost) return 1;
     if (!a._ghost && b._ghost) return -1;
-    const lateDiff = (a.late || 0) - (b.late || 0);
+    const lateDiff = tripDelay(a) - tripDelay(b);
     if (lateDiff !== 0) return lateDiff;
     if (selectedRoute?.multi) {
       const rDiff = (a._rkey || '').localeCompare(b._rkey || '');
       if (rDiff !== 0) return rDiff;
     }
-    return a.label.localeCompare(b.label, undefined, { numeric: true });
+    return (a.label || '').localeCompare(b.label || '', undefined, { numeric: true });
   });
   grid.style.display = ''; empty.style.display = 'none';
   grid.innerHTML = '';
 
-  for (const v of vehicles) {
-    const isGhost = v._ghost === true;
-    const late = v.late;
+  for (const t of trips) {
+    const isGhost = t._ghost === true;
+    const late = tripDelay(t);
     const lateColor = late <= 0 ? 'var(--green)' : late <= 5 ? 'var(--yellow)' : 'var(--red)';
     const lateText  = late <= 0 ? 'On time' : `${late} min`;
-    const tunneled  = !isGhost && inTunnel(v);
-    const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
-    const vColor = getRouteColor(v._rkey) || color;
+    const tunneled  = !isGhost && inTunnel(t);
+    const lat = tripLat(t), lng = tripLng(t);
+    const vColor = getRouteColor(t._rkey) || color;
 
     let nextStop = '';
+    let nextStopEta = null;
     let isTunneled = isGhost || tunneled;
-    if (v.next_stop && !isGhost) {
-      nextStop = v.next_stop;
+    const onDetour = tripOnDetour(t);
+    if (onDetour && ['T2','T3','T4','T5'].includes(t._rkey)) {
+      // On-detour T2-T5: compute next stop from detour loop
+      const detourNs = typeof computeDetourNextStop === 'function'
+        ? computeDetourNextStop(t, lat, lng) : null;
+      if (detourNs) { nextStop = detourNs.name; nextStopEta = detourNs.etaMin; }
+      else nextStop = nearestStop(lat, lng);
+    } else if (tripNextStop(t) && !isGhost) {
+      nextStop = tripNextStop(t);
     } else if (isGhost || tunneled) {
-      nextStop = nearestTunnelStop(v);
+      nextStop = nearestTunnelStop(t);
     } else if (!isNaN(lat) && !isNaN(lng)) {
       nextStop = nearestStop(lat, lng);
     }
 
-    const dir = v.destination_terminus || v.toward_terminus || headingLabel(v.computed_heading != null ? v.computed_heading : v.heading);
+    const dir = t.destination || headingLabel(tripHeading(t));
     const tags = [];
-    if (v._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${v._routeLabel}</span>`);
-    if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${v._direction || 'tunnel'}${v._leg === 'second' ? ' (return)' : ''}</span>`);
+    if (t._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${t._routeLabel}</span>`);
+    if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${t._direction || 'tunnel'}${t._leg === 'second' ? ' (return)' : ''}</span>`);
     else if (isTunneled) tags.push(`<span class="tag tag-tunnel">Underground</span>`);
+    if (onDetour)        tags.push(`<span class="tag" style="background:#e74c3c;color:#fff;">Detour</span>`);
     if (dir)             tags.push(`<span class="tag">→ ${dir}</span>`);
-    if (v.trip)          tags.push(`<span class="tag">Trip #${v.trip}</span>`);
+    if (t.trip_id)       tags.push(`<span class="tag">Trip #${t.trip_id.split('_')[0]}</span>`);
 
     const card = document.createElement('div');
     card.className = 'vcard' + (isGhost ? ' ghost-card' : '');
-    if (isGhost) card.dataset.vid = v._id;
-    const aftPct = isGhost ? Math.round((v._aftFraction || 0) * 100) : 0;
-    const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
-    const ghostDir = v._direction || '';
-    const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${aftPct}–${forePct}% ${ghostDir}${v._leg === 'second' ? ' (return)' : ''}</div>` : '';
-    const progressInfo = (!isGhost && v.stops_passed != null && v.stops_remaining != null)
-      ? `<div class="vcard-progress">${v.stops_passed} passed · ${v.stops_remaining} remaining</div>` : '';
-    const dest = v.destination_terminus || v.dest || '—';
+    if (isGhost) card.dataset.vid = t._id;
+    const aftPct = isGhost ? Math.round((t._aftFraction || 0) * 100) : 0;
+    const forePct = isGhost ? Math.round((t._foreFraction || 0) * 100) : 0;
+    const ghostDir = t._direction || '';
+    const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${aftPct}–${forePct}% ${ghostDir}${t._leg === 'second' ? ' (return)' : ''}</div>` : '';
+    const sPassed = tripStopsPassed(t);
+    const sRemaining = tripStopsRemaining(t);
+    const progressInfo = (!isGhost && sPassed != null && sRemaining != null)
+      ? `<div class="vcard-progress">${sPassed} passed · ${sRemaining} remaining</div>` : '';
+    const dest = t.destination || t.meta?.headsign || '—';
     card.innerHTML = `
       ${ghostBanner}
       <div class="vcard-hdr">
-        <span class="vcard-id">${v.label}</span>
+        <span class="vcard-id">${t.label || '?'}</span>
         <span class="vcard-dest">${dest}</span>
         <span class="late-pill" style="background:${isGhost ? '#1e3a6e' : lateColor}">${isGhost ? 'In tunnel' : lateText}</span>
       </div>
       <div class="next-stop-block" style="border-left:3px solid ${isGhost ? '#93c5fd' : vColor}">
         <div class="next-stop-label">Next Stop</div>
-        <div class="next-stop-name tunnel-stop">${nextStop || '—'}</div>
+        <div class="next-stop-name tunnel-stop">${nextStop || '—'}${nextStopEta != null ? ` <span style="color:#78818c;font-size:11px;">~${Math.round(nextStopEta)} min</span>` : ''}</div>
         ${progressInfo}
       </div>
       <div class="vcard-tags">${tags.join('')}</div>`;
     grid.appendChild(card);
   }
-  const nGhosts = vehicles.filter(v => v._ghost).length;
-  const nReal = vehicles.length - nGhosts;
+  const nGhosts = trips.filter(t => t._ghost).length;
+  const nReal = trips.length - nGhosts;
   const ghostSuffix = nGhosts > 0 ? ` + ${nGhosts} estimated` : '';
   const vSingular = activeMode === 'TROLLEY' ? 'trolley'
     : activeMode === 'BUS'    ? 'bus'
@@ -762,12 +741,10 @@ function updateTunnelClosureBanner() {
   let label, cls, mapCls;
   if (status) {
     if (status.gps) {
-      // Trolleys observed in the diversion loop — confirmed closure
       label = 'Trolley tunnel closed';
       cls = 'tunnel-closure-banner official';
       mapCls = 'tunnel-closure-map-banner official';
     } else {
-      // Alert/detour only — yellow advisory
       const allTrolley = ['T1','T2','T3','T4','T5'];
       const routes = status.alertRoutes || [];
       const routeStr = routes.length >= allTrolley.length ? 'all trolleys' : routes.join(', ');
@@ -779,7 +756,6 @@ function updateTunnelClosureBanner() {
 
   const content = status ? `<span class="tunnel-closure-icon">&#x26A0;</span> ${label}` : '';
 
-  // Live panel: insert as first child
   let liveBanner = document.getElementById('tunnelClosureBanner_live');
   if (!status) {
     if (liveBanner) liveBanner.style.display = 'none';
@@ -795,7 +771,6 @@ function updateTunnelClosureBanner() {
     liveBanner.style.display = '';
   }
 
-  // Map panel: use the overlay note area (absolute positioned)
   let mapBanner = document.getElementById('tunnelClosureBanner_map');
   if (!status) {
     if (mapBanner) mapBanner.style.display = 'none';
@@ -811,7 +786,6 @@ function updateTunnelClosureBanner() {
     mapBanner.style.display = '';
   }
 
-  // Alerts panel: insert as first child
   let alertsBanner = document.getElementById('tunnelClosureBanner_alerts');
   if (!status) {
     if (alertsBanner) alertsBanner.style.display = 'none';
@@ -832,7 +806,7 @@ function updateTunnelClosureBanner() {
 
 function detectCompletions(curIds, now) {
   if (serverTrackerRunning) return;
-  const MIN_DWELL = 60000; // 60s minimum time on route before counting as trip
+  const MIN_DWELL = 60000;
   for (const [vid, entry] of Object.entries(liveRegistry)) {
     if (!curIds.has(vid) && (now - entry.firstSeen) >= MIN_DWELL) {
       recordCompletion(entry.route, entry.firstSeen, now);

@@ -1,7 +1,7 @@
 'use strict';
 
 // ── Tunnel / underground constants ─────────────────────────────────────────
-const TUNNEL_ROUTES = new Set(['T1','T2','T3','T4','T5','T-ALL']);
+// TUNNEL_ROUTE_IDS is defined in routes.js and loaded from /api/config
 
 const TUNNEL_STOPS = [
   { name:'40th St Portal', lat:39.9502, lng:-75.2010 },
@@ -105,26 +105,42 @@ const DETOUR_PATH_EB = [
   [39.950820,-75.207189],[39.950479,-75.207179],[39.949790,-75.207150],
 ];
 
-// T1 detour spur: 36th St Portal ↔ 40th & Market via Lancaster Ave surface.
-// When T1 is diverted, it stays on Lancaster Ave instead of entering at 36th.
-// Northbound (portal → Market)
-const DETOUR_T1_NB = [
-  [39.9553,-75.1942],[39.9558,-75.1958],[39.9562,-75.1978],
-  [39.9568,-75.1998],[39.9572,-75.2019],
-];
-// Southbound (Market → portal)
-const DETOUR_T1_SB = [
-  [39.9572,-75.2019],[39.9568,-75.1998],[39.9562,-75.1978],
-  [39.9558,-75.1958],[39.9553,-75.1942],
+// T1 detour spur: 41st & Lancaster ↔ 40th & Filbert via 41st & Filbert.
+// When T1 is diverted, it stays on Lancaster Ave and connects to the T2-T5
+// loop at Filbert & 40th instead of entering at the 36th St portal.
+// Single segment (bidirectional): 40th & Filbert → 41st & Filbert → 41st & Lancaster
+const DETOUR_T1_SPUR = [
+  [39.9579,-75.2019],  // 40th & Filbert (connects to T2-T5 loop)
+  [39.9582,-75.2050],  // 41st & Filbert
+  [39.9650,-75.2055],  // 41st & Lancaster
 ];
 
-// Clickable stops on the detour route
+// Clickable stops on the detour route (vertices of the T2-T5 CCW loop)
 const DETOUR_STOPS = [
-  { name: '42nd & Spruce',  lat: 39.9522, lng: -75.2069, routes: ['T2','T3','T4','T5'] },
-  { name: '40th & Spruce',  lat: 39.9518, lng: -75.2031, routes: ['T2','T3','T4','T5'] },
-  { name: '38th & Filbert', lat: 39.9550, lng: -75.1985, routes: ['T1','T2','T3','T4','T5'] },
-  { name: '40th & Filbert', lat: 39.9558, lng: -75.2020, routes: ['T1','T2','T3','T4','T5'] },
-  { name: '40th & Market',  lat: 39.9572, lng: -75.2019, routes: ['T1','T2','T3','T4','T5'] },
+  { name: '42nd & Spruce',   lat: 39.9522, lng: -75.2069, routes: ['T2','T3','T4','T5'] },
+  { name: 'Spruce & 38th',   lat: 39.9513, lng: -75.1994, routes: ['T2','T3','T4','T5'] },
+  { name: 'Filbert & 38th',  lat: 39.9574, lng: -75.1981, routes: ['T1','T2','T3','T4','T5'] },
+  { name: 'Filbert & 40th',  lat: 39.9578, lng: -75.2018, routes: ['T1','T2','T3','T4','T5'] },
+  { name: '40th & Market',   lat: 39.9572, lng: -75.2019, routes: ['T1','T2','T3','T4','T5'] },
+];
+
+// ── CCW detour loop for T2-T5 next-to-arrive calculations ────────────────
+// Single counterclockwise path: entry from Baltimore Ave west of 42nd →
+// N on 42nd → E on Spruce → N on 38th → W on Filbert → S on 40th →
+// W on Spruce → back to 42nd → exit to Baltimore Ave.
+// Built by concatenating DETOUR_PATH_WB (42nd→38th→Filbert→40th) +
+// DETOUR_PATH_EB (40th→Spruce→42nd), deduplicating the junction point.
+const DETOUR_LOOP_PATH = [
+  ...DETOUR_PATH_WB,
+  ...DETOUR_PATH_EB.slice(1),  // skip first point (same as last of WB)
+];
+
+// Detour loop stops in CCW order (matching DETOUR_LOOP_PATH traversal)
+const DETOUR_LOOP_STOPS = [
+  { name: '42nd & Spruce',   lat: 39.9522, lng: -75.2069 },
+  { name: 'Spruce & 38th',   lat: 39.9513, lng: -75.1994 },
+  { name: 'Filbert & 38th',  lat: 39.9574, lng: -75.1981 },
+  { name: 'Filbert & 40th',  lat: 39.9578, lng: -75.2018 },
 ];
 
 // ── Terminus coordinates (must match server's shapes.py TERMINI) ──────────
@@ -172,7 +188,12 @@ function detectTunnelClosureFromGPS(vehicles) {
   for (const v of vehicles) {
     if (!detourRoutes.has(v._rkey)) continue;
     if (v._ghost) continue;
-    const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+    // Prefer server-provided on_detour flag (has hysteresis), fall back to zone check
+    if (v.on_detour) {
+      tunnelClosureState.gps = true;
+      return true;
+    }
+    const lat = tripLat(v), lng = tripLng(v);
     if (isNaN(lat) || isNaN(lng)) continue;
     if (isInDetourZone(lat, lng)) {
       tunnelClosureState.gps = true;
@@ -199,7 +220,7 @@ function detectTunnelClosureFromAlerts() {
   const affectedRoutes = new Set();
 
   for (const a of alertsData) {
-    if (a.type !== 'ALERT' && a.type !== 'DETOUR') continue;
+    if (a.type !== 'ALERT' && a.type !== 'DETOUR' && a.type !== 'ADVISORY') continue;
     if (!a.routes) continue;
     const matchedRoutes = a.routes.filter(r => trolleyAlertIds.has(r));
     if (!matchedRoutes.length) continue;
@@ -315,16 +336,16 @@ function getTunnelShapePath(routeKey) {
 // ── Underground detection ──────────────────────────────────────────────────
 
 function inTunnel(v) {
-  if (!TUNNEL_ROUTES.has(v._rkey)) return false;
+  if (!TUNNEL_ROUTE_IDS.has(v._rkey)) return false;
   const zone = UNDERGROUND_ZONES[v._rkey];
   if (!zone) return false;
-  const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+  const lat = tripLat(v), lng = tripLng(v);
   if (isNaN(lat) || isNaN(lng)) return false;
   return lat >= zone.minLat && lat <= zone.maxLat && lng >= zone.minLng && lng <= zone.maxLng;
 }
 
 function nearestTunnelStop(v) {
-  const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+  const lat = tripLat(v), lng = tripLng(v);
   let best = TUNNEL_STOPS[0], bestD = Infinity;
   for (const s of TUNNEL_STOPS) {
     const d = (lat - s.lat) ** 2 + (lng - s.lng) ** 2;
@@ -394,21 +415,21 @@ function updateVehicleHistory(vehicles) {
       newHistory[vid]._late  = hist._late;
       newHistory[vid]._trip  = hist._trip;
       newHistory[vid]._rkey  = hist._rkey;
-      newHistory[vid]._computed_direction = hist._computed_direction;
+      newHistory[vid]._toward_destination = hist._toward_destination;
     }
   }
   for (const v of vehicles) {
-    const lat = parseFloat(v.lat), lng = parseFloat(v.lng);
+    const lat = tripLat(v), lng = tripLng(v);
     if (isNaN(lat) || isNaN(lng)) continue;
     const prev = newHistory[v._id] || [];
     const entry = { lat, lng, ts: now };
     const updated = [...prev.slice(-(HISTORY_LEN - 1)), entry];
     updated._label = v.label;
-    updated._dest  = v.dest;
-    updated._late  = v.late;
-    updated._trip  = v.trip;
+    updated._dest  = v.destination || v.meta?.headsign || '';
+    updated._late  = tripDelay(v);
+    updated._trip  = v.trip_id || '';
     updated._rkey  = v._rkey;
-    updated._computed_direction = v.computed_direction;
+    updated._toward_destination = v.toward_destination;
     newHistory[v._id] = updated;
   }
   vehicleHistory = newHistory;
@@ -417,9 +438,9 @@ function updateVehicleHistory(vehicles) {
 // ── Direction detection ──────────────────────────────────────────────────
 
 function isHeadingEast(dest, v) {
-  // Prefer computed direction from server (shape-based)
-  if (v && v.computed_direction != null) {
-    return v.computed_direction === 'forward';  // forward = toward 13th St = eastbound
+  // Prefer toward_destination from server (shape-based)
+  if (v && v.toward_destination != null) {
+    return v.toward_destination;  // toward_destination = toward 13th St = eastbound
   }
   // Fallback to destination keyword detection
   if (!dest) return false;

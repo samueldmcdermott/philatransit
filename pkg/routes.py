@@ -1,21 +1,25 @@
-"""Flask blueprint with all API routes."""
+"""Flask blueprint with provider-agnostic API routes."""
 
 import time
 from datetime import datetime
 
-from flask import Blueprint, Response, jsonify, request
-import requests as req
+from flask import Blueprint, Response, current_app, jsonify, request
 
-from .helpers import SEPTA, HEADERS, TRIPS, SCHED, DAILY_CDFS, load, dump
-from .poller import (
-    transit_lock, transit_cache, trainview_lock, trainview_cache,
-    is_gps_tracked, fetch_route_trips, fetch_trip_detail, fetch_alerts,
-)
-from .tunnel import get_ghost_list, get_lingering_vids
-from .tracker import tracker
+from .helpers import TRIPS, SCHED, DAILY_CDFS, load, dump
+from .poller import transit_lock, transit_cache, rail_lock, rail_cache
 from .version import get_version
 
 api = Blueprint("api", __name__)
+
+
+# ── Helpers ──────────────────────────────────────────────────
+
+def _provider():
+    return current_app.config['provider']
+
+def _tracker():
+    return current_app.config['tracker']
+
 
 # ── Version ──────────────────────────────────────────────────
 
@@ -24,147 +28,82 @@ def version():
     return jsonify(version=get_version())
 
 
-# ── SEPTA proxy endpoints (served from cache) ────────────────
+# ── Config ───────────────────────────────────────────────────
 
-@api.route("/api/septa/trainview")
-def trainview():
-    with trainview_lock:
-        data = list(trainview_cache["data"])
-    if not data:
-        # Cache cold — fallback to live fetch once
-        try:
-            r = req.get(f"{SEPTA}/TrainView/index.php", headers=HEADERS, timeout=12)
-            data = r.json()
-        except Exception as e:
-            return jsonify(error=str(e)), 502
+@api.route("/api/config")
+def config():
+    """Return route configuration for the frontend."""
+    return jsonify(_provider().get_route_config())
+
+
+# ── Vehicles (Trip-centric) ──────────────────────────────────
+
+@api.route("/api/vehicles")
+def vehicles():
+    """Return trips for a route from the transit cache."""
+    route = request.args.get("route", "")
+    with transit_lock:
+        trips = list(transit_cache["routes"].get(route, []))
+        ts = transit_cache["ts"]
+    return jsonify({"trips": trips, "timestamp": ts})
+
+
+@api.route("/api/vehicles/rail")
+def vehicles_rail():
+    """Return rail trips from the rail cache."""
+    route = request.args.get("route", "")
+    with rail_lock:
+        all_trains = list(rail_cache["data"])
+        ts = rail_cache["ts"]
+    if route:
+        all_trains = [t for t in all_trains if t.get("route_id") == route]
+    return jsonify({"trips": all_trains, "timestamp": ts})
+
+
+# ── Stops ────────────────────────────────────────────────────
+
+@api.route("/api/stops")
+def stops():
+    route = request.args.get("route", "")
+    data = _provider().fetch_stops(route)
     return jsonify(data)
 
 
-@api.route("/api/septa/transitview")
-def transitview():
-    route = request.args.get("route", "")
-    with transit_lock:
-        vehicles = list(transit_cache["routes"].get(route, []))
-        ts = transit_cache["ts"]
-    if not vehicles and ts == 0.0:
-        # Cache cold — fallback to live fetch once
-        try:
-            r = req.get(
-                f"{SEPTA}/TransitView/index.php",
-                params={"route": route},
-                headers=HEADERS,
-                timeout=12,
-            )
-            return Response(r.content, mimetype="application/json")
-        except Exception as e:
-            return jsonify(error=str(e)), 502
-    return jsonify({"bus": vehicles})
+# ── Stop predictions ─────────────────────────────────────────
 
-
-@api.route("/api/septa/stops")
-def stops():
-    route = request.args.get("route", "")
-    try:
-        r = req.get(
-            f"{SEPTA}/Stops/index.php",
-            params={"req1": route},
-            headers=HEADERS,
-            timeout=12,
-        )
-        return Response(r.content, mimetype="application/json")
-    except Exception as e:
-        return jsonify(error=str(e)), 502
-
-
-# ── Stop predictions (SEPTA v2 API) ──────────────────────────
-
-@api.route("/api/septa/stop-predictions")
+@api.route("/api/stop-predictions")
 def stop_predictions():
-    """Return per-stop arrival predictions from SEPTA v2 API."""
     stop_ids = set(s.strip() for s in request.args.get("stops", "").split(",") if s.strip())
     route_ids = [s.strip() for s in request.args.get("routes", "").split(",") if s.strip()]
 
     if not stop_ids or not route_ids:
         return jsonify(error="missing stops or routes param"), 400
 
-    now = int(time.time())
-    trips_by_route = fetch_route_trips(route_ids)
-
-    # Collect GPS-tracked trips
-    real_trips = []
-    for rid, trips in trips_by_route.items():
-        for t in trips:
-            if is_gps_tracked(t):
-                real_trips.append({
-                    "trip_id": str(t["trip_id"]),
-                    "vehicle": str(t.get("vehicle_id", "")),
-                    "route": rid,
-                    "delay": t.get("delay", 0),
-                    "status": t.get("status", ""),
-                })
-
-    result = {sid: [] for sid in stop_ids}
-
-    for trip_info in real_trips:
-        detail = fetch_trip_detail(trip_info["trip_id"])
-        stop_times = detail.get("stop_times", [])
-        for st in stop_times:
-            sid = str(st.get("stop_id", ""))
-            if sid not in stop_ids:
-                continue
-            if st.get("departed"):
-                continue
-
-            eta = st.get("eta", 0)
-            if not eta or eta < now - 120:
-                continue
-
-            sched_ts = None
-            sched_str = st.get("scheduled_time", "")
-            if sched_str:
-                try:
-                    sched_dt = datetime.strptime(sched_str, "%Y-%m-%d %I:%M %p")
-                    sched_ts = int(sched_dt.timestamp())
-                except ValueError:
-                    pass
-
-            result[sid].append({
-                "trip": trip_info["trip_id"],
-                "vehicle": trip_info["vehicle"],
-                "route": trip_info["route"],
-                "arrival": eta,
-                "minutes": round((eta - now) / 60, 1),
-                "scheduled": sched_ts,
-                "sched_minutes": round((sched_ts - now) / 60, 1) if sched_ts else None,
-                "delay": trip_info["delay"],
-                "status": trip_info["status"],
-            })
-
-    # Sort by arrival time
-    for sid in result:
-        result[sid].sort(key=lambda x: x["arrival"])
-
+    result = _provider().fetch_stop_predictions(stop_ids, route_ids)
     return jsonify(result)
 
 
-# ── Alerts ────────────────────────────────────────────────────
+# ── Alerts ───────────────────────────────────────────────────
 
-@api.route("/api/septa/alerts")
+@api.route("/api/alerts")
 def alerts():
-    return jsonify(fetch_alerts())
+    return jsonify(_provider().fetch_alerts())
 
 
-# ── Tunnel ghosts ─────────────────────────────────────────────
+# ── Tunnel ghosts ────────────────────────────────────────────
 
 @api.route("/api/ghosts")
 def get_ghosts():
-    return jsonify({
-        'ghosts': get_ghost_list(),
-        'lingering': get_lingering_vids(),
-    })
+    detector = _provider().get_tunnel_detector()
+    if detector:
+        return jsonify({
+            'ghosts': detector.get_ghosts(),
+            'lingering': detector.get_lingering(),
+        })
+    return jsonify({'ghosts': [], 'lingering': {}})
 
 
-# ── Stats ─────────────────────────────────────────────────────
+# ── Stats ────────────────────────────────────────────────────
 
 @api.route("/api/stats")
 def get_stats():
@@ -173,24 +112,19 @@ def get_stats():
 
 @api.route("/api/stats/cdfs")
 def get_cdfs():
-    """Return CDF data: historical summaries + today's live trips.
-
-    Response: {route: {date: [sorted minutes-since-midnight], ...}, ...}
-    Historical days come from daily_cdfs.json; today is computed live from trips.json.
-    """
-    from .tracker import _CUTOFF_DATE, _CUTOFF_MS
+    """Return CDF data: historical summaries + today's live trips."""
+    from .core.tracker import _CUTOFF_DATE, _CUTOFF_MS
 
     cdfs = load(DAILY_CDFS)
     trips = load(TRIPS)
-    today = datetime.now().strftime("%Y-%m-%d")
 
-    # Remove any historical CDF entries before cutoff
+    # Remove historical CDF entries before cutoff
     for route in list(cdfs.keys()):
         for day in list(cdfs[route].keys()):
             if day < _CUTOFF_DATE:
                 del cdfs[route][day]
 
-    # Compute today's minutes from live trip data (applying cutoff)
+    # Compute today's minutes from live trip data
     for route, days in trips.items():
         for day_str, day_trips in days.items():
             if day_str < _CUTOFF_DATE:
@@ -258,14 +192,13 @@ def export_stats():
         return Response(
             "\n".join(rows),
             mimetype="text/csv",
-            headers={"Content-Disposition": "attachment; filename=septa_trips.csv"},
+            headers={"Content-Disposition": "attachment; filename=trips.csv"},
         )
 
-    # default: JSON
     return jsonify(trips)
 
 
-# ── Scheduled config ──────────────────────────────────────────
+# ── Scheduled config ─────────────────────────────────────────
 
 @api.route("/api/scheduled")
 def get_scheduled():
@@ -287,20 +220,23 @@ def set_scheduled():
     return jsonify(ok=True)
 
 
-# ── Tracker control ───────────────────────────────────────────
+# ── Tracker control ──────────────────────────────────────────
 
 @api.route("/api/tracker/status")
 def tracker_status():
-    return jsonify(running=tracker.running, tracked=tracker.registry_size)
+    t = _tracker()
+    return jsonify(running=t.running, tracked=t.registry_size)
 
 
 @api.route("/api/tracker/start", methods=["POST"])
 def tracker_start():
-    tracker.start()
+    t = _tracker()
+    t.start()
     return jsonify(ok=True, running=True)
 
 
 @api.route("/api/tracker/stop", methods=["POST"])
 def tracker_stop():
-    tracker.stop()
+    t = _tracker()
+    t.stop()
     return jsonify(ok=True, running=False)

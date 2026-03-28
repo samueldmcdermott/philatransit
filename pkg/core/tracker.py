@@ -1,14 +1,18 @@
-"""Background trip tracker — detects vehicle trip completions across all routes."""
+"""Background trip tracker — detects vehicle trip completions across all routes.
+
+Provider-agnostic: reads from the shared poller caches which contain
+NormalizedVehicle dicts regardless of provider.
+"""
 
 import threading
 import time
 from datetime import datetime
 
-from .helpers import TRIPS, DAILY_CDFS, load, dump, rail_line_key
-from .poller import transit_lock, transit_cache, trainview_lock, trainview_cache
+from ..helpers import TRIPS, DAILY_CDFS, load, dump
+from ..poller import transit_lock, transit_cache, rail_lock, rail_cache
 
 
-# ── Startup cleanup: discard data before 2026-03-17 ──────────────────────────
+# ── Startup cleanup: discard data before cutoff ──────────────────────────
 
 _CUTOFF_DATE = "2026-03-17"
 _CUTOFF_MS = int(datetime(2026, 3, 17, 0, 0, 0).timestamp() * 1000)
@@ -57,9 +61,11 @@ def _summarize_day(date_str):
 
 class TripTracker:
     """
-    Polls SEPTA every 30 s, tracking every vehicle across all routes.
+    Polls every 30s, tracking every vehicle across all routes.
     When a vehicle disappears after being seen in >= MIN_DWELL polls it
     is counted as a completed trip and appended to trips.json.
+
+    Not a module-level singleton — instantiated by the app factory.
     """
     POLL_INTERVAL = 30
     MIN_DWELL     = 2
@@ -97,14 +103,13 @@ class TripTracker:
                 self._check_day_rollover()
             except Exception as e:
                 print(f"  [tracker] poll error: {e}")
-            # Sleep in 0.5 s ticks so stop() takes effect quickly
             for _ in range(self.POLL_INTERVAL * 2):
                 if not self.running:
                     break
                 time.sleep(0.5)
 
     def _check_day_rollover(self):
-        """At midnight, summarize the previous day's data into daily_cdfs.json."""
+        """At midnight, summarize the previous day's data."""
         today = datetime.now().strftime("%Y-%m-%d")
         if self._last_summary_date and today != self._last_summary_date:
             prev = self._last_summary_date
@@ -118,36 +123,26 @@ class TripTracker:
     def _poll(self):
         vehicles = {}   # vid -> route_key
 
-        # -- regional rail --
+        # -- regional rail (from normalized rail cache) --
         try:
-            with trainview_lock:
-                trains = list(trainview_cache["data"])
+            with rail_lock:
+                trains = list(rail_cache["data"])
             for t in trains:
-                vid   = str(t.get("trainno", ""))
-                route = rail_line_key(
-                    t.get("line", ""), t.get("dest", ""), t.get("SOURCE", "")
-                )
+                vid = t.get("vehicle_id", "")
+                route = t.get("route_id", "")
                 if vid:
                     vehicles[vid] = route
         except Exception as e:
             print(f"  [tracker] rail error: {e}")
 
-        # -- bus / trolley / subway (from shared transit cache) --
+        # -- bus / trolley / subway (from normalized transit cache) --
         try:
             with transit_lock:
                 routes_snapshot = dict(transit_cache["routes"])
             for route_id, vs in routes_snapshot.items():
                 for v in vs:
-                    if v.get("late") == 998:
-                        continue
-                    label = v.get("label", "")
-                    if label in ("None", None, ""):
-                        continue
-                    vehicle_id = str(v.get("VehicleID") or "")
-                    if "schedBased" in vehicle_id:
-                        continue
-                    vid = str(v.get("trip") or vehicle_id or "")
-                    if vid and vid not in ("None", ""):
+                    vid = v.get("vehicle_id", "")
+                    if vid:
                         vehicles[vid] = route_id
         except Exception as e:
             print(f"  [tracker] transit error: {e}")
@@ -183,6 +178,3 @@ class TripTracker:
                     "first_ms": ex["first_ms"] if ex else now_ms,
                 }
             self._registry = new_reg
-
-
-tracker = TripTracker()
