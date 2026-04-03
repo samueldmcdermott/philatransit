@@ -76,10 +76,10 @@ def parse_time_seconds(s):
 # We'll match by proximity to known coordinates
 PORTAL_COORDS = {
     "T1": (39.9553, -75.1942),   # 36th St Portal
-    "T2": (39.9502, -75.2010),   # 40th St Portal (east tip of yard)
-    "T3": (39.9502, -75.2010),
-    "T4": (39.9502, -75.2010),
-    "T5": (39.9502, -75.2010),
+    "T2": (39.94939, -75.20333),   # 40th St Portal (east tip of yard)
+    "T3": (39.94939, -75.20333),
+    "T4": (39.94939, -75.20333),
+    "T5": (39.94939, -75.20333),
 }
 THIRTEENTH_ST = (39.9525, -75.1626)  # 13th St station
 

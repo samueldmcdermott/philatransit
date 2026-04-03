@@ -32,7 +32,7 @@ function alertIsActive(a) {
 // TUNNEL_ROUTE_IDS is defined in routes.js and loaded from /api/config
 
 const TUNNEL_STOPS = [
-  { name:'40th St Portal', lat:39.9502, lng:-75.2010 },
+  { name:'40th St Portal', lat:39.94939, lng:-75.20333 },
   { name:'37th & Spruce',  lat:39.9510, lng:-75.1969 },
   { name:'36th & Sansom',  lat:39.9539, lng:-75.1947 },
   { name:'36th St Portal', lat:39.9553, lng:-75.1942 },
@@ -55,10 +55,10 @@ const UNDERGROUND_ZONES = {
 
 const PORTALS = {
   T1:  {name:'36th St Portal',  lat:39.9553,   lng:-75.1942  },
-  T2:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
-  T3:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
-  T4:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
-  T5:  {name:'40th St Portal',  lat:39.9502,   lng:-75.2010  },
+  T2:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
+  T3:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
+  T4:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
+  T5:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
 };
 
 const TUNNEL_EAST_END = {lat:39.9525, lng:-75.1626};
@@ -80,7 +80,7 @@ const TUNNEL_40TH = [
   {name:'33rd St',           lat:39.9548, lng:-75.1895},
   {name:'36th & Sansom',     lat:39.9539, lng:-75.1947},
   {name:'37th & Spruce',     lat:39.9510, lng:-75.1969},
-  {name:'40th St Portal',    lat:39.9502,   lng:-75.2010  },
+  {name:'40th St Portal',    lat:39.94939,  lng:-75.20333  },
 ];
 
 const TUNNEL_36TH = [
