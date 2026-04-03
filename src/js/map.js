@@ -497,7 +497,7 @@ function updateVehiclesOnMap(vehicles) {
     }
 
     // Forward-uncertainty band for lingering vehicles (propagates into tunnel)
-    const lingerInfo = !isGhost && lingeringVids[v._id];
+    const lingerInfo = !isGhost && (v.lingering || lingeringVids[v._id]);
     if (lingerInfo && typeof lingerInfo === 'object' && lingerInfo.route) {
       const lingerElapsed = (Date.now() - lingerInfo.first_ts) / 1000;
       const halfTime = getHalfTunnelTime(lingerInfo.route);
@@ -528,7 +528,7 @@ function updateVehiclesOnMap(vehicles) {
     }
 
     // Determine marker icon based on vehicle state
-    const isLingering = !isGhost && lingeringVids[v._id];
+    const isLingering = !isGhost && (v.lingering || lingeringVids[v._id]);
     const isPortalLinger = isGhost && v._lingersAtPortal;
     // Use bearing from Trip (which comes from RouteInfo, flipped with toward_destination).
     // Fall back to position.heading (shape-based), then API bearing from meta.
@@ -548,9 +548,9 @@ function updateVehiclesOnMap(vehicles) {
       const prevHdg = vehicleMarkers[v._id]?._lastHeading;
       if (prevHdg && prevHdg !== 0) {
         hdg = prevHdg;
-      } else if (hdg === 0 && lingeringVids[v._id]) {
-        const lingerDir = typeof lingeringVids[v._id] === 'object'
-          ? lingeringVids[v._id].direction : lingeringVids[v._id];
+      } else if (hdg === 0 && lingerInfo) {
+        const lingerDir = typeof lingerInfo === 'object'
+          ? lingerInfo.direction : lingerInfo;
         hdg = lingerDir === 'eastbound' ? 90 : 270;
       }
     }

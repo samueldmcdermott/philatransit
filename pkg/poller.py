@@ -38,21 +38,25 @@ def _poll_loop():
             except Exception as e:
                 print(f"  [trip] enrichment error: {e}")
 
+            # -- Tunnel ghost tracking (before caching so lingering is annotated) --
+            try:
+                tunnel_detector = _provider.get_tunnel_detector()
+                if tunnel_detector:
+                    tunnel_detector.process(by_route, _trip_manager.get_direction)
+                    lingering = tunnel_detector.get_lingering()
+                    for route_vehicles in by_route.values():
+                        for v in route_vehicles:
+                            vid = v.get('vehicle_id')
+                            if vid and vid in lingering:
+                                v['lingering'] = lingering[vid]
+            except Exception as e:
+                print(f"  [tunnel] error: {e}")
+
             with transit_lock:
                 transit_cache["routes"] = by_route
                 transit_cache["ts"] = time.time()
         except Exception as e:
             print(f"  [poller] transit poll error: {e}")
-
-        # -- Tunnel ghost tracking (if provider supports it) --
-        try:
-            tunnel_detector = _provider.get_tunnel_detector()
-            if tunnel_detector:
-                with transit_lock:
-                    routes_snap = dict(transit_cache["routes"])
-                tunnel_detector.process(routes_snap, _trip_manager.get_direction)
-        except Exception as e:
-            print(f"  [tunnel] error: {e}")
 
         # -- Rail vehicles --
         try:

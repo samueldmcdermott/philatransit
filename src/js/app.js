@@ -97,7 +97,7 @@ function getRouteAlerts(route) {
   const result = [];
   for (const aid of ids) {
     for (const a of (alertsByRoute[aid] || [])) {
-      if (!seen.has(a.alert_id)) {
+      if (!seen.has(a.alert_id) && alertIsActive(a)) {
         seen.add(a.alert_id);
         result.push(a);
       }

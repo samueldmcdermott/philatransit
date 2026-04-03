@@ -1,5 +1,14 @@
 'use strict';
 
+// ── Alert time helpers ────────────────────────────────────────────────────
+/** Return true when the alert's active period includes the current time. */
+function alertIsActive(a) {
+  const now = Date.now();
+  if (a.start && now < new Date(a.start).getTime()) return false;
+  if (a.end   && now > new Date(a.end).getTime())   return false;
+  return true;
+}
+
 // ── Tunnel / underground constants ─────────────────────────────────────────
 // TUNNEL_ROUTE_IDS is defined in routes.js and loaded from /api/config
 
@@ -221,6 +230,7 @@ function detectTunnelClosureFromAlerts() {
 
   for (const a of alertsData) {
     if (a.type !== 'ALERT' && a.type !== 'DETOUR' && a.type !== 'ADVISORY') continue;
+    if (!alertIsActive(a)) continue;
     if (!a.routes) continue;
     const matchedRoutes = a.routes.filter(r => trolleyAlertIds.has(r));
     if (!matchedRoutes.length) continue;
