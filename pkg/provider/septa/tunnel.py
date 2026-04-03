@@ -131,40 +131,53 @@ class SeptaTunnelDetector:
                     tv['lat'], tv['lng'], tv['route'], tv['dest'],
                     direction_fn=direction_fn, vid=vid,
                 )
-                if direction is None:
-                    _portal_linger.pop(vid, None)
-                    _prev_positions[vid] = {
-                        'lat': tv['lat'], 'lng': tv['lng'], 'ts': now,
-                        'route': tv['route'], 'dest': tv['dest'],
-                        'label': tv['label'], 'late': tv['late'],
-                    }
-                    continue
-
                 existing = _portal_linger.get(vid)
-                if existing and existing['route'] == tv['route']:
-                    moved = abs(tv['lat'] - existing['lat']) + abs(tv['lng'] - existing['lng'])
-                    if moved >= STATIONARY_THRESH:
-                        existing['first_ts'] = now
-                        existing['lat'] = tv['lat']
-                        existing['lng'] = tv['lng']
-                else:
-                    seed_ts = now
-                    prev = _prev_positions.get(vid)
-                    if prev:
-                        moved = abs(tv['lat'] - prev['lat']) + abs(tv['lng'] - prev['lng'])
-                        if moved < STATIONARY_THRESH:
-                            seed_ts = prev['ts']
-                    _portal_linger[vid] = {
-                        'first_ts': seed_ts, 'route': tv['route'],
-                        'direction': direction, 'lat': tv['lat'], 'lng': tv['lng'],
-                    }
+
+                if direction is not None:
+                    # Vehicle detected near portal heading in
+                    if existing and existing['route'] == tv['route']:
+                        moved = (abs(tv['lat'] - existing['lat'])
+                                 + abs(tv['lng'] - existing['lng']))
+                        if moved >= STATIONARY_THRESH:
+                            existing['first_ts'] = now
+                            existing['lat'] = tv['lat']
+                            existing['lng'] = tv['lng']
+                    else:
+                        seed_ts = now
+                        prev = _prev_positions.get(vid)
+                        if prev:
+                            moved = (abs(tv['lat'] - prev['lat'])
+                                     + abs(tv['lng'] - prev['lng']))
+                            if moved < STATIONARY_THRESH:
+                                seed_ts = prev['ts']
+                        _portal_linger[vid] = {
+                            'first_ts': seed_ts, 'route': tv['route'],
+                            'direction': direction,
+                            'lat': tv['lat'], 'lng': tv['lng'],
+                        }
+                elif existing:
+                    # Hysteresis: GPS drifted outside the portal zone but
+                    # vehicle is still close — tolerate jitter (~50m).
+                    drift = (abs(tv['lat'] - existing['lat'])
+                             + abs(tv['lng'] - existing['lng']))
+                    if drift >= 0.001:  # ~100m — enough for GPS jitter
+                        _portal_linger.pop(vid, None)
+
+                _prev_positions[vid] = {
+                    'lat': tv['lat'], 'lng': tv['lng'], 'ts': now,
+                    'route': tv['route'], 'dest': tv['dest'],
+                    'label': tv['label'], 'late': tv['late'],
+                }
+
+                if vid not in _portal_linger:
+                    continue
 
                 linger = _portal_linger[vid]
                 if (now - linger['first_ts']) >= LINGER_TIME_S and vid not in _ghost_cooldown:
                     _ghost_cooldown[vid] = now
                     _ghosts[vid] = {
                         'route': tv['route'],
-                        'direction': direction,
+                        'direction': linger['direction'],
                         'enterTs': int(linger['first_ts'] * 1000),
                         'lingerSec': round(now - linger['first_ts'], 1),
                         'label': tv['label'],
@@ -175,12 +188,6 @@ class SeptaTunnelDetector:
                         'entryLng': tv['lng'],
                     }
                     _portal_linger.pop(vid, None)
-
-                _prev_positions[vid] = {
-                    'lat': tv['lat'], 'lng': tv['lng'], 'ts': now,
-                    'route': tv['route'], 'dest': tv['dest'],
-                    'label': tv['label'], 'late': tv['late'],
-                }
 
             # -- Disappearance-based detection --
             for vid, prev in list(_prev_positions.items()):

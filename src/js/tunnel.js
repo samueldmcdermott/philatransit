@@ -1,11 +1,30 @@
 'use strict';
 
 // ── Alert time helpers ────────────────────────────────────────────────────
-/** Return true when the alert's active period includes the current time. */
+
+/** Return true when the alert's active period includes the current time.
+ *  Checks both the structured start/end fields and time-of-day windows
+ *  embedded in the message text (e.g. "from 10 pm until 5 am"). */
 function alertIsActive(a) {
   const now = Date.now();
   if (a.start && now < new Date(a.start).getTime()) return false;
   if (a.end   && now > new Date(a.end).getTime())   return false;
+
+  // Parse time-of-day windows like "from 10 pm until 5 am" from the text
+  const text = (a.message || '') + ' ' + (a.subject || '');
+  const m = text.match(/from\s+(\d{1,2})\s*(am|pm)\s+(?:until|to)\s+(\d{1,2})\s*(am|pm)/i);
+  if (m) {
+    let fromH = parseInt(m[1]) % 12 + (m[2].toLowerCase() === 'pm' ? 12 : 0);
+    let toH   = parseInt(m[3]) % 12 + (m[4].toLowerCase() === 'pm' ? 12 : 0);
+    const curH = new Date().getHours();
+    if (fromH > toH) {
+      // Overnight window (e.g. 22–5): active if curH >= fromH OR curH < toH
+      if (curH < fromH && curH >= toH) return false;
+    } else {
+      // Daytime window (e.g. 9–14): active if curH >= fromH AND curH < toH
+      if (curH < fromH || curH >= toH) return false;
+    }
+  }
   return true;
 }
 

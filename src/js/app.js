@@ -97,7 +97,7 @@ function getRouteAlerts(route) {
   const result = [];
   for (const aid of ids) {
     for (const a of (alertsByRoute[aid] || [])) {
-      if (!seen.has(a.alert_id) && alertIsActive(a)) {
+      if (!seen.has(a.alert_id)) {
         seen.add(a.alert_id);
         result.push(a);
       }
@@ -691,6 +691,8 @@ function renderTrips(trips) {
     if (t._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${t._routeLabel}</span>`);
     if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${t._direction || 'tunnel'}${t._leg === 'second' ? ' (return)' : ''}</span>`);
     else if (isTunneled) tags.push(`<span class="tag tag-tunnel">Underground</span>`);
+    if (!isGhost && (t.lingering || lingeringVids[t._id]))
+                         tags.push(`<span class="tag tag-tunnel">Entering tunnel</span>`);
     if (onDetour)        tags.push(`<span class="tag" style="background:#e74c3c;color:#fff;">Detour</span>`);
     if (dir)             tags.push(`<span class="tag">→ ${dir}</span>`);
     if (t.trip_id)       tags.push(`<span class="tag">Trip #${t.trip_id.split('_')[0]}</span>`);
