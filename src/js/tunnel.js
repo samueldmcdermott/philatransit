@@ -356,6 +356,12 @@ function getTunnelShapePath(routeKey) {
     const d0 = Math.abs(bestRun[0].lng - portal.lng) + Math.abs(bestRun[0].lat - portal.lat);
     const dN = Math.abs(bestRun[bestRun.length-1].lng - portal.lng) + Math.abs(bestRun[bestRun.length-1].lat - portal.lat);
     if (d0 > dN) bestRun.reverse();
+
+    // Trim points west of the portal (surface yard track that leaked in)
+    const portalLng = portal.lng;
+    while (bestRun.length > 1 && bestRun[0].lng < portalLng) {
+      bestRun.shift();
+    }
   }
 
   tunnelShapePaths[routeKey] = bestRun;

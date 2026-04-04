@@ -542,16 +542,17 @@ function updateVehiclesOnMap(vehicles) {
     if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
       hdg = v._direction === 'eastbound' ? 90 : 270;
     }
-    // Lingering vehicles: preserve the heading from when they were still moving.
-    // Fall back to direction-based heading only if no prior heading is cached.
+    // Lingering vehicles: GPS is frozen so shape_heading may give a wrong
+    // bearing (e.g. north along the yard curve).  Use the cached heading
+    // from before lingering started; fall back to direction.
     if (isLingering) {
       const prevHdg = vehicleMarkers[v._id]?._lastHeading;
       if (prevHdg && prevHdg !== 0) {
         hdg = prevHdg;
-      } else if (hdg === 0 && lingerInfo) {
-        const lingerDir = typeof lingerInfo === 'object'
-          ? lingerInfo.direction : lingerInfo;
-        hdg = lingerDir === 'eastbound' ? 90 : 270;
+      } else {
+        const lingerDir = lingerInfo && typeof lingerInfo === 'object'
+          ? lingerInfo.direction : null;
+        hdg = lingerDir === 'westbound' ? 270 : 90;
       }
     }
 
