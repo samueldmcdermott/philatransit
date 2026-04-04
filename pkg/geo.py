@@ -25,6 +25,15 @@ def bearing(lat1, lng1, lat2, lng2):
 
 def project(pts, cum_dist, lat, lng):
     """Project a point onto a polyline.  Returns distance-along in meters."""
+    da, _ = project_with_perp(pts, cum_dist, lat, lng)
+    return da
+
+
+def project_with_perp(pts, cum_dist, lat, lng):
+    """Project a point onto a polyline.
+
+    Returns (dist_along, perpendicular_distance) in meters.
+    """
     best_da = 0.0
     best_perp = float('inf')
     cos_lat = math.cos(math.radians(lat))
@@ -44,7 +53,7 @@ def project(pts, cum_dist, lat, lng):
             best_perp = perp
             best_da = cum_dist[i - 1] + t * (cum_dist[i] - cum_dist[i - 1])
 
-    return best_da
+    return best_da, best_perp
 
 
 def interpolate(pts, cum_dist, total_len, dist_along):

@@ -4,11 +4,14 @@ When a trolley's GPS freezes near a portal for long enough, or a vehicle
 disappears near a portal, it is presumed to have entered the tunnel.
 Clients fetch /api/ghosts to get the current ghost list.
 
+Linger detection: a vehicle is "lingering" when it reports the *exact same*
+GPS position for several consecutive polls while on the route shape between
+the 40th St Portal and 37th & Spruce stops.  This happens because SEPTA
+repeats the last known position after the GPS signal is lost underground.
+
 This module uses NormalizedVehicle dicts (with vehicle_id field) and
 accepts a direction callback instead of importing TripManager directly.
 """
-
-from __future__ import annotations
 
 from __future__ import annotations
 
@@ -16,16 +19,21 @@ import threading
 import time
 from typing import Callable
 
+from ... import geo
 from .constants import (
     TUNNEL_ROUTES, PORTALS, TUNNEL_EAST, LINGER_RADIUS,
-    MOUTH_40TH_BOX, MOUTH_40TH_ROUTES, LINGER_TIME_S,
-    STATIONARY_THRESH, GHOST_MAX_AGE_S, EASTBOUND_KW,
+    GHOST_MAX_AGE_S, EASTBOUND_KW,
 )
 
+# Linger zone: between these two stops on the route shape
+_LINGER_STOP_A = '40th St Portal'
+_LINGER_STOP_B = '37th & Spruce'
+_ON_ROUTE_THRESH_M = 10   # must be within 10m of route shape
+_LINGER_TIME_S = 20       # seconds of frozen GPS before flagging
 
 _ghost_lock = threading.Lock()
 _ghosts = {}              # vid -> ghost info dict
-_portal_linger = {}       # vid -> {first_ts, route, direction, lat, lng}
+_portal_linger = {}       # vid -> {first_ts, route, direction, lat, lng, repeats}
 _prev_positions = {}      # vid -> {lat, lng, ts, route, dest, label, late}
 _ghost_cooldown = {}      # vid -> timestamp
 
@@ -44,33 +52,28 @@ def _heading_east(dest):
     return any(k in d for k in EASTBOUND_KW)
 
 
-def _check_portal(lat, lng, route, dest, direction_fn=None, vid=None):
-    """Return direction if vehicle is near a portal heading into tunnel.
-
-    Uses direction_fn(vid) -> bool|None as primary source, with
-    destination-keyword detection as fallback.
-    """
-    heading_east = None
+def _infer_direction(dest, direction_fn=None, vid=None):
+    """Return True if heading east (into tunnel from west portal)."""
     if direction_fn is not None and vid is not None:
         computed = direction_fn(vid)
         if computed is not None:
-            heading_east = computed
-    if heading_east is None:
-        heading_east = _heading_east(dest)
+            return computed
+    return _heading_east(dest)
 
-    # West portal check — T2-T5 use the tight mouth box
-    if route in MOUTH_40TH_ROUTES:
-        b = MOUTH_40TH_BOX
-        if (b['minLat'] <= lat <= b['maxLat']
-                and b['minLng'] <= lng <= b['maxLng']
-                and heading_east):
+
+def _check_portal(lat, lng, route, dest, direction_fn=None, vid=None):
+    """Return direction if vehicle is near a portal heading into tunnel.
+
+    Used for disappearance-based detection and ghost emergence checks.
+    """
+    heading_east = _infer_direction(dest, direction_fn, vid)
+
+    # West portals
+    portal = PORTALS.get(route)
+    if portal:
+        d = abs(lat - portal[0]) + abs(lng - portal[1])
+        if d < LINGER_RADIUS and heading_east:
             return 'eastbound'
-    else:
-        portal = PORTALS.get(route)
-        if portal:
-            d = abs(lat - portal[0]) + abs(lng - portal[1])
-            if d < LINGER_RADIUS and heading_east:
-                return 'eastbound'
 
     # East end (13th St) check
     d_east = abs(lat - TUNNEL_EAST[0]) + abs(lng - TUNNEL_EAST[1])
@@ -84,6 +87,56 @@ class SeptaTunnelDetector:
 
     Implements the TunnelDetector protocol from provider.base.
     """
+
+    def __init__(self):
+        self._shapes = None
+        # Per-route linger zone: (min_da, max_da) between the two stops.
+        # Computed lazily from shape data.
+        self._linger_zones: dict[str, tuple[float, float] | None] = {}
+
+    def set_shapes(self, shape_registry):
+        self._shapes = shape_registry
+
+    def _get_linger_zone(self, route_id):
+        """Return (min_da, max_da) for the linger zone on this route, or None."""
+        if route_id in self._linger_zones:
+            return self._linger_zones[route_id]
+        zone = None
+        if self._shapes:
+            shape = self._shapes.get(route_id)
+            if shape and shape.stops:
+                da_a = da_b = None
+                for name, da in shape.stops:
+                    if name == _LINGER_STOP_A:
+                        da_a = da
+                    elif name == _LINGER_STOP_B:
+                        da_b = da
+                if da_a is not None and da_b is not None:
+                    zone = (min(da_a, da_b), max(da_a, da_b))
+        self._linger_zones[route_id] = zone
+        return zone
+
+    def _check_linger_zone(self, lat, lng, route_id):
+        """Check if vehicle is on-route (within 10m) in the linger zone.
+
+        Returns (dist_along, direction) or None.
+        """
+        if not self._shapes:
+            return None
+        shape = self._shapes.get(route_id)
+        if not shape:
+            return None
+        zone = self._get_linger_zone(route_id)
+        if not zone:
+            return None
+
+        da, perp = geo.project_with_perp(shape.pts, shape.cum_dist, lat, lng)
+        if perp > _ON_ROUTE_THRESH_M:
+            return None
+        if da < zone[0] or da > zone[1]:
+            return None
+
+        return da
 
     def process(self, vehicles: dict[str, list[dict]],
                 direction_fn: Callable | None = None) -> None:
@@ -123,45 +176,41 @@ class SeptaTunnelDetector:
                     del _ghost_cooldown[vid]
 
             # -- Linger-based detection --
+            # A vehicle is "lingering" when SEPTA repeats the exact same GPS
+            # position while on the route shape between 40th St Portal and
+            # 37th & Spruce.  After _LINGER_TIME_S of frozen GPS the vehicle
+            # is promoted to a ghost (presumed underground).
             for vid, tv in trolley_vehicles.items():
                 if vid in _ghosts:
                     continue
 
-                direction = _check_portal(
-                    tv['lat'], tv['lng'], tv['route'], tv['dest'],
-                    direction_fn=direction_fn, vid=vid,
-                )
+                in_zone = self._check_linger_zone(
+                    tv['lat'], tv['lng'], tv['route'])
+                prev = _prev_positions.get(vid)
                 existing = _portal_linger.get(vid)
 
-                if direction is not None:
-                    # Vehicle detected near portal heading in
+                if in_zone is not None:
+                    exact_repeat = (prev
+                                   and prev['lat'] == tv['lat']
+                                   and prev['lng'] == tv['lng'])
+
                     if existing and existing['route'] == tv['route']:
-                        moved = (abs(tv['lat'] - existing['lat'])
-                                 + abs(tv['lng'] - existing['lng']))
-                        if moved >= STATIONARY_THRESH:
-                            existing['first_ts'] = now
-                            existing['lat'] = tv['lat']
-                            existing['lng'] = tv['lng']
-                    else:
-                        seed_ts = now
-                        prev = _prev_positions.get(vid)
-                        if prev:
-                            moved = (abs(tv['lat'] - prev['lat'])
-                                     + abs(tv['lng'] - prev['lng']))
-                            if moved < STATIONARY_THRESH:
-                                seed_ts = prev['ts']
+                        if not exact_repeat:
+                            # Position changed — reset
+                            _portal_linger.pop(vid, None)
+                    elif exact_repeat:
+                        # Start tracking: first frozen position
+                        heading_east = _infer_direction(
+                            tv['dest'], direction_fn, vid)
                         _portal_linger[vid] = {
-                            'first_ts': seed_ts, 'route': tv['route'],
-                            'direction': direction,
-                            'lat': tv['lat'], 'lng': tv['lng'],
+                            'first_ts': prev['ts'] if prev else now,
+                            'route': tv['route'],
+                            'direction': 'eastbound' if heading_east else 'westbound',
+                            'lat': tv['lat'],
+                            'lng': tv['lng'],
                         }
-                elif existing:
-                    # Hysteresis: GPS drifted outside the portal zone but
-                    # vehicle is still close — tolerate jitter (~50m).
-                    drift = (abs(tv['lat'] - existing['lat'])
-                             + abs(tv['lng'] - existing['lng']))
-                    if drift >= 0.001:  # ~100m — enough for GPS jitter
-                        _portal_linger.pop(vid, None)
+                else:
+                    _portal_linger.pop(vid, None)
 
                 _prev_positions[vid] = {
                     'lat': tv['lat'], 'lng': tv['lng'], 'ts': now,
@@ -169,11 +218,13 @@ class SeptaTunnelDetector:
                     'label': tv['label'], 'late': tv['late'],
                 }
 
-                if vid not in _portal_linger:
+                linger = _portal_linger.get(vid)
+                if not linger:
                     continue
 
-                linger = _portal_linger[vid]
-                if (now - linger['first_ts']) >= LINGER_TIME_S and vid not in _ghost_cooldown:
+                # Promote to ghost after _LINGER_TIME_S
+                if ((now - linger['first_ts']) >= _LINGER_TIME_S
+                        and vid not in _ghost_cooldown):
                     _ghost_cooldown[vid] = now
                     _ghosts[vid] = {
                         'route': tv['route'],
@@ -227,7 +278,8 @@ class SeptaTunnelDetector:
 
                 tv = trolley_vehicles.get(vid)
                 if tv:
-                    entry_moved = abs(tv['lat'] - ghost['entryLat']) + abs(tv['lng'] - ghost['entryLng'])
+                    entry_moved = (abs(tv['lat'] - ghost['entryLat'])
+                                   + abs(tv['lng'] - ghost['entryLng']))
                     if entry_moved > LINGER_RADIUS:
                         del _ghosts[vid]
                         _portal_linger.pop(vid, None)

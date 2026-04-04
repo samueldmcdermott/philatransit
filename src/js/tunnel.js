@@ -287,7 +287,7 @@ function getTunnelClosureStatus() {
 const HISTORY_LEN         = 6;       // keep more history for linger detection
 const GHOST_MAX_AGE_MS    = 25 * 60 * 1000;
 const LINGER_RADIUS       = 0.002;   // distance to portal to be "near" it (T1 and east end)
-const LINGER_TIME_MS      = 60000;   // 60s of frozen GPS to trigger ghost
+const LINGER_TIME_MS      = 20000;   // 20s of frozen GPS to trigger ghost
 const STATIONARY_THRESH   = 0.0005;  // max position change to count as "frozen"
 
 // Destinations that indicate eastbound (into tunnel from west portal)

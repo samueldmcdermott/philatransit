@@ -36,6 +36,9 @@ def create_app(provider_name="septa"):
     detour_detector = provider.get_detour_detector()
     if detour_detector:
         trip_manager.set_detour_detector(detour_detector)
+    tunnel_detector = provider.get_tunnel_detector()
+    if tunnel_detector:
+        tunnel_detector.set_shapes(shapes)
 
     # -- Background services --
     start_poller(provider, trip_manager)
