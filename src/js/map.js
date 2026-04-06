@@ -287,13 +287,16 @@ async function refreshMapVehicles() {
     const isTunnelRoute = TUNNEL_ROUTE_IDS.has(selectedRoute.id);
     if (isTunnelRoute) {
       try {
+        await fetchMonitoringData();
         const ghostResp = await apiFetch('/api/ghosts');
         syncServerGhosts(ghostResp.ghosts || ghostResp);
         lingeringVids = ghostResp.lingering || {};
       } catch (_) {}
     }
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
-    const visible = isTunnelRoute ? vehicles.filter(v => !ghostReplacedVids.has(v._id)) : vehicles;
+    const visible = isTunnelRoute
+      ? vehicles.filter(v => !ghostReplacedVids.has(v._id) && !ghostReplacedLabels.has(v.label))
+      : vehicles;
     updateVehiclesOnMap([...visible, ...ghosts]);
 
     // Tunnel closure detection — after render so errors don't block it

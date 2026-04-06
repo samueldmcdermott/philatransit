@@ -90,12 +90,16 @@ class SeptaTunnelDetector:
 
     def __init__(self):
         self._shapes = None
+        self._monitor = None
         # Per-route linger zone: (min_da, max_da) between the two stops.
         # Computed lazily from shape data.
         self._linger_zones: dict[str, tuple[float, float] | None] = {}
 
     def set_shapes(self, shape_registry):
         self._shapes = shape_registry
+
+    def set_monitor(self, monitor):
+        self._monitor = monitor
 
     def _get_linger_zone(self, route_id):
         """Return (min_da, max_da) for the linger zone on this route, or None."""
@@ -267,6 +271,14 @@ class SeptaTunnelDetector:
                         'entryLng': prev['lng'],
                     }
 
+            # Build label→vid lookup so we can detect re-emergence even
+            # when the SEPTA trip ID (used as vehicle_id) changes.
+            label_to_live = {}
+            for tv_vid, tv_info in trolley_vehicles.items():
+                lbl = tv_info.get('label')
+                if lbl:
+                    label_to_live[lbl] = (tv_vid, tv_info)
+
             # -- Ghost emergence / expiry --
             for vid in list(_ghosts):
                 ghost = _ghosts[vid]
@@ -276,11 +288,23 @@ class SeptaTunnelDetector:
                     _ghost_cooldown.pop(vid, None)
                     continue
 
+                # Check by vehicle_id first, then by label (fleet number).
+                # The trip-based vehicle_id can change when SEPTA reassigns
+                # the vehicle, so label matching is essential.
                 tv = trolley_vehicles.get(vid)
+                if not tv:
+                    match = label_to_live.get(ghost.get('label'))
+                    if match:
+                        tv = match[1]
                 if tv:
                     entry_moved = (abs(tv['lat'] - ghost['entryLat'])
                                    + abs(tv['lng'] - ghost['entryLng']))
                     if entry_moved > LINGER_RADIUS:
+                        # Record tunnel trip timing for monitoring
+                        if self._monitor:
+                            entry_ts = ghost['enterTs'] / 1000
+                            self._monitor.record_tunnel_trip(
+                                ghost['route'], entry_ts, now)
                         del _ghosts[vid]
                         _portal_linger.pop(vid, None)
                         _ghost_cooldown.pop(vid, None)

@@ -20,6 +20,9 @@ def _provider():
 def _tracker():
     return current_app.config['tracker']
 
+def _monitor():
+    return current_app.config['monitor']
+
 
 # ── Version ──────────────────────────────────────────────────
 
@@ -101,6 +104,19 @@ def get_ghosts():
             'lingering': detector.get_lingering(),
         })
     return jsonify({'ghosts': [], 'lingering': {}})
+
+
+# ── Monitoring ───────────────────────────────────────────────
+
+@api.route("/api/monitoring")
+def monitoring():
+    """Return monitoring data (tunnel times, etc.)."""
+    route = request.args.get("route")
+    m = _monitor()
+    if route:
+        tunnel = m.get_tunnel_avg(route)
+        return jsonify({'tunnel': tunnel, 'timestamp': time.time()})
+    return jsonify(m.get_snapshot())
 
 
 # ── Stats ────────────────────────────────────────────────────

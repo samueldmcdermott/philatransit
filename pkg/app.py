@@ -9,6 +9,7 @@ from .core.shapes import load_shapes
 from .core.trip import TripManager
 from .core.route import build_route_config
 from .core.tracker import TripTracker
+from .core.monitor import Monitor
 
 
 def _create_provider(provider_name: str):
@@ -36,9 +37,24 @@ def create_app(provider_name="septa"):
     detour_detector = provider.get_detour_detector()
     if detour_detector:
         trip_manager.set_detour_detector(detour_detector)
+
+    # -- Monitor (load fallback tunnel times) --
+    import json
+    tunnel_times_path = BASE / "static" / "tunnel_times.json"
+    fallback_times = {}
+    if tunnel_times_path.exists():
+        try:
+            tt = json.loads(tunnel_times_path.read_text())
+            fallback_times = {k: v['one_way_seconds'] for k, v in tt.items()
+                              if 'one_way_seconds' in v}
+        except Exception:
+            pass
+    monitor = Monitor(fallback_times=fallback_times)
+
     tunnel_detector = provider.get_tunnel_detector()
     if tunnel_detector:
         tunnel_detector.set_shapes(shapes)
+        tunnel_detector.set_monitor(monitor)
 
     # -- Background services --
     start_poller(provider, trip_manager)
@@ -53,6 +69,7 @@ def create_app(provider_name="septa"):
     app.config['trip_manager'] = trip_manager
     app.config['tracker'] = tracker
     app.config['route_config'] = route_config
+    app.config['monitor'] = monitor
 
     # -- CORS --
     @app.after_request

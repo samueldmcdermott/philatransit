@@ -26,6 +26,9 @@ let routeLayerGroup  = null;
 let stopLayerGroup   = null;
 let vehicleLayerGroup= null;
 
+// Live trips filter state
+let lastRenderedTrips  = [];
+
 // Tunnel estimation state
 let tunnelEstimationOn = true;
 let vehicleHistory     = {};
@@ -130,6 +133,7 @@ function renderAlertsPanel() {
     try {
       detectTunnelClosureFromAlerts();
       updateTunnelClosureBanner();
+      updateTunnelMonitorBanner();
     } catch (_) {}
   }
   const alerts = getRouteAlerts(selectedRoute);
@@ -443,6 +447,7 @@ function tickGhosts() {
     const totalElapsed = (now - ghost.enterTs) / 1000;
 
     if ((now - ghost.enterTs) > GHOST_MAX_AGE_MS) {
+      if (ghost.label) ghostReplacedLabels.delete(ghost.label);
       delete ghostVehicles[vid];
       ghostReplacedVids.delete(vid);
       if (vehicleMarkers[vid]) {
@@ -551,6 +556,7 @@ async function fetchNow() {
 
     if (isTunnelRoute) {
       try {
+        await fetchMonitoringData();
         const ghostResp = await apiFetch('/api/ghosts');
         syncServerGhosts(ghostResp.ghosts || ghostResp);
         lingeringVids = ghostResp.lingering || {};
@@ -558,7 +564,9 @@ async function fetchNow() {
     }
 
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
-    const visible = isTunnelRoute ? trips.filter(t => !ghostReplacedVids.has(t._id)) : trips;
+    const visible = isTunnelRoute
+      ? trips.filter(t => !ghostReplacedVids.has(t._id) && !ghostReplacedLabels.has(t.label))
+      : trips;
     const allTrips = [...visible, ...ghosts];
 
     renderTrips(allTrips);
@@ -583,6 +591,7 @@ async function fetchNow() {
         detectTunnelClosureFromGPS(gpsVehicles);
         detectTunnelClosureFromAlerts();
         updateTunnelClosureBanner();
+        updateTunnelMonitorBanner();
       } catch (e) { console.warn('tunnel closure detection error:', e); }
     }
     if (activePanel === 'map') updateVehiclesOnMap(allTrips);
@@ -615,21 +624,88 @@ function processTrips(rawTrips, routeId, isMulti) {
     });
 }
 
+// ── Live trip filtering & sorting ──────────────────────────────────────────
+
+function tripDirection(t) {
+  // Determine direction from destination or toward_destination
+  if (t._ghost) return t._direction || '';
+  const dest = (t.destination || t.meta?.headsign || '').toLowerCase();
+  if (t.toward_destination !== undefined) {
+    // toward_destination=true means heading toward destination (typically eastbound for trolleys)
+    // Use destination keywords to classify
+    if (/13th|market|city hall/.test(dest)) return 'eastbound';
+    if (dest && !/13th|market|city hall/.test(dest)) return 'westbound';
+  }
+  return '';
+}
+
+function filterTrips(trips) {
+  const dirFilter = document.getElementById('filterDirection')?.value || 'all';
+  const lateOnly = document.getElementById('filterHideOnTime')?.checked || false;
+
+  return trips.filter(t => {
+    if (dirFilter !== 'all') {
+      const dir = tripDirection(t);
+      if (dir && dir !== dirFilter) return false;
+    }
+    if (lateOnly && tripDelay(t) <= 0) return false;
+    return true;
+  });
+}
+
+function sortTrips(trips, mode) {
+  return trips.slice().sort((a, b) => {
+    // Ghosts always after real vehicles
+    if (a._ghost && !b._ghost) return 1;
+    if (!a._ghost && b._ghost) return -1;
+
+    if (mode === 'vehicle') {
+      return (a.label || '').localeCompare(b.label || '', undefined, { numeric: true });
+    }
+    if (mode === 'route') {
+      const rDiff = (a._rkey || '').localeCompare(b._rkey || '');
+      if (rDiff !== 0) return rDiff;
+      return (a.label || '').localeCompare(b.label || '', undefined, { numeric: true });
+    }
+    // Default: delay (worst first), then route, then label
+    const lateDiff = tripDelay(a) - tripDelay(b);
+    if (lateDiff !== 0) return lateDiff;
+    if (selectedRoute?.multi) {
+      const rDiff = (a._rkey || '').localeCompare(b._rkey || '');
+      if (rDiff !== 0) return rDiff;
+    }
+    return (a.label || '').localeCompare(b.label || '', undefined, { numeric: true });
+  });
+}
+
+function applyLiveFilters() {
+  if (lastRenderedTrips.length === 0) return;
+  renderTrips(lastRenderedTrips);
+}
+
 // ── Render trip cards ───────────────────────────────────────────────────────
 
 function renderTrips(trips) {
   const grid  = document.getElementById('vehicleGrid');
   const empty = document.getElementById('emptyLive');
+  const filterBar = document.getElementById('liveFilterBar');
   const now   = Date.now();
   const color = selectedRoute?.color || '#2f69f3';
 
+  // Store unfiltered trips for re-filtering
+  lastRenderedTrips = trips;
+
   if (trips.length === 0) {
     grid.style.display = 'none'; empty.style.display = '';
+    if (filterBar) filterBar.style.display = 'none';
     empty.innerHTML = `<div class="empty-icon">🚌</div><div class="empty-title">No live vehicles</div><div>No active vehicles for this route right now.</div>`;
     setStatus(`No vehicles · ${fmtTime(now)}`);
     detectCompletions(new Set(), now);
     return;
   }
+
+  // Show filter bar
+  if (filterBar) filterBar.style.display = '';
 
   const curIds = new Set(trips.map(t => t._id));
   detectCompletions(curIds, now);
@@ -644,18 +720,21 @@ function renderTrips(trips) {
   }
   liveRegistry = newReg;
 
-  // Sort: ghosts after real, then by delay, then by label
-  trips.sort((a, b) => {
-    if (a._ghost && !b._ghost) return 1;
-    if (!a._ghost && b._ghost) return -1;
-    const lateDiff = tripDelay(a) - tripDelay(b);
-    if (lateDiff !== 0) return lateDiff;
-    if (selectedRoute?.multi) {
-      const rDiff = (a._rkey || '').localeCompare(b._rkey || '');
-      if (rDiff !== 0) return rDiff;
-    }
-    return (a.label || '').localeCompare(b.label || '', undefined, { numeric: true });
-  });
+  // Apply filters
+  trips = filterTrips(trips);
+
+  // Sort
+  const sortMode = document.getElementById('filterSort')?.value || 'delay';
+  trips = sortTrips(trips, sortMode);
+
+  // Update filter count
+  const countEl = document.getElementById('filterCount');
+  if (countEl) {
+    const total = lastRenderedTrips.length;
+    const shown = trips.length;
+    countEl.textContent = shown < total ? `${shown}/${total} shown` : `${total} total`;
+  }
+
   grid.style.display = ''; empty.style.display = 'none';
   grid.innerHTML = '';
 
@@ -733,6 +812,83 @@ function renderTrips(trips) {
     : 'vehicle';
   const vPlural = activeMode === 'BUS' ? 'buses' : vSingular + 's';
   setStatus(`${nReal} ${nReal !== 1 ? vPlural : vSingular}${ghostSuffix} · ${fmtTime(now)}`);
+}
+
+// ── Tunnel monitoring banner ──────────────────────────────────────────────────
+
+function updateTunnelMonitorBanner() {
+  const isTrolley = selectedRoute && TUNNEL_ROUTE_IDS.has(selectedRoute.id);
+  const panels = ['livePanel', 'statsPanel'];
+
+  for (const panelId of panels) {
+    const bannerId = `tunnelMonitor_${panelId}`;
+    let banner = document.getElementById(bannerId);
+    if (!isTrolley || !monitoringData?.tunnel) {
+      if (banner) banner.style.display = 'none';
+      continue;
+    }
+
+    const tunnel = monitoringData.tunnel;
+    const perRoute = tunnel.per_route || {};
+
+    // Build per-route summary
+    const routeIds = selectedRoute.multi
+      ? (selectedRoute.apiIds || ['T1','T2','T3','T4','T5'])
+      : [selectedRoute.id];
+
+    const parts = routeIds.map(rid => {
+      const rd = perRoute[rid];
+      if (!rd) return null;
+      const halfMin = rd.half_time_seconds ? (rd.half_time_seconds / 60).toFixed(1) : '?';
+      const cls = rd.using_fallback ? 'monitor-fallback' : 'monitor-value';
+      return `<span class="${cls}">${rid}: ${halfMin}m</span>`;
+    }).filter(Boolean);
+
+    const totalSamples = routeIds.reduce((s, rid) => s + (perRoute[rid]?.sample_count || 0), 0);
+    const src = totalSamples > 0
+      ? `(${totalSamples} trip${totalSamples !== 1 ? 's' : ''} in last hour)`
+      : '(using historical avg)';
+
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = bannerId;
+      banner.className = 'tunnel-monitor-banner';
+      const panel = document.getElementById(panelId);
+      panel.insertBefore(banner, panel.firstChild);
+    }
+    banner.innerHTML = `<span class="monitor-label">Tunnel one-way avg:</span> ${parts.join(' · ')} <span style="opacity:0.6">${src}</span>`;
+    banner.style.display = '';
+  }
+
+  // Map banner (compact)
+  const mapBannerId = 'tunnelMonitor_map';
+  let mapBanner = document.getElementById(mapBannerId);
+  if (!isTrolley || !monitoringData?.tunnel) {
+    if (mapBanner) mapBanner.style.display = 'none';
+  } else {
+    const tunnel = monitoringData.tunnel;
+    const perRoute = tunnel.per_route || {};
+    const routeIds = selectedRoute.multi
+      ? (selectedRoute.apiIds || ['T1','T2','T3','T4','T5'])
+      : [selectedRoute.id];
+    const parts = routeIds.map(rid => {
+      const rd = perRoute[rid];
+      if (!rd || !rd.half_time_seconds) return null;
+      return `${rid}: ${(rd.half_time_seconds / 60).toFixed(1)}m`;
+    }).filter(Boolean);
+    if (parts.length) {
+      if (!mapBanner) {
+        mapBanner = document.createElement('div');
+        mapBanner.id = mapBannerId;
+        mapBanner.className = 'tunnel-monitor-map-banner';
+        document.getElementById('mapPanel').appendChild(mapBanner);
+      }
+      mapBanner.textContent = `Tunnel avg: ${parts.join(' · ')}`;
+      mapBanner.style.display = '';
+    } else if (mapBanner) {
+      mapBanner.style.display = 'none';
+    }
+  }
 }
 
 // ── Tunnel closure banner ────────────────────────────────────────────────────

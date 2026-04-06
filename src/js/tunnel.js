@@ -309,10 +309,37 @@ function pointInTriangle(lat, lng, tri) {
 let portalLingerMap   = {};
 // Vehicles whose real API entries should be hidden (replaced by ghost)
 let ghostReplacedVids = new Set();
+// Labels (fleet numbers) that have active ghosts — used as a fallback
+// when the trip-based vehicle_id changes mid-tunnel.
+let ghostReplacedLabels = new Set();
+
+// ── Monitoring data (rolling tunnel averages) ─────────────────────────────
+let monitoringData = null;
+let monitoringLastFetch = 0;
+
+async function fetchMonitoringData() {
+  const now = Date.now();
+  // Refresh at most every 30 seconds
+  if (monitoringData && now - monitoringLastFetch < 30000) return;
+  try {
+    monitoringData = await apiFetch('/api/monitoring');
+    monitoringLastFetch = now;
+  } catch (_) {}
+}
+
+function getMonitoringHalfTime(routeKey) {
+  if (!monitoringData?.tunnel?.per_route) return null;
+  const rd = monitoringData.tunnel.per_route[routeKey];
+  if (rd && !rd.using_fallback && rd.half_time_seconds) return rd.half_time_seconds;
+  return null;
+}
 
 // ── Tunnel helper functions ────────────────────────────────────────────────
 
 function getHalfTunnelTime(routeKey) {
+  // Prefer rolling average from monitoring if available
+  const monitored = getMonitoringHalfTime(routeKey);
+  if (monitored) return monitored;
   const data = tunnelTimesData[routeKey];
   if (data && data.one_way_seconds) return data.one_way_seconds;
   return FALLBACK_HALF_TIME[routeKey] || 600;
@@ -512,6 +539,7 @@ function syncServerGhosts(serverGhosts) {
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
     ghostReplacedVids.clear();
+    ghostReplacedLabels.clear();
     return;
   }
 
@@ -537,6 +565,7 @@ function syncServerGhosts(serverGhosts) {
     const path = sg.direction === 'eastbound' ? shapePath : [...shapePath].reverse();
 
     ghostReplacedVids.add(vid);
+    if (sg.label) ghostReplacedLabels.add(sg.label);
     ghostVehicles[vid] = {
       route: sg.route, label: sg.label, dest: sg.dest, late: sg.late,
       trip: sg.trip, _routeLabel: sg.route,
@@ -581,6 +610,11 @@ function syncServerGhosts(serverGhosts) {
       delete ghostVehicles[vid];
       ghostReplacedVids.delete(vid);
     }
+  }
+  // Rebuild label set from surviving ghosts
+  ghostReplacedLabels.clear();
+  for (const g of Object.values(ghostVehicles)) {
+    if (g.label) ghostReplacedLabels.add(g.label);
   }
 }
 
@@ -708,6 +742,7 @@ function toggleTunnelEstimation() {
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
     ghostReplacedVids.clear();
+    ghostReplacedLabels.clear();
   }
   if (selectedRoute && activePanel === 'live') fetchNow();
   if (selectedRoute && activePanel === 'map') refreshMapVehicles();

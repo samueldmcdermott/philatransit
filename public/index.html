@@ -94,6 +94,28 @@
 
     <!-- Live panel -->
     <div class="content" id="livePanel">
+      <div class="live-filter-bar" id="liveFilterBar" style="display:none">
+        <div class="filter-group">
+          <span class="filter-label">Direction:</span>
+          <select id="filterDirection" class="filter-select" onchange="applyLiveFilters()">
+            <option value="all">All</option>
+            <option value="eastbound">Eastbound</option>
+            <option value="westbound">Westbound</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Sort:</span>
+          <select id="filterSort" class="filter-select" onchange="applyLiveFilters()">
+            <option value="delay">Delay</option>
+            <option value="vehicle">Vehicle #</option>
+            <option value="route">Route</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-check"><input type="checkbox" id="filterHideOnTime" onchange="applyLiveFilters()"> Late only</label>
+        </div>
+        <span id="filterCount" class="filter-count"></span>
+      </div>
       <div class="empty" id="emptyLive">
         <div class="empty-icon">🚆</div>
         <div class="empty-title">Select a route</div>
