@@ -345,21 +345,21 @@ function ghostIcon(color, heading) {
 
 function lingerSolidIcon(color, heading) {
   return L.divIcon({
-    className: 'linger-marker',
-    html: `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
+    className: '',
+    html: `<div style="transform:rotate(${heading}deg);width:30px;height:30px"><svg class="linger-pulse-svg" width="30" height="30" viewBox="0 0 30 30">
       <polygon points="15,2.1 10,21.5 20,21.5" fill="${color}" stroke="white" stroke-width="1.8" stroke-linejoin="round" opacity="0.85"/>
-    </svg>`,
+    </svg></div>`,
     iconSize: [30, 30], iconAnchor: [15, 15],
   });
 }
 
 function lingerDashedIcon(color, heading) {
   return L.divIcon({
-    className: 'linger-marker',
-    html: `<svg width="36" height="36" viewBox="0 0 30 30" style="transform:rotate(${heading}deg)">
+    className: '',
+    html: `<div style="transform:rotate(${heading}deg);width:36px;height:36px"><svg class="linger-pulse-svg" width="36" height="36" viewBox="0 0 30 30">
       <polygon points="15,2.1 10,21.5 20,21.5" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="4 3" stroke-linejoin="round" opacity="0.85"/>
       <circle cx="15" cy="15" r="3.75" fill="${color}" opacity="0.7"/>
-    </svg>`,
+    </svg></div>`,
     iconSize: [36, 36], iconAnchor: [18, 18],
   });
 }
@@ -542,19 +542,9 @@ function updateVehiclesOnMap(vehicles) {
     if (hdg === 0 && (isGhost || isPortalLinger) && v._direction) {
       hdg = v._direction === 'eastbound' ? 90 : 270;
     }
-    // Lingering vehicles: GPS is frozen so shape_heading may give a wrong
-    // bearing (e.g. north along the yard curve).  Use the cached heading
-    // from before lingering started; fall back to direction.
-    if (isLingering) {
-      const prevHdg = vehicleMarkers[v._id]?._lastHeading;
-      if (prevHdg && prevHdg !== 0) {
-        hdg = prevHdg;
-      } else {
-        const lingerDir = lingerInfo && typeof lingerInfo === 'object'
-          ? lingerInfo.direction : null;
-        hdg = lingerDir === 'westbound' ? 270 : 90;
-      }
-    }
+    // Lingering vehicles: keep the Trip bearing (v.bearing) unchanged.
+    // Don't let shape_heading or direction overrides corrupt it — the
+    // Trip bearing is stable and matches the arrow's pre-linger heading.
 
     function pickIcon() {
       if (isLingering) return lingerSolidIcon(color, hdg);

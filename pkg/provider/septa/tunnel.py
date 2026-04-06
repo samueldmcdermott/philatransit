@@ -28,7 +28,7 @@ from .constants import (
 # Linger zone: between these two stops on the route shape
 _LINGER_STOP_A = '40th St Portal'
 _LINGER_STOP_B = '37th & Spruce'
-_ON_ROUTE_THRESH_M = 10   # must be within 10m of route shape
+_ON_ROUTE_THRESH_M = 20   # must be within 20m of route shape
 _LINGER_TIME_S = 20       # seconds of frozen GPS before flagging
 
 _ghost_lock = threading.Lock()

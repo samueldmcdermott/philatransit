@@ -392,14 +392,10 @@ function nearestTunnelStop(v) {
 function isPointUnderground(routeKey, lat, lng) {
   const zone = UNDERGROUND_ZONES[routeKey];
   if (!zone) return false;
-  // For T2-T5, use the tight mouth box at the tunnel entrance.
-  // Points west of the box's east edge are underground only if inside the box;
-  // points east of it use the rectangular UNDERGROUND_ZONES box as before.
+  // For T2-T5, nothing west of the 40th St Portal is underground.
   if (MOUTH_40TH_ROUTES.has(routeKey)) {
-    if (lng < MOUTH_40TH_BOX.maxLng) {
-      return lat >= MOUTH_40TH_BOX.minLat && lat <= MOUTH_40TH_BOX.maxLat
-          && lng >= MOUTH_40TH_BOX.minLng && lng <= MOUTH_40TH_BOX.maxLng;
-    }
+    const portal = PORTALS[routeKey];
+    if (portal && lng < portal.lng) return false;
   }
   return lat >= zone.minLat && lat <= zone.maxLat
       && lng >= zone.minLng && lng <= zone.maxLng;
