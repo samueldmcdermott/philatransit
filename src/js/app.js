@@ -837,18 +837,7 @@ function updateTunnelMonitorBanner() {
       ? Object.keys(perRoute).sort()
       : [selKey];
 
-    const parts = groupKeys.map(key => {
-      const rd = perRoute[key];
-      if (!rd) return null;
-      const rtMin = rd.avg_seconds ? (rd.avg_seconds / 60).toFixed(1) : '?';
-      const cls = rd.using_fallback ? 'monitor-fallback' : 'monitor-value';
-      return `<span class="${cls}">${key}: ${rtMin}m</span>`;
-    }).filter(Boolean);
-
-    const totalSamples = groupKeys.reduce((s, k) => s + (perRoute[k]?.sample_count || 0), 0);
-    const src = totalSamples > 0
-      ? `(${totalSamples} trip${totalSamples !== 1 ? 's' : ''} in last hour)`
-      : '(using historical avg)';
+    const { parts, src } = tunnelMonitorParts(perRoute, groupKeys, true);
 
     if (!banner) {
       banner = document.createElement('div');
@@ -857,7 +846,7 @@ function updateTunnelMonitorBanner() {
       const panel = document.getElementById(panelId);
       panel.insertBefore(banner, panel.firstChild);
     }
-    banner.innerHTML = `<span class="monitor-label">Tunnel round trip avg:</span> ${parts.join(' · ')} <span style="opacity:0.6">${src}</span>`;
+    banner.innerHTML = `<span class="monitor-label">Tunnel round trip avg:</span> ${parts.join(' \u00b7 ')} <span style="opacity:0.6">${src}</span>`;
     banner.style.display = '';
   }
 
@@ -873,18 +862,33 @@ function updateTunnelMonitorBanner() {
     const groupKeys = selectedRoute.multi
       ? Object.keys(perRoute).sort()
       : [selKey];
-    const parts = groupKeys.map(key => {
-      const rd = perRoute[key];
-      if (!rd || !rd.avg_seconds) return null;
-      return `${key}: ${(rd.avg_seconds / 60).toFixed(1)}m`;
-    }).filter(Boolean);
+    const { parts, src } = tunnelMonitorParts(perRoute, groupKeys, false);
     if (parts.length) {
-      mapBanner.textContent = `Round trip avg: ${parts.join(' \u00b7 ')}`;
+      mapBanner.textContent = `Tunnel round trip avg: ${parts.join(' \u00b7 ')} ${src}`;
       mapBanner.style.display = '';
     } else {
       mapBanner.style.display = 'none';
     }
   }
+}
+
+function tunnelMonitorParts(perRoute, groupKeys, html) {
+  const parts = groupKeys.map(key => {
+    const rd = perRoute[key];
+    if (!rd || !rd.avg_seconds) return null;
+    const rtMin = (rd.avg_seconds / 60).toFixed(1);
+    if (html) {
+      const cls = rd.using_fallback ? 'monitor-fallback' : 'monitor-value';
+      return `<span class="${cls}">${key}: ${rtMin}m</span>`;
+    }
+    return `${key}: ${rtMin}m`;
+  }).filter(Boolean);
+
+  const totalSamples = groupKeys.reduce((s, k) => s + (perRoute[k]?.sample_count || 0), 0);
+  const src = totalSamples > 0
+    ? `(avg from last 60 min, ${totalSamples} trip${totalSamples !== 1 ? 's' : ''})`
+    : '(using historical avg)';
+  return { parts, src };
 }
 
 // ── Tunnel closure banner ────────────────────────────────────────────────────
