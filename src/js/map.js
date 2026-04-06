@@ -295,7 +295,7 @@ async function refreshMapVehicles() {
     }
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
     const visible = isTunnelRoute
-      ? vehicles.filter(v => !ghostReplacedVids.has(v._id) && !ghostReplacedLabels.has(v.label))
+      ? vehicles.filter(v => !ghostReplacedLabels.has(v.label))
       : vehicles;
     updateVehiclesOnMap([...visible, ...ghosts]);
 

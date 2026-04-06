@@ -9,8 +9,10 @@ GPS position for several consecutive polls while on the route shape between
 the 40th St Portal and 37th & Spruce stops.  This happens because SEPTA
 repeats the last known position after the GPS signal is lost underground.
 
-This module uses NormalizedVehicle dicts (with vehicle_id field) and
-accepts a direction callback instead of importing TripManager directly.
+All ghost state is keyed by **label** (fleet number), not by SEPTA's
+vehicle_id / trip field, because SEPTA can reassign the trip ID when a
+vehicle exits the tunnel — causing the old ghost and the new live entry
+to coexist under different keys.  The fleet number is stable.
 """
 
 from __future__ import annotations
@@ -32,10 +34,10 @@ _ON_ROUTE_THRESH_M = 20   # must be within 20m of route shape
 _LINGER_TIME_S = 20       # seconds of frozen GPS before flagging
 
 _ghost_lock = threading.Lock()
-_ghosts = {}              # vid -> ghost info dict
-_portal_linger = {}       # vid -> {first_ts, route, direction, lat, lng, repeats}
-_prev_positions = {}      # vid -> {lat, lng, ts, route, dest, label, late}
-_ghost_cooldown = {}      # vid -> timestamp
+_ghosts = {}              # label -> ghost info dict
+_portal_linger = {}       # label -> {first_ts, route, direction, lat, lng}
+_prev_positions = {}      # label -> {lat, lng, ts, route, dest, label, late, vid}
+_ghost_cooldown = {}      # label -> timestamp
 
 
 def _safe_float(val):
@@ -147,8 +149,8 @@ class SeptaTunnelDetector:
         """Called each poll cycle to detect tunnel entries/exits."""
         now = time.time()
 
-        # Parse trolley vehicles from normalized data
-        trolley_vehicles = {}
+        # Parse trolley vehicles from normalized data, keyed by label
+        trolley_by_label = {}
         for route_id in TUNNEL_ROUTES:
             for v in vehicles.get(route_id, []):
                 meta = v.get('meta', {})
@@ -165,33 +167,33 @@ class SeptaTunnelDetector:
                 lng = _safe_float(v.get('lng'))
                 if lat is None or lng is None:
                     continue
-                trolley_vehicles[vid] = {
+                trolley_by_label[str(label)] = {
                     'lat': lat, 'lng': lng, 'route': route_id,
                     'label': str(label),
+                    'vid': vid,
                     'dest': meta.get('headsign', ''),
                     'late': int(delay),
-                    'trip': meta.get('api_trip_id', ''),
                 }
 
         with _ghost_lock:
             # Prune expired cooldowns
-            for vid in list(_ghost_cooldown):
-                if now - _ghost_cooldown[vid] > 300:
-                    del _ghost_cooldown[vid]
+            for lbl in list(_ghost_cooldown):
+                if now - _ghost_cooldown[lbl] > 300:
+                    del _ghost_cooldown[lbl]
 
             # -- Linger-based detection --
             # A vehicle is "lingering" when SEPTA repeats the exact same GPS
             # position while on the route shape between 40th St Portal and
             # 37th & Spruce.  After _LINGER_TIME_S of frozen GPS the vehicle
             # is promoted to a ghost (presumed underground).
-            for vid, tv in trolley_vehicles.items():
-                if vid in _ghosts:
+            for label, tv in trolley_by_label.items():
+                if label in _ghosts:
                     continue
 
                 in_zone = self._check_linger_zone(
                     tv['lat'], tv['lng'], tv['route'])
-                prev = _prev_positions.get(vid)
-                existing = _portal_linger.get(vid)
+                prev = _prev_positions.get(label)
+                existing = _portal_linger.get(label)
 
                 if in_zone is not None:
                     exact_repeat = (prev
@@ -201,12 +203,12 @@ class SeptaTunnelDetector:
                     if existing and existing['route'] == tv['route']:
                         if not exact_repeat:
                             # Position changed — reset
-                            _portal_linger.pop(vid, None)
+                            _portal_linger.pop(label, None)
                     elif exact_repeat:
                         # Start tracking: first frozen position
                         heading_east = _infer_direction(
-                            tv['dest'], direction_fn, vid)
-                        _portal_linger[vid] = {
+                            tv['dest'], direction_fn, tv['vid'])
+                        _portal_linger[label] = {
                             'first_ts': prev['ts'] if prev else now,
                             'route': tv['route'],
                             'direction': 'eastbound' if heading_east else 'westbound',
@@ -214,23 +216,24 @@ class SeptaTunnelDetector:
                             'lng': tv['lng'],
                         }
                 else:
-                    _portal_linger.pop(vid, None)
+                    _portal_linger.pop(label, None)
 
-                _prev_positions[vid] = {
+                _prev_positions[label] = {
                     'lat': tv['lat'], 'lng': tv['lng'], 'ts': now,
                     'route': tv['route'], 'dest': tv['dest'],
                     'label': tv['label'], 'late': tv['late'],
+                    'vid': tv['vid'],
                 }
 
-                linger = _portal_linger.get(vid)
+                linger = _portal_linger.get(label)
                 if not linger:
                     continue
 
                 # Promote to ghost after _LINGER_TIME_S
                 if ((now - linger['first_ts']) >= _LINGER_TIME_S
-                        and vid not in _ghost_cooldown):
-                    _ghost_cooldown[vid] = now
-                    _ghosts[vid] = {
+                        and label not in _ghost_cooldown):
+                    _ghost_cooldown[label] = now
+                    _ghosts[label] = {
                         'route': tv['route'],
                         'direction': linger['direction'],
                         'enterTs': int(linger['first_ts'] * 1000),
@@ -238,15 +241,14 @@ class SeptaTunnelDetector:
                         'label': tv['label'],
                         'dest': tv['dest'],
                         'late': tv['late'],
-                        'trip': tv.get('trip', ''),
                         'entryLat': tv['lat'],
                         'entryLng': tv['lng'],
                     }
-                    _portal_linger.pop(vid, None)
+                    _portal_linger.pop(label, None)
 
             # -- Disappearance-based detection --
-            for vid, prev in list(_prev_positions.items()):
-                if vid in trolley_vehicles or vid in _ghosts or vid in _ghost_cooldown:
+            for label, prev in list(_prev_positions.items()):
+                if label in trolley_by_label or label in _ghosts or label in _ghost_cooldown:
                     continue
                 if now - prev['ts'] > 90:
                     continue
@@ -254,11 +256,11 @@ class SeptaTunnelDetector:
                     continue
                 direction = _check_portal(
                     prev['lat'], prev['lng'], prev['route'], prev['dest'],
-                    direction_fn=direction_fn, vid=vid,
+                    direction_fn=direction_fn, vid=prev.get('vid'),
                 )
                 if direction is not None:
-                    _ghost_cooldown[vid] = now
-                    _ghosts[vid] = {
+                    _ghost_cooldown[label] = now
+                    _ghosts[label] = {
                         'route': prev['route'],
                         'direction': direction,
                         'enterTs': int(prev['ts'] * 1000),
@@ -266,36 +268,21 @@ class SeptaTunnelDetector:
                         'label': prev['label'],
                         'dest': prev['dest'],
                         'late': prev['late'],
-                        'trip': '',
                         'entryLat': prev['lat'],
                         'entryLng': prev['lng'],
                     }
 
-            # Build label→vid lookup so we can detect re-emergence even
-            # when the SEPTA trip ID (used as vehicle_id) changes.
-            label_to_live = {}
-            for tv_vid, tv_info in trolley_vehicles.items():
-                lbl = tv_info.get('label')
-                if lbl:
-                    label_to_live[lbl] = (tv_vid, tv_info)
-
             # -- Ghost emergence / expiry --
-            for vid in list(_ghosts):
-                ghost = _ghosts[vid]
+            for label in list(_ghosts):
+                ghost = _ghosts[label]
                 age_s = now - ghost['enterTs'] / 1000
                 if age_s > GHOST_MAX_AGE_S:
-                    del _ghosts[vid]
-                    _ghost_cooldown.pop(vid, None)
+                    del _ghosts[label]
+                    _ghost_cooldown.pop(label, None)
                     continue
 
-                # Check by vehicle_id first, then by label (fleet number).
-                # The trip-based vehicle_id can change when SEPTA reassigns
-                # the vehicle, so label matching is essential.
-                tv = trolley_vehicles.get(vid)
-                if not tv:
-                    match = label_to_live.get(ghost.get('label'))
-                    if match:
-                        tv = match[1]
+                # Check if this fleet number reappeared in live data
+                tv = trolley_by_label.get(label)
                 if tv:
                     entry_moved = (abs(tv['lat'] - ghost['entryLat'])
                                    + abs(tv['lng'] - ghost['entryLng']))
@@ -305,27 +292,30 @@ class SeptaTunnelDetector:
                             entry_ts = ghost['enterTs'] / 1000
                             self._monitor.record_tunnel_trip(
                                 ghost['route'], entry_ts, now)
-                        del _ghosts[vid]
-                        _portal_linger.pop(vid, None)
-                        _ghost_cooldown.pop(vid, None)
+                        del _ghosts[label]
+                        _portal_linger.pop(label, None)
+                        _ghost_cooldown.pop(label, None)
 
             # Clean stale prev positions
-            for vid in list(_prev_positions):
-                if now - _prev_positions[vid]['ts'] > 600:
-                    del _prev_positions[vid]
+            for label in list(_prev_positions):
+                if now - _prev_positions[label]['ts'] > 600:
+                    del _prev_positions[label]
 
     def get_ghosts(self) -> list[dict]:
-        """Return current ghosts as a list of dicts."""
+        """Return current ghosts as a list of dicts.
+
+        The 'vid' field is the fleet label (stable vehicle identifier).
+        """
         with _ghost_lock:
-            return [{**g, 'vid': vid} for vid, g in _ghosts.items()]
+            return [{**g, 'vid': label} for label, g in _ghosts.items()]
 
     def get_lingering(self) -> dict:
-        """Return vehicle IDs currently lingering near a portal."""
+        """Return labels currently lingering near a portal."""
         with _ghost_lock:
-            return {vid: {
+            return {label: {
                 'direction': info['direction'],
                 'route': info['route'],
                 'first_ts': int(info['first_ts'] * 1000),
                 'lat': info['lat'],
                 'lng': info['lng'],
-            } for vid, info in _portal_linger.items()}
+            } for label, info in _portal_linger.items()}

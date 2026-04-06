@@ -307,10 +307,9 @@ function pointInTriangle(lat, lng, tri) {
 // ── Portal linger tracking ───────────────────────────────────────────────
 // vid → { firstTs, route, direction, lat, lng }
 let portalLingerMap   = {};
-// Vehicles whose real API entries should be hidden (replaced by ghost)
-let ghostReplacedVids = new Set();
-// Labels (fleet numbers) that have active ghosts — used as a fallback
-// when the trip-based vehicle_id changes mid-tunnel.
+// Labels (fleet numbers) that have active ghosts.
+// Ghost tracking is keyed by label (not SEPTA's trip-based vehicle_id)
+// because the trip ID can change when a vehicle exits the tunnel.
 let ghostReplacedLabels = new Set();
 
 // ── Monitoring data (rolling tunnel averages) ─────────────────────────────
@@ -538,23 +537,23 @@ function getPortalAndDirection(lat, lng, routeKey, dest, v) {
 function syncServerGhosts(serverGhosts) {
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
-    ghostReplacedVids.clear();
     ghostReplacedLabels.clear();
     return;
   }
 
   const now = Date.now();
-  const serverVids = new Set();
+  const serverLabels = new Set();
 
   for (const sg of serverGhosts) {
-    const vid = sg.vid;
-    serverVids.add(vid);
+    // vid is the fleet label (stable identifier, not SEPTA trip ID)
+    const label = sg.vid;
+    serverLabels.add(label);
 
-    if (ghostVehicles[vid]) {
+    if (ghostVehicles[label]) {
       // Already tracking — update metadata but don't reset interpolation
-      ghostVehicles[vid].label = sg.label;
-      ghostVehicles[vid].dest = sg.dest;
-      ghostVehicles[vid].late = sg.late;
+      ghostVehicles[label].label = sg.label;
+      ghostVehicles[label].dest = sg.dest;
+      ghostVehicles[label].late = sg.late;
       continue;
     }
 
@@ -564,11 +563,10 @@ function syncServerGhosts(serverGhosts) {
     const halfTime = getHalfTunnelTime(sg.route);
     const path = sg.direction === 'eastbound' ? shapePath : [...shapePath].reverse();
 
-    ghostReplacedVids.add(vid);
-    if (sg.label) ghostReplacedLabels.add(sg.label);
-    ghostVehicles[vid] = {
+    ghostReplacedLabels.add(label);
+    ghostVehicles[label] = {
       route: sg.route, label: sg.label, dest: sg.dest, late: sg.late,
-      trip: sg.trip, _routeLabel: sg.route,
+      _routeLabel: sg.route,
       _entryLat: sg.entryLat, _entryLng: sg.entryLng,
       enterTs: sg.enterTs, lingerSec: sg.lingerSec,
       leg: 'first', direction: sg.direction, halfTime,
@@ -605,16 +603,11 @@ function syncServerGhosts(serverGhosts) {
   }
 
   // Remove ghosts no longer reported by server
-  for (const vid of Object.keys(ghostVehicles)) {
-    if (!serverVids.has(vid)) {
-      delete ghostVehicles[vid];
-      ghostReplacedVids.delete(vid);
+  for (const label of Object.keys(ghostVehicles)) {
+    if (!serverLabels.has(label)) {
+      delete ghostVehicles[label];
+      ghostReplacedLabels.delete(label);
     }
-  }
-  // Rebuild label set from surviving ghosts
-  ghostReplacedLabels.clear();
-  for (const g of Object.values(ghostVehicles)) {
-    if (g.label) ghostReplacedLabels.add(g.label);
   }
 }
 
@@ -704,13 +697,12 @@ function getGhostVehicles() {
   const routeKey = selectedRoute?.id;
   return Object.entries(ghostVehicles)
     .filter(([_, g]) => routeKey === 'T-ALL' || g.route === routeKey)
-    .map(([vid, g]) => ({
-    _id:     vid,
+    .map(([label, g]) => ({
+    _id:     label,
     _rkey:   g.route,
     label:   g.label,
     dest:    g.dest,
     late:    g.late,
-    trip:    g.trip,
     lat:     g.lat,
     lng:     g.lng,
     heading: null,
@@ -741,7 +733,6 @@ function toggleTunnelEstimation() {
   }
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
-    ghostReplacedVids.clear();
     ghostReplacedLabels.clear();
   }
   if (selectedRoute && activePanel === 'live') fetchNow();

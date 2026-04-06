@@ -447,9 +447,8 @@ function tickGhosts() {
     const totalElapsed = (now - ghost.enterTs) / 1000;
 
     if ((now - ghost.enterTs) > GHOST_MAX_AGE_MS) {
-      if (ghost.label) ghostReplacedLabels.delete(ghost.label);
+      ghostReplacedLabels.delete(ghost.label);
       delete ghostVehicles[vid];
-      ghostReplacedVids.delete(vid);
       if (vehicleMarkers[vid]) {
         vehicleLayerGroup?.removeLayer(vehicleMarkers[vid]);
         delete vehicleMarkers[vid];
@@ -565,7 +564,7 @@ async function fetchNow() {
 
     const ghosts = isTunnelRoute ? getGhostVehicles() : [];
     const visible = isTunnelRoute
-      ? trips.filter(t => !ghostReplacedVids.has(t._id) && !ghostReplacedLabels.has(t.label))
+      ? trips.filter(t => !ghostReplacedLabels.has(t.label))
       : trips;
     const allTrips = [...visible, ...ghosts];
 
@@ -770,7 +769,7 @@ function renderTrips(trips) {
     if (t._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${t._routeLabel}</span>`);
     if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${t._direction || 'tunnel'}${t._leg === 'second' ? ' (return)' : ''}</span>`);
     else if (isTunneled) tags.push(`<span class="tag tag-tunnel">Underground</span>`);
-    if (!isGhost && (t.lingering || lingeringVids[t._id]))
+    if (!isGhost && (t.lingering || lingeringVids[t.label]))
                          tags.push(`<span class="tag tag-tunnel">Entering tunnel</span>`);
     if (onDetour)        tags.push(`<span class="tag" style="background:#e74c3c;color:#fff;">Detour</span>`);
     if (dir)             tags.push(`<span class="tag">→ ${dir}</span>`);
@@ -839,9 +838,9 @@ function updateTunnelMonitorBanner() {
     const parts = routeIds.map(rid => {
       const rd = perRoute[rid];
       if (!rd) return null;
-      const halfMin = rd.half_time_seconds ? (rd.half_time_seconds / 60).toFixed(1) : '?';
+      const rtMin = rd.avg_seconds ? (rd.avg_seconds / 60).toFixed(1) : '?';
       const cls = rd.using_fallback ? 'monitor-fallback' : 'monitor-value';
-      return `<span class="${cls}">${rid}: ${halfMin}m</span>`;
+      return `<span class="${cls}">${rid}: ${rtMin}m</span>`;
     }).filter(Boolean);
 
     const totalSamples = routeIds.reduce((s, rid) => s + (perRoute[rid]?.sample_count || 0), 0);
@@ -856,7 +855,7 @@ function updateTunnelMonitorBanner() {
       const panel = document.getElementById(panelId);
       panel.insertBefore(banner, panel.firstChild);
     }
-    banner.innerHTML = `<span class="monitor-label">Tunnel one-way avg:</span> ${parts.join(' · ')} <span style="opacity:0.6">${src}</span>`;
+    banner.innerHTML = `<span class="monitor-label">Tunnel round trip avg:</span> ${parts.join(' · ')} <span style="opacity:0.6">${src}</span>`;
     banner.style.display = '';
   }
 
@@ -873,8 +872,8 @@ function updateTunnelMonitorBanner() {
       : [selectedRoute.id];
     const parts = routeIds.map(rid => {
       const rd = perRoute[rid];
-      if (!rd || !rd.half_time_seconds) return null;
-      return `${rid}: ${(rd.half_time_seconds / 60).toFixed(1)}m`;
+      if (!rd || !rd.avg_seconds) return null;
+      return `${rid}: ${(rd.avg_seconds / 60).toFixed(1)}m`;
     }).filter(Boolean);
     if (parts.length) {
       if (!mapBanner) {
@@ -883,7 +882,7 @@ function updateTunnelMonitorBanner() {
         mapBanner.className = 'tunnel-monitor-map-banner';
         document.getElementById('mapPanel').appendChild(mapBanner);
       }
-      mapBanner.textContent = `Tunnel avg: ${parts.join(' · ')}`;
+      mapBanner.textContent = `Round trip avg: ${parts.join(' · ')}`;
       mapBanner.style.display = '';
     } else if (mapBanner) {
       mapBanner.style.display = 'none';
