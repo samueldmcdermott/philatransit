@@ -326,9 +326,16 @@ async function fetchMonitoringData() {
   } catch (_) {}
 }
 
+const SHARED_TUNNEL_ROUTES = new Set(['T2','T3','T4','T5']);
+const SHARED_TUNNEL_KEY = 'T2-T5';
+
+function monitoringKey(routeKey) {
+  return SHARED_TUNNEL_ROUTES.has(routeKey) ? SHARED_TUNNEL_KEY : routeKey;
+}
+
 function getMonitoringHalfTime(routeKey) {
   if (!monitoringData?.tunnel?.per_route) return null;
-  const rd = monitoringData.tunnel.per_route[routeKey];
+  const rd = monitoringData.tunnel.per_route[monitoringKey(routeKey)];
   if (rd && !rd.using_fallback && rd.half_time_seconds) return rd.half_time_seconds;
   return null;
 }

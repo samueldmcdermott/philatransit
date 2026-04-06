@@ -830,20 +830,22 @@ function updateTunnelMonitorBanner() {
     const tunnel = monitoringData.tunnel;
     const perRoute = tunnel.per_route || {};
 
-    // Build per-route summary
-    const routeIds = selectedRoute.multi
-      ? (selectedRoute.apiIds || ['T1','T2','T3','T4','T5'])
-      : [selectedRoute.id];
+    // Show the grouped keys returned by the server (e.g. "T1", "T2-T5")
+    // Filter to keys relevant to the selected route
+    const selKey = monitoringKey(selectedRoute.id);
+    const groupKeys = selectedRoute.multi
+      ? Object.keys(perRoute).sort()
+      : [selKey];
 
-    const parts = routeIds.map(rid => {
-      const rd = perRoute[rid];
+    const parts = groupKeys.map(key => {
+      const rd = perRoute[key];
       if (!rd) return null;
       const rtMin = rd.avg_seconds ? (rd.avg_seconds / 60).toFixed(1) : '?';
       const cls = rd.using_fallback ? 'monitor-fallback' : 'monitor-value';
-      return `<span class="${cls}">${rid}: ${rtMin}m</span>`;
+      return `<span class="${cls}">${key}: ${rtMin}m</span>`;
     }).filter(Boolean);
 
-    const totalSamples = routeIds.reduce((s, rid) => s + (perRoute[rid]?.sample_count || 0), 0);
+    const totalSamples = groupKeys.reduce((s, k) => s + (perRoute[k]?.sample_count || 0), 0);
     const src = totalSamples > 0
       ? `(${totalSamples} trip${totalSamples !== 1 ? 's' : ''} in last hour)`
       : '(using historical avg)';
@@ -867,13 +869,14 @@ function updateTunnelMonitorBanner() {
   } else {
     const tunnel = monitoringData.tunnel;
     const perRoute = tunnel.per_route || {};
-    const routeIds = selectedRoute.multi
-      ? (selectedRoute.apiIds || ['T1','T2','T3','T4','T5'])
-      : [selectedRoute.id];
-    const parts = routeIds.map(rid => {
-      const rd = perRoute[rid];
+    const selKey = monitoringKey(selectedRoute.id);
+    const groupKeys = selectedRoute.multi
+      ? Object.keys(perRoute).sort()
+      : [selKey];
+    const parts = groupKeys.map(key => {
+      const rd = perRoute[key];
       if (!rd || !rd.avg_seconds) return null;
-      return `${rid}: ${(rd.avg_seconds / 60).toFixed(1)}m`;
+      return `${key}: ${(rd.avg_seconds / 60).toFixed(1)}m`;
     }).filter(Boolean);
     if (parts.length) {
       mapBanner.textContent = `Round trip avg: ${parts.join(' \u00b7 ')}`;
