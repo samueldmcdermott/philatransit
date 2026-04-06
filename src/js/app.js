@@ -859,11 +859,11 @@ function updateTunnelMonitorBanner() {
     banner.style.display = '';
   }
 
-  // Map banner (compact)
-  const mapBannerId = 'tunnelMonitor_map';
-  let mapBanner = document.getElementById(mapBannerId);
+  // Map banner (dedicated bar between toolbar and map)
+  const mapBanner = document.getElementById('mapMonitorBar');
+  if (!mapBanner) return;
   if (!isTrolley || !monitoringData?.tunnel) {
-    if (mapBanner) mapBanner.style.display = 'none';
+    mapBanner.style.display = 'none';
   } else {
     const tunnel = monitoringData.tunnel;
     const perRoute = tunnel.per_route || {};
@@ -876,15 +876,9 @@ function updateTunnelMonitorBanner() {
       return `${rid}: ${(rd.avg_seconds / 60).toFixed(1)}m`;
     }).filter(Boolean);
     if (parts.length) {
-      if (!mapBanner) {
-        mapBanner = document.createElement('div');
-        mapBanner.id = mapBannerId;
-        mapBanner.className = 'tunnel-monitor-map-banner';
-        document.getElementById('mapPanel').appendChild(mapBanner);
-      }
-      mapBanner.textContent = `Round trip avg: ${parts.join(' · ')}`;
+      mapBanner.textContent = `Round trip avg: ${parts.join(' \u00b7 ')}`;
       mapBanner.style.display = '';
-    } else if (mapBanner) {
+    } else {
       mapBanner.style.display = 'none';
     }
   }
