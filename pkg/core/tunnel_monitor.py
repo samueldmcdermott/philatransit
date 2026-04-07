@@ -1,6 +1,6 @@
 """Tunnel roundtrip-time monitor.
 
-Tracks tunnel transit times with a rolling one-hour average.
+Tracks tunnel transit times with a rolling 20-minute average.
 
 T2–T5 share the same tunnel (40th St portal to 13th St), so their trips
 are pooled into a single "T2-T5" average.  T1 uses a different portal
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 
 # ── Configuration ─────────────────────────────────────────────
-ROLLING_WINDOW_S = 3600  # 1 hour
+ROLLING_WINDOW_S = 1200  # 20 minutes
 
 # Routes that share the 40th St tunnel — pooled into one group.
 _SHARED_TUNNEL_ROUTES = frozenset({'T2', 'T3', 'T4', 'T5'})
