@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import time
 import threading
-from datetime import datetime
 
 import requests as req
 
@@ -201,41 +200,24 @@ class SeptaProvider(Provider):
 
         for trip_info in real_trips:
             detail = self._fetch_trip_detail(trip_info["trip_id"])
-            stop_times = detail.get("stop_times", [])
-            for st in stop_times:
+            for st in detail.get("stop_times", []):
                 sid = str(st.get("stop_id", ""))
-                if sid not in stop_ids:
+                if sid not in stop_ids or st.get("departed"):
                     continue
-                if st.get("departed"):
-                    continue
-
                 eta = st.get("eta", 0)
                 if not eta or eta < now - 120:
                     continue
-
-                sched_ts = None
-                sched_str = st.get("scheduled_time", "")
-                if sched_str:
-                    try:
-                        sched_dt = datetime.strptime(sched_str, "%Y-%m-%d %I:%M %p")
-                        sched_ts = int(sched_dt.timestamp())
-                    except ValueError:
-                        pass
-
                 result[sid].append({
                     "trip": trip_info["trip_id"],
-                    "vehicle": trip_info["vehicle"],
-                    "route": trip_info["route"],
-                    "arrival": eta,
                     "minutes": round((eta - now) / 60, 1),
-                    "scheduled": sched_ts,
-                    "sched_minutes": round((sched_ts - now) / 60, 1) if sched_ts else None,
-                    "delay": trip_info["delay"],
                     "status": trip_info["status"],
+                    "_eta": eta,   # for sorting only; stripped below
                 })
 
         for sid in result:
-            result[sid].sort(key=lambda x: x["arrival"])
+            result[sid].sort(key=lambda x: x["_eta"])
+            for p in result[sid]:
+                p.pop("_eta", None)
 
         return result
 

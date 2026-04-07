@@ -95,13 +95,17 @@ def _load_raw_stops(path: Path) -> dict:
     return {k: [(s[0], s[1], s[2]) for s in v] for k, v in raw.items()}
 
 
-def load_shapes(base_dir: Path, shape_trims: dict | None = None) -> RouteShapeRegistry:
+def load_shapes(base_dir: Path, shape_trims: dict | None = None,
+                termini: dict | None = None) -> RouteShapeRegistry:
     """Load GTFS shapes, orient them, project stops, and return a registry.
 
     Parameters:
         base_dir: project root (contains static/ directory)
         shape_trims: optional {route_id: trim_index} for provider-specific
                      non-revenue spur removal
+        termini: optional {route_id: (start_name, start_lat, start_lng,
+                                      end_name, end_lat, end_lng)}.
+                 If None or empty, the static termini.json is used.
     """
     registry = RouteShapeRegistry()
 
@@ -110,7 +114,8 @@ def load_shapes(base_dir: Path, shape_trims: dict | None = None) -> RouteShapeRe
         print("  [shapes] shapes.json not found — shape enrichment disabled")
         return registry
 
-    termini = _load_termini(base_dir / "static" / "termini.json")
+    if not termini:
+        termini = _load_termini(base_dir / "static" / "termini.json")
     raw_stops = _load_raw_stops(base_dir / "static" / "route_stops.json")
     registry._termini = termini
 

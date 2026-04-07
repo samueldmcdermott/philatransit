@@ -8,7 +8,10 @@ import threading
 import time
 from datetime import datetime
 
-from ..helpers import TRIPS, DAILY_CDFS, load, dump
+from ..helpers import (
+    TRIPS, DAILY_CDFS,
+    load, dump, date_str, minutes_since_midnight,
+)
 from ..poller import transit_lock, transit_cache, rail_lock, rail_cache
 
 
@@ -49,9 +52,7 @@ def _summarize_day(date_str):
             ts = t.get("start") or t.get("end")
             if not ts:
                 continue
-            dt = datetime.fromtimestamp(ts / 1000)
-            m = dt.hour * 60 + dt.minute + dt.second / 60
-            mins.append(round(m, 2))
+            mins.append(round(minutes_since_midnight(ts), 2))
         mins.sort()
         if mins:
             cdfs.setdefault(route, {})[date_str] = mins
@@ -82,7 +83,7 @@ class TripTracker:
             return
         _cleanup_old_data()
         self.running = True
-        self._last_summary_date = datetime.now().strftime("%Y-%m-%d")
+        self._last_summary_date = date_str()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="TripTracker")
         self._thread.start()
         print("  [tracker] started")
@@ -110,7 +111,7 @@ class TripTracker:
 
     def _check_day_rollover(self):
         """At midnight, summarize the previous day's data."""
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = date_str()
         if self._last_summary_date and today != self._last_summary_date:
             prev = self._last_summary_date
             print(f"  [tracker] summarizing day: {prev}")
@@ -159,7 +160,7 @@ class TripTracker:
                 if vid not in cur_ids and entry["seen"] >= self.MIN_DWELL:
                     route    = entry["route"]
                     start_ms = entry["first_ms"]
-                    day      = datetime.fromtimestamp(start_ms / 1000).strftime("%Y-%m-%d")
+                    day      = date_str(start_ms)
                     trips.setdefault(route, {}).setdefault(day, []).append(
                         {"start": start_ms, "end": now_ms, "dur": now_ms - start_ms}
                     )

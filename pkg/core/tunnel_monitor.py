@@ -1,7 +1,6 @@
-"""Monitoring module — tracks operational metrics across routes.
+"""Tunnel roundtrip-time monitor.
 
-Currently tracks tunnel roundtrip times with a rolling one-hour average.
-Designed to be extensible for future monitoring needs.
+Tracks tunnel transit times with a rolling one-hour average.
 
 T2–T5 share the same tunnel (40th St portal to 13th St), so their trips
 are pooled into a single "T2-T5" average.  T1 uses a different portal
@@ -41,8 +40,8 @@ class TunnelTrip:
         return time.time() - self.exit_time
 
 
-class Monitor:
-    """Central monitoring hub.
+class TunnelMonitor:
+    """Tracks rolling-average tunnel transit times.
 
     Not a module-level singleton — instantiated by the app factory.
     """

@@ -30,6 +30,28 @@ class NormalizedVehicle(TypedDict):
                              #        "api_bearing": 85, "api_trip_id": "5678"}
 
 
+class Alert(TypedDict, total=False):
+    """Service alert.  Frontend reads: alert_id, severity, subject, message,
+    routes, effect.  All other keys are optional/provider-specific."""
+    alert_id: str
+    severity: str          # "SEVERE" | "WARNING" | "INFO" | "UNKNOWN_SEVERITY"
+    effect: str            # e.g. "DETOUR", "REDUCED_SERVICE", "UNKNOWN_EFFECT"
+    subject: str
+    message: str
+    routes: list[str]      # canonical route_ids this alert affects
+
+
+class StopPrediction(TypedDict, total=False):
+    """A single arrival prediction at a stop.
+
+    Frontend (map.js) currently reads only `trip`, `minutes`, and `status`,
+    but the others are part of the documented contract for stop-info popups.
+    """
+    trip: str              # provider trip_id matching v.trip_id
+    minutes: float         # minutes until arrival (now-relative)
+    status: str            # provider status string (e.g. "ON TIME", "")
+
+
 class RouteInfo(TypedDict, total=False):
     """Static route definition.
 
@@ -80,6 +102,13 @@ class DetourDetector(Protocol):
         """Return True if the vehicle is currently on a known detour route."""
         ...
 
+    def detect_turnaround(self, vehicle_id: str, route_id: str,
+                          lat: float, lng: float,
+                          toward_destination: bool) -> bool:
+        """Return True if an on-detour vehicle has just reached its virtual
+        terminus and should flip direction.  Default: never flip."""
+        ...
+
 
 # ── Provider ABC ────────────────────────────────────────────────────
 
@@ -113,19 +142,26 @@ class Provider(ABC):
         """
 
     @abstractmethod
-    def fetch_alerts(self) -> list[dict]:
-        """Fetch service alerts.
-
-        Returns provider-specific alert dicts.
-        """
+    def fetch_alerts(self) -> list[Alert]:
+        """Fetch service alerts.  Returns a list of Alert dicts."""
 
     @abstractmethod
     def fetch_stop_predictions(self, stop_ids: set[str],
-                               route_ids: list[str]) -> dict:
+                               route_ids: list[str]) -> dict[str, list[StopPrediction]]:
         """Fetch arrival predictions for given stops and routes.
 
-        Returns {stop_id: [prediction, ...], ...}.
+        Returns {stop_id: [StopPrediction, ...]}, sorted by arrival time.
         """
+
+    def get_termini(self) -> dict[str, tuple]:
+        """Return {route_id: (start_name, start_lat, start_lng,
+                              end_name,   end_lat,   end_lng)}.
+
+        Default: empty dict, in which case load_shapes() falls back to
+        the static termini.json file.  Providers whose termini come from
+        an API (e.g. MARTA) should override this.
+        """
+        return {}
 
     @abstractmethod
     def get_tunnel_detector(self) -> TunnelDetector | None:

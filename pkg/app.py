@@ -1,5 +1,7 @@
 """Flask application factory with dependency injection."""
 
+import json
+
 from flask import Flask, send_file, send_from_directory
 
 from .helpers import BASE
@@ -9,7 +11,7 @@ from .core.shapes import load_shapes
 from .core.trip import TripManager
 from .core.route import build_route_config
 from .core.tracker import TripTracker
-from .core.monitor import Monitor
+from .core.tunnel_monitor import TunnelMonitor
 
 
 def _create_provider(provider_name: str):
@@ -25,8 +27,12 @@ def create_app(provider_name="septa"):
     # -- Provider --
     provider, shape_trims = _create_provider(provider_name)
 
-    # -- Shapes --
-    shapes = load_shapes(BASE, shape_trims=shape_trims)
+    # -- Shapes (provider may supply API-sourced termini; falls back to file) --
+    shapes = load_shapes(
+        BASE,
+        shape_trims=shape_trims,
+        termini=provider.get_termini() or None,
+    )
 
     # -- Route config (merge provider routes with terminus data) --
     provider_config = provider.get_route_config()
@@ -38,8 +44,7 @@ def create_app(provider_name="septa"):
     if detour_detector:
         trip_manager.set_detour_detector(detour_detector)
 
-    # -- Monitor (load fallback tunnel times) --
-    import json
+    # -- Tunnel monitor (load fallback tunnel times) --
     tunnel_times_path = BASE / "static" / "tunnel_times.json"
     fallback_times = {}
     if tunnel_times_path.exists():
@@ -49,12 +54,12 @@ def create_app(provider_name="septa"):
                               if 'one_way_seconds' in v}
         except Exception:
             pass
-    monitor = Monitor(fallback_times=fallback_times)
+    tunnel_monitor = TunnelMonitor(fallback_times=fallback_times)
 
     tunnel_detector = provider.get_tunnel_detector()
     if tunnel_detector:
         tunnel_detector.set_shapes(shapes)
-        tunnel_detector.set_monitor(monitor)
+        tunnel_detector.set_monitor(tunnel_monitor)
 
     # -- Background services --
     start_poller(provider, trip_manager)
@@ -69,7 +74,7 @@ def create_app(provider_name="septa"):
     app.config['trip_manager'] = trip_manager
     app.config['tracker'] = tracker
     app.config['route_config'] = route_config
-    app.config['monitor'] = monitor
+    app.config['tunnel_monitor'] = tunnel_monitor
 
     # -- CORS --
     @app.after_request

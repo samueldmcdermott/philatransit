@@ -82,9 +82,6 @@ class Trip:
     _last_stop_da: float | None = field(default=None, repr=False)
     _prev_stop_da: float | None = field(default=None, repr=False)
 
-    # Extensible
-    meta: dict = field(default_factory=dict)
-
     @property
     def elapsed(self) -> float:
         """Seconds since the trip started."""
@@ -229,26 +226,13 @@ class TripManager:
                         del self._trips[vid]
                         continue
 
-                    # Detour detection
+                    # Detour detection (provider-specific)
                     if self._detour_detector:
                         trip.on_detour = self._detour_detector.check_detour(
                             vid, route_id, lat, lng)
-
-                    # T1 detour turnaround: Filbert & 38th is the virtual
-                    # terminus.  Once the vehicle reaches it and moves away,
-                    # flip toward_destination so bearing reverses.
-                    if trip.on_detour and route_id == 'T1':
-                        _T1_TURN = (39.9574, -75.1981)   # Filbert & 38th
-                        d = geo.distance(lat, lng, *_T1_TURN)
-                        if trip.toward_destination:
-                            if d < 120:
-                                trip.meta['_near_t1_turn'] = True
-                            elif trip.meta.get('_near_t1_turn') and d > 180:
-                                self._flip_to_return(trip)
-                                trip.meta['_near_t1_turn'] = False
-                        else:
-                            # Heading back; clear flag so it doesn't re-trigger
-                            trip.meta.pop('_near_t1_turn', None)
+                        if trip.on_detour and self._detour_detector.detect_turnaround(
+                                vid, route_id, lat, lng, trip.toward_destination):
+                            self._flip_to_return(trip)
 
                     # Write Trip fields onto the vehicle dict
                     self._write_vehicle_fields(v, trip, shape, da, now)

@@ -5,7 +5,10 @@ from datetime import datetime
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from .helpers import TRIPS, SCHED, DAILY_CDFS, load, dump
+from .helpers import (
+    TRIPS, SCHED, DAILY_CDFS,
+    load, dump, date_str, minutes_since_midnight,
+)
 from .poller import transit_lock, transit_cache, rail_lock, rail_cache
 from .version import get_version
 
@@ -20,8 +23,8 @@ def _provider():
 def _tracker():
     return current_app.config['tracker']
 
-def _monitor():
-    return current_app.config['monitor']
+def _tunnel_monitor():
+    return current_app.config['tunnel_monitor']
 
 
 # ── Version ──────────────────────────────────────────────────
@@ -106,16 +109,16 @@ def get_ghosts():
     return jsonify({'ghosts': [], 'lingering': {}})
 
 
-# ── Monitoring ───────────────────────────────────────────────
+# ── Tunnel monitoring ────────────────────────────────────────
 
 @api.route("/api/monitoring")
 def monitoring():
-    """Return monitoring data (tunnel times, etc.)."""
+    """Return tunnel monitoring data (rolling averages)."""
     route = request.args.get("route")
-    m = _monitor()
+    m = _tunnel_monitor()
     if route:
-        tunnel = m.get_tunnel_avg(route)
-        return jsonify({'tunnel': tunnel, 'timestamp': time.time()})
+        return jsonify({'tunnel': m.get_tunnel_avg(route),
+                        'timestamp': time.time()})
     return jsonify(m.get_snapshot())
 
 
@@ -152,9 +155,7 @@ def get_cdfs():
                     continue
                 if day_str == _CUTOFF_DATE and ts < _CUTOFF_MS:
                     continue
-                dt = datetime.fromtimestamp(ts / 1000)
-                m = dt.hour * 60 + dt.minute + dt.second / 60
-                mins.append(round(m, 2))
+                mins.append(round(minutes_since_midnight(ts), 2))
             mins.sort()
             if mins:
                 cdfs.setdefault(route, {})[day_str] = mins
@@ -173,7 +174,7 @@ def record_trip():
         return jsonify(error="missing route"), 400
 
     trips = load(TRIPS)
-    day   = datetime.fromtimestamp(start / 1000).strftime("%Y-%m-%d")
+    day   = date_str(start)
     trips.setdefault(route, {}).setdefault(day, []).append(
         {"start": start, "end": end, "dur": end - start}
     )
