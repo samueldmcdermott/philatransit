@@ -24,7 +24,7 @@ from typing import Callable
 from ... import geo
 from .constants import (
     TUNNEL_ROUTES, PORTALS, TUNNEL_EAST, LINGER_RADIUS,
-    GHOST_MAX_AGE_S, EASTBOUND_KW,
+    EASTBOUND_KW,
 )
 
 # Linger zone: between these two stops on the route shape
@@ -275,14 +275,12 @@ class SeptaTunnelDetector:
                         'entryLng': prev['lng'],
                     }
 
-            # -- Ghost emergence / expiry --
+            # -- Ghost emergence --
+            # Ghosts are NEVER removed for being idle: once a vehicle enters
+            # the tunnel it must reemerge at some point, so we keep the ghost
+            # alive until it reappears in the live feed.
             for label in list(_ghosts):
                 ghost = _ghosts[label]
-                age_s = now - ghost['enterTs'] / 1000
-                if age_s > GHOST_MAX_AGE_S:
-                    del _ghosts[label]
-                    _ghost_cooldown.pop(label, None)
-                    continue
 
                 # Check if this fleet number reappeared in live data
                 tv = trolley_by_label.get(label)

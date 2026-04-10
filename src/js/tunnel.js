@@ -70,6 +70,11 @@ const MOUTH_40TH_BOX = {
 };
 const MOUTH_40TH_ROUTES = new Set(['T2','T3','T4','T5']);
 
+// 40th St tunnel mouth — the actual point where T2-T5 tracks descend.
+// This sits slightly NE of the 40th St Portal stop and is used as the
+// anchor for the ghost band's aft edge and the "exit" linger position.
+const TUNNEL_MOUTH_40TH = { lat: 39.94958, lng: -75.20311 };
+
 // Tunnel stop sequences (east → west)
 const TUNNEL_40TH = [
   {name:'13th St',           lat:39.9525, lng:-75.1626},
@@ -285,7 +290,6 @@ function getTunnelClosureStatus() {
 
 // ── Tunnel estimation constants ────────────────────────────────────────────
 const HISTORY_LEN         = 6;       // keep more history for linger detection
-const GHOST_MAX_AGE_MS    = 25 * 60 * 1000;
 const LINGER_RADIUS       = 0.002;   // distance to portal to be "near" it (T1 and east end)
 const LINGER_TIME_MS      = 20000;   // 20s of frozen GPS to trigger ghost
 const STATIONARY_THRESH   = 0.0005;  // max position change to count as "frozen"
@@ -402,6 +406,13 @@ function getTunnelShapePath(routeKey) {
     while (bestRun.length > 1 && bestRun[0].lng < portalLng) {
       bestRun.shift();
     }
+  }
+
+  // For T2-T5, anchor the path at the tunnel mouth so band edges and
+  // emergence positions line up with the physical tunnel entrance rather
+  // than the 40th St Portal stop a few meters away.
+  if (MOUTH_40TH_ROUTES.has(routeKey) && bestRun.length >= 1) {
+    bestRun = [{ ...TUNNEL_MOUTH_40TH }, ...bestRun];
   }
 
   tunnelShapePaths[routeKey] = bestRun;
@@ -603,8 +614,12 @@ function syncServerGhosts(serverGhosts) {
     const wbAftAtPortal = sg.direction === 'westbound' && aft.fraction >= 1.0;
     const ebReturnAtPortal = sg.direction === 'eastbound' && aft.leg === 'second' && aft.fraction >= 1.0;
     if ((fore.done && aft.done) || wbAftAtPortal || ebReturnAtPortal) {
-      // Both eastbound (round-trip) and westbound ghosts exit at the west portal.
-      const exitPos = PORTALS[sg.route];
+      // Both eastbound (round-trip) and westbound ghosts exit at the tunnel
+      // mouth — the point where tracks resurface, which is a few meters NE
+      // of the 40th St Portal stop for T2-T5.
+      const exitPos = MOUTH_40TH_ROUTES.has(sg.route)
+        ? TUNNEL_MOUTH_40TH
+        : PORTALS[sg.route];
       if (exitPos) { g._lingersAtPortal = true; g.lat = exitPos.lat; g.lng = exitPos.lng; }
     } else {
       g._lingersAtPortal = false;

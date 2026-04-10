@@ -447,20 +447,9 @@ function tickGhosts() {
   for (const [vid, ghost] of Object.entries(ghostVehicles)) {
     const totalElapsed = (now - ghost.enterTs) / 1000;
 
-    if ((now - ghost.enterTs) > GHOST_MAX_AGE_MS) {
-      ghostReplacedLabels.delete(ghost.label);
-      delete ghostVehicles[vid];
-      if (vehicleMarkers[vid]) {
-        vehicleLayerGroup?.removeLayer(vehicleMarkers[vid]);
-        delete vehicleMarkers[vid];
-      }
-      if (ghostBandLayers[vid]) {
-        vehicleLayerGroup?.removeLayer(ghostBandLayers[vid]);
-        delete ghostBandLayers[vid];
-      }
-      changed = true;
-      continue;
-    }
+    // Ghosts are NEVER removed for being idle — a vehicle that entered
+    // the tunnel must reemerge at some point, so we keep the ghost alive
+    // until the server reports the fleet number back in live data.
 
     const fore = ghostPosition(totalElapsed, ghost);
     const aftElapsed = Math.max(0, totalElapsed - ghost.lingerSec);
@@ -471,7 +460,9 @@ function tickGhosts() {
     const ebReturnAtPortal = ghost.direction === 'eastbound' && aft.leg === 'second' && aft.fraction >= 1.0;
     if ((fore.done && aft.done) || ebReturnAtPortal) {
       if (!ghost._lingersAtPortal) {
-        const exitPos = PORTALS[ghost.route];
+        const exitPos = MOUTH_40TH_ROUTES.has(ghost.route)
+          ? TUNNEL_MOUTH_40TH
+          : PORTALS[ghost.route];
         if (exitPos) {
           ghost._lingersAtPortal = true;
           ghost.lat = exitPos.lat;
