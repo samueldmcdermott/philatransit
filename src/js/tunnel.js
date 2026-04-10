@@ -346,6 +346,13 @@ function getHalfTunnelTime(routeKey) {
   // Prefer rolling average from monitoring if available
   const monitored = getMonitoringHalfTime(routeKey);
   if (monitored) return monitored;
+  // For T2-T5, average all available fallback values (they share a tunnel)
+  if (SHARED_TUNNEL_ROUTES.has(routeKey)) {
+    const vals = [...SHARED_TUNNEL_ROUTES]
+      .map(r => tunnelTimesData[r]?.one_way_seconds || FALLBACK_HALF_TIME[r])
+      .filter(Boolean);
+    if (vals.length) return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
   const data = tunnelTimesData[routeKey];
   if (data && data.one_way_seconds) return data.one_way_seconds;
   return FALLBACK_HALF_TIME[routeKey] || 600;

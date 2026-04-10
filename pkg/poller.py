@@ -32,17 +32,17 @@ def _poll_loop():
         try:
             by_route = _provider.poll_transit()
 
-            # Enrich vehicles with Trip-based fields
-            try:
-                _trip_manager.enrich_vehicles(by_route)
-            except Exception as e:
-                print(f"  [trip] enrichment error: {e}")
-
-            # -- Tunnel ghost tracking (before caching so lingering is annotated) --
+            # -- Tunnel ghost detection (runs before enrichment so
+            #    ghost labels protect trips from stale-pruning) --
+            tunnel_emerged = {}
             try:
                 tunnel_detector = _provider.get_tunnel_detector()
                 if tunnel_detector:
                     tunnel_detector.process(by_route, _trip_manager.get_direction)
+                    tunnel_emerged = tunnel_detector.pop_emerged()
+                    # Tell TripManager which vehicles are underground
+                    ghost_labels = {g['vid'] for g in tunnel_detector.get_ghosts()}
+                    _trip_manager.set_ghost_labels(ghost_labels)
                     lingering = tunnel_detector.get_lingering()
                     for route_vehicles in by_route.values():
                         for v in route_vehicles:
@@ -51,6 +51,21 @@ def _poll_loop():
                                 v['lingering'] = lingering[vid]
             except Exception as e:
                 print(f"  [tunnel] error: {e}")
+
+            # Enrich vehicles with Trip-based fields
+            try:
+                _trip_manager.enrich_vehicles(by_route)
+            except Exception as e:
+                print(f"  [trip] enrichment error: {e}")
+
+            # Apply tunnel emergence (flip direction on trips that
+            # just exited — the trip persists because all transit
+            # routes use the fleet label as vehicle_id).
+            if tunnel_emerged:
+                try:
+                    _trip_manager.apply_tunnel_emergence(tunnel_emerged)
+                except Exception as e:
+                    print(f"  [tunnel] emergence error: {e}")
 
             with transit_lock:
                 transit_cache["routes"] = by_route

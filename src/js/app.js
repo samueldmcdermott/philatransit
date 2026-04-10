@@ -28,6 +28,7 @@ let vehicleLayerGroup= null;
 
 // Live trips filter state
 let lastRenderedTrips  = [];
+let lastMapVehicles    = [];
 
 // Tunnel estimation state
 let tunnelEstimationOn = true;
@@ -682,6 +683,27 @@ function applyLiveFilters() {
   renderTrips(lastRenderedTrips);
 }
 
+function filterByDirection(vehicles, dirSelectId) {
+  const dirFilter = document.getElementById(dirSelectId)?.value || 'all';
+  if (dirFilter === 'all') return vehicles;
+  return vehicles.filter(v => {
+    const dir = tripDirection(v);
+    return !dir || dir === dirFilter;
+  });
+}
+
+function applyMapFilter() {
+  if (lastMapVehicles.length === 0) return;
+  const filtered = filterByDirection(lastMapVehicles, 'mapFilterDirection');
+  updateVehiclesOnMap(filtered);
+  const countEl = document.getElementById('mapFilterCount');
+  if (countEl) {
+    const total = lastMapVehicles.length;
+    countEl.textContent = filtered.length < total
+      ? `${filtered.length}/${total} shown` : `${total} total`;
+  }
+}
+
 // ── Render trip cards ───────────────────────────────────────────────────────
 
 function renderTrips(trips) {
@@ -886,7 +908,7 @@ function tunnelMonitorParts(perRoute, groupKeys, html) {
 
   const totalSamples = groupKeys.reduce((s, k) => s + (perRoute[k]?.sample_count || 0), 0);
   const src = totalSamples > 0
-    ? `(avg from last 60 min, ${totalSamples} trip${totalSamples !== 1 ? 's' : ''})`
+    ? `(avg from last 20 min, ${totalSamples} trip${totalSamples !== 1 ? 's' : ''})`
     : '(using historical avg)';
   return { parts, src };
 }

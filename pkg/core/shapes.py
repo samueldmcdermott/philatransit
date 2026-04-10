@@ -152,6 +152,16 @@ def load_shapes(base_dir: Path, shape_trims: dict | None = None,
             ))
         total = cum[-1]
 
+        # For routes without explicit termini, derive from shape endpoints.
+        # This gives buses (and any other routes missing from termini.json)
+        # a valid origin/destination/bearing.
+        if not term and len(pts) >= 2:
+            term = (
+                f'{route_id} Start', pts[0][0], pts[0][1],
+                f'{route_id} End', pts[-1][0], pts[-1][1],
+            )
+            termini[route_id] = term
+
         # Bearing from start terminus to end terminus
         origin_bearing = 0.0
         if term:

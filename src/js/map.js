@@ -297,7 +297,22 @@ async function refreshMapVehicles() {
     const visible = isTunnelRoute
       ? vehicles.filter(v => !ghostReplacedLabels.has(v.label))
       : vehicles;
-    updateVehiclesOnMap([...visible, ...ghosts]);
+    const allVehicles = [...visible, ...ghosts];
+
+    // Store unfiltered for re-filtering; show filter bar
+    lastMapVehicles = allVehicles;
+    const mapFilterBar = document.getElementById('mapFilterBar');
+    if (mapFilterBar) mapFilterBar.style.display = allVehicles.length ? '' : 'none';
+
+    // Apply direction filter
+    const filtered = filterByDirection(allVehicles, 'mapFilterDirection');
+    updateVehiclesOnMap(filtered);
+    const countEl = document.getElementById('mapFilterCount');
+    if (countEl) {
+      const total = allVehicles.length;
+      countEl.textContent = filtered.length < total
+        ? `${filtered.length}/${total} shown` : `${total} total`;
+    }
 
     // Tunnel closure detection — after render so errors don't block it
     if (isTunnelRoute) {
@@ -320,6 +335,7 @@ async function refreshMapVehicles() {
         detectTunnelClosureFromGPS(gpsVehicles);
         detectTunnelClosureFromAlerts();
         updateTunnelClosureBanner();
+        updateTunnelMonitorBanner();
         drawDetourPaths(selectedRoute.id, selectedRoute.color || '#2f69f3', []);
       } catch (e) { console.warn('tunnel closure detection error:', e); }
     }

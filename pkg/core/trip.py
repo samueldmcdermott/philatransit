@@ -39,6 +39,8 @@ from .. import geo
 _MIN_MOVE = 20         # meters — ignore jitter below this
 _STALE_S = 600         # seconds — drop trip after this long without update
 _TERMINUS_RADIUS = 200 # meters — "at terminus" threshold
+_DA_HISTORY_LEN = 4    # polls of dist_along history for movement-based direction
+_DA_FLIP_THRESH = 100  # meters — minimum net movement to trigger a direction flip
 
 
 # ── Trip dataclass ────────────────────────────────────────────────────
@@ -71,6 +73,7 @@ class Trip:
 
     # Classification
     vehicle_type: str = ''               # from RouteInfo mode (e.g. "TROLLEY", "BUS")
+    label: str = ''                      # fleet number (stable across trip ID changes)
     on_detour: bool = False              # set by DetourDetector
 
     # Lifecycle
@@ -81,6 +84,7 @@ class Trip:
     _last_stop_name: str | None = field(default=None, repr=False)
     _last_stop_da: float | None = field(default=None, repr=False)
     _prev_stop_da: float | None = field(default=None, repr=False)
+    _da_history: list = field(default_factory=list, repr=False)  # recent dist_along samples
 
     @property
     def elapsed(self) -> float:
@@ -152,6 +156,7 @@ class TripManager:
         self._route_config = route_config or {}
         self._detour_detector = None
         self._route_avg_speed: dict[str, float] = {}
+        self._ghost_labels: set[str] = set()  # labels currently underground
 
     def set_shapes(self, shape_registry):
         self._shapes = shape_registry
@@ -161,6 +166,14 @@ class TripManager:
 
     def set_detour_detector(self, detector):
         self._detour_detector = detector
+
+    def set_ghost_labels(self, labels: set[str]):
+        """Update the set of labels currently underground.
+
+        Trips for these vehicles are protected from stale-pruning.
+        """
+        with self._lock:
+            self._ghost_labels = labels
 
     def get_direction(self, vid) -> bool | None:
         """Return True if vehicle is heading toward destination.
@@ -219,7 +232,9 @@ class TripManager:
                     if trip and trip.route == route_id:
                         self._update_trip(trip, da, lat, lng, shape, now)
                     else:
-                        trip = self._create_trip(vid, route_id, lat, lng, da, shape, now)
+                        trip = self._create_trip(
+                            vid, route_id, lat, lng, da, shape, now,
+                            label=str(v.get('label', '')))
                         self._trips[vid] = trip
 
                     if trip.retired:
@@ -245,12 +260,16 @@ class TripManager:
             for rid, speeds in route_speeds.items():
                 self._route_avg_speed[rid] = round(sum(speeds) / len(speeds), 2)
 
-            # Prune stale trips
+            # Prune stale trips (but not vehicles currently underground)
             for vid in list(self._trips):
-                if now - self._trips[vid].last_update > _STALE_S:
+                trip = self._trips[vid]
+                if trip.label and trip.label in self._ghost_labels:
+                    continue
+                if now - trip.last_update > _STALE_S:
                     del self._trips[vid]
 
-    def _create_trip(self, vid, route_id, lat, lng, da, shape, now):
+    def _create_trip(self, vid, route_id, lat, lng, da, shape, now,
+                     label=''):
         """Create a new Trip for a first-seen vehicle."""
         # Look up route info for origin/destination/bearing
         route_info = self._route_config.get(route_id, {})
@@ -285,6 +304,7 @@ class TripManager:
             start_time=now,
             last_update=now,
             vehicle_type=route_info.get('mode', ''),
+            label=label,
         )
 
         # Populate stop info and seed stop history
@@ -327,6 +347,7 @@ class TripManager:
         _update_previous_stops(trip)
 
         # Track stop history; correct direction if stops contradict it.
+        stop_flipped = False
         if trip.current_stop and trip.current_stop != trip._last_stop_name:
             cur_da = _stop_da(shape.stops, trip.current_stop)
             if cur_da is not None:
@@ -334,21 +355,45 @@ class TripManager:
                 trip._last_stop_name = trip.current_stop
                 trip._last_stop_da = cur_da
 
-                flipped = False
                 if trip._prev_stop_da is not None:
                     if trip.toward_destination and cur_da < trip._prev_stop_da:
                         self._flip_to_return(trip)
-                        flipped = True
+                        stop_flipped = True
                     elif not trip.toward_destination and cur_da > trip._prev_stop_da:
                         self._flip_to_forward(trip)
-                        flipped = True
+                        stop_flipped = True
 
-                if flipped:
+                if stop_flipped:
                     _update_stop_info(trip, shape.stops)
                     trip._prev_stop_da = None
                     if trip.current_stop:
                         trip._last_stop_name = trip.current_stop
                         trip._last_stop_da = _stop_da(shape.stops, trip.current_stop)
+
+        # Movement-based direction correction: if the last N samples
+        # consistently move in one direction by enough distance, flip.
+        # This catches direction errors between stops or on routes with
+        # sparse stops, without being sensitive to GPS jitter.
+        if not stop_flipped:
+            trip._da_history.append(new_da)
+            if len(trip._da_history) > _DA_HISTORY_LEN:
+                trip._da_history = trip._da_history[-_DA_HISTORY_LEN:]
+            if len(trip._da_history) >= _DA_HISTORY_LEN:
+                deltas = [trip._da_history[i] - trip._da_history[i - 1]
+                          for i in range(1, len(trip._da_history))]
+                all_fwd = all(d > 0 for d in deltas)
+                all_rev = all(d < 0 for d in deltas)
+                net = trip._da_history[-1] - trip._da_history[0]
+                if all_fwd and net > _DA_FLIP_THRESH and not trip.toward_destination:
+                    self._flip_to_forward(trip)
+                    _update_stop_info(trip, shape.stops)
+                    trip._da_history.clear()
+                elif all_rev and net < -_DA_FLIP_THRESH and trip.toward_destination:
+                    self._flip_to_return(trip)
+                    _update_stop_info(trip, shape.stops)
+                    trip._da_history.clear()
+        else:
+            trip._da_history.clear()
 
     def _flip_to_return(self, trip):
         """Flip from toward_destination=True to False (reached destination)."""
@@ -356,6 +401,35 @@ class TripManager:
         trip.passed_destination = True
         trip.origin, trip.destination = trip.destination, trip.origin
         trip.bearing = (trip.bearing + 180) % 360
+
+    def apply_tunnel_emergence(self, emerged: dict[str, dict]):
+        """Flip direction on trips whose vehicles just exited the tunnel.
+
+        emerged: {label: {route, direction, ...}} from the tunnel detector.
+        Emergence is always westbound — the vehicle has reached the
+        destination (13th St) underground and is now heading back toward
+        the origin.  We flip the trip to toward_destination=False and
+        reset first_dist_along to the destination end so that
+        stops_passed correctly counts the return-leg tunnel stops.
+        """
+        if not emerged or not self._shapes:
+            return
+        with self._lock:
+            for trip in self._trips.values():
+                if not trip.label or trip.label not in emerged:
+                    continue
+                info = emerged[trip.label]
+                if trip.route != info['route']:
+                    continue
+                # Flip to return if still heading toward destination
+                if trip.toward_destination:
+                    self._flip_to_return(trip)
+                # Reset first_dist_along to the destination (turnaround
+                # point) so stops_passed counts westbound tunnel stops.
+                shape = self._shapes.get(trip.route)
+                if shape:
+                    trip.first_dist_along = shape.total_len
+                    _update_stop_info(trip, shape.stops)
 
     def _flip_to_forward(self, trip):
         """Correct a wrong return flip back to forward."""

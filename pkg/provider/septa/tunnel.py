@@ -96,6 +96,9 @@ class SeptaTunnelDetector:
         # Per-route linger zone: (min_da, max_da) between the two stops.
         # Computed lazily from shape data.
         self._linger_zones: dict[str, tuple[float, float] | None] = {}
+        # Recently emerged ghosts: label -> emergence info.
+        # Consumed by TripManager to fix up newly created trips.
+        self._emerged: dict[str, dict] = {}
 
     def set_shapes(self, shape_registry):
         self._shapes = shape_registry
@@ -292,6 +295,14 @@ class SeptaTunnelDetector:
                             entry_ts = ghost['enterTs'] / 1000
                             self._monitor.record_tunnel_trip(
                                 ghost['route'], entry_ts, now)
+                        # Store emergence info for TripManager
+                        self._emerged[label] = {
+                            'route': ghost['route'],
+                            'direction': ghost['direction'],
+                            'entry_lat': ghost['entryLat'],
+                            'entry_lng': ghost['entryLng'],
+                            'exit_time': now,
+                        }
                         del _ghosts[label]
                         _portal_linger.pop(label, None)
                         _ghost_cooldown.pop(label, None)
@@ -300,6 +311,17 @@ class SeptaTunnelDetector:
             for label in list(_prev_positions):
                 if now - _prev_positions[label]['ts'] > 600:
                     del _prev_positions[label]
+
+    def pop_emerged(self) -> dict[str, dict]:
+        """Return and clear recently emerged ghost info.
+
+        Returns {label: {route, direction, entry_lat, entry_lng, exit_time}}.
+        Called by the poller to pass emergence data to TripManager.
+        """
+        with _ghost_lock:
+            result = dict(self._emerged)
+            self._emerged.clear()
+            return result
 
     def get_ghosts(self) -> list[dict]:
         """Return current ghosts as a list of dicts.

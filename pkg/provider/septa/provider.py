@@ -17,7 +17,6 @@ from .constants import (
     SEPTA_API, SEPTA_V2, HEADERS, MODES,
     TUNNEL_ROUTES, rail_line_key,
 )
-from .vehicle_id import extract_vehicle_id
 from .tunnel import SeptaTunnelDetector
 from .detour import SeptaDetourDetector
 
@@ -68,7 +67,11 @@ class SeptaProvider(Provider):
         if vid_str and 'schedBased' in str(vid_str):
             return None
 
-        vehicle_id = extract_vehicle_id(v)
+        # Use the fleet label as vehicle_id for all transit routes.
+        # SEPTA's trip IDs are unstable (reassigned mid-journey, especially
+        # when vehicles exit the tunnel), so we key trips on the physical
+        # vehicle's fleet number instead.
+        vehicle_id = str(label)
         if not vehicle_id:
             return None
 

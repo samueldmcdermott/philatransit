@@ -127,6 +127,17 @@
     <!-- Map panel -->
     <div class="content map-content" id="mapPanel" style="display:none">
       <div class="map-monitor-bar" id="mapMonitorBar" style="display:none"></div>
+      <div class="live-filter-bar" id="mapFilterBar" style="display:none">
+        <div class="filter-group">
+          <span class="filter-label">Direction:</span>
+          <select id="mapFilterDirection" class="filter-select" onchange="applyMapFilter()">
+            <option value="all">All</option>
+            <option value="eastbound">Eastbound</option>
+            <option value="westbound">Westbound</option>
+          </select>
+        </div>
+        <span id="mapFilterCount" class="filter-count"></span>
+      </div>
       <div class="empty" id="emptyMap" style="padding:60px 20px;text-align:center;color:var(--muted);">
         <div class="empty-icon">🗺️</div>
         <div class="empty-title">Select a route</div>
