@@ -851,6 +851,7 @@ function updateTunnelMonitorBanner() {
       : [selKey];
 
     const { parts, src } = tunnelMonitorParts(perRoute, groupKeys, true);
+    const occ = tunnelOccupancySummary();
 
     if (!banner) {
       banner = document.createElement('div');
@@ -859,7 +860,8 @@ function updateTunnelMonitorBanner() {
       const panel = document.getElementById(panelId);
       panel.insertBefore(banner, panel.firstChild);
     }
-    banner.innerHTML = `<span class="monitor-label">Tunnel round trip avg:</span> ${parts.join(' \u00b7 ')} <span style="opacity:0.6">${src}</span>`;
+    const occHtml = occ ? `<div class="monitor-occupancy">${occ}</div>` : '';
+    banner.innerHTML = `<span class="monitor-label">Tunnel round trip avg:</span> ${parts.join(' \u00b7 ')} <span style="opacity:0.6">${src}</span>${occHtml}`;
     banner.style.display = '';
   }
 
@@ -877,7 +879,9 @@ function updateTunnelMonitorBanner() {
       : [selKey];
     const { parts, src } = tunnelMonitorParts(perRoute, groupKeys, false);
     if (parts.length) {
-      mapBanner.textContent = `Tunnel round trip avg: ${parts.join(' \u00b7 ')} ${src}`;
+      const occ = tunnelOccupancySummary();
+      mapBanner.textContent = `Tunnel round trip avg: ${parts.join(' \u00b7 ')} ${src}`
+        + (occ ? ` \u2014 ${occ}` : '');
       mapBanner.style.display = '';
     } else {
       mapBanner.style.display = 'none';
@@ -889,6 +893,20 @@ function updateTunnelMonitorBanner() {
 // pkg/core/tunnel_monitor.py.  The rolling-average label is only shown
 // when at least this many trips are counted in the displayed groups.
 const MIN_MONITOR_SAMPLES = 5;
+
+// Build a short "Currently N trolleys in tunnel (entry order: ...)" summary
+// from the client's ghost state.  Returns an empty string when no ghosts.
+function tunnelOccupancySummary() {
+  const ghosts = Object.values(ghostVehicles || {});
+  if (!ghosts.length) return '';
+  // FIFO entry order by enterTs (oldest first)
+  const ordered = ghosts
+    .slice()
+    .sort((a, b) => (a.enterTs || 0) - (b.enterTs || 0));
+  const queue = ordered.map(g => g.route).join('/');
+  const n = ordered.length;
+  return `Currently ${n} trolley${n === 1 ? '' : 's'} in tunnel (entry order: ${queue})`;
+}
 
 function tunnelMonitorParts(perRoute, groupKeys, html) {
   // When a T2-T5 route is displayed in groupKeys, always count the full
