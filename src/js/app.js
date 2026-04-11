@@ -899,13 +899,14 @@ const MIN_MONITOR_SAMPLES = 5;
 function tunnelOccupancySummary() {
   const ghosts = Object.values(ghostVehicles || {});
   if (!ghosts.length) return '';
-  // FIFO entry order by enterTs (oldest first)
+  // FIFO entry order by enterTs (oldest first = next to exit)
   const ordered = ghosts
     .slice()
     .sort((a, b) => (a.enterTs || 0) - (b.enterTs || 0));
   const queue = ordered.map(g => g.route).join('/');
   const n = ordered.length;
-  return `Currently ${n} trolley${n === 1 ? '' : 's'} in tunnel (entry order: ${queue})`;
+  return `Currently ${n} trolley${n === 1 ? '' : 's'} in tunnel `
+       + `(first out \u2190 ${queue} \u2190 last in)`;
 }
 
 function tunnelMonitorParts(perRoute, groupKeys, html) {
