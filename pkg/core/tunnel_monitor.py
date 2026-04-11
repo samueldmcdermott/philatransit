@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 # ── Configuration ─────────────────────────────────────────────
 ROLLING_WINDOW_S = 1200  # 20 minutes
+MIN_SAMPLES      = 5     # need this many trips in the window to trust it
 
 # Routes that share the 40th St tunnel — pooled into one group.
 _SHARED_TUNNEL_ROUTES = frozenset({'T2', 'T3', 'T4', 'T5'})
@@ -54,6 +55,11 @@ class TunnelMonitor:
         self._lock = threading.Lock()
         self._tunnel_trips: list[TunnelTrip] = []
         self._fallback_times = fallback_times or {}
+        # Monitor start time: the rolling average is not trusted until a
+        # full window has elapsed since startup.  Before that, and whenever
+        # fewer than MIN_SAMPLES trips exist in the window, we fall back
+        # to the historical average.
+        self._start_time = time.time()
 
     def record_tunnel_trip(self, route: str, entry_time: float,
                            exit_time: float) -> None:
@@ -89,7 +95,12 @@ class TunnelMonitor:
     def _group_summary(self, key: str,
                        trips: list[TunnelTrip]) -> dict:
         """Build a summary dict for one tunnel-time group."""
-        if trips:
+        # The rolling average is only trusted once the monitor has been
+        # running for a full window AND at least MIN_SAMPLES trips have
+        # been observed in that window.  Otherwise fall back to the
+        # historical average to avoid noisy early readings.
+        window_elapsed = (time.time() - self._start_time) >= ROLLING_WINDOW_S
+        if trips and window_elapsed and len(trips) >= MIN_SAMPLES:
             durations = [t.roundtrip_seconds for t in trips]
             avg = round(sum(durations) / len(durations), 1)
             return {
@@ -107,13 +118,13 @@ class TunnelMonitor:
             return {
                 'avg_seconds': round(fb * 2, 1),
                 'half_time_seconds': fb,
-                'sample_count': 0,
+                'sample_count': len(trips),
                 'using_fallback': True,
             }
         return {
             'avg_seconds': None,
             'half_time_seconds': None,
-            'sample_count': 0,
+            'sample_count': len(trips),
             'using_fallback': True,
         }
 

@@ -885,7 +885,20 @@ function updateTunnelMonitorBanner() {
   }
 }
 
+// Client-side safety threshold — must match MIN_SAMPLES in
+// pkg/core/tunnel_monitor.py.  The rolling-average label is only shown
+// when at least this many trips are counted in the displayed groups.
+const MIN_MONITOR_SAMPLES = 5;
+
 function tunnelMonitorParts(perRoute, groupKeys, html) {
+  // When a T2-T5 route is displayed in groupKeys, always count the full
+  // T2-T5 pool rather than a single sub-route — the server already pools
+  // by tunnel key, and this matches the threshold semantics.
+  const countedKeys = new Set(groupKeys);
+  if (groupKeys.some(k => SHARED_TUNNEL_ROUTES.has(k) || k === SHARED_TUNNEL_KEY)) {
+    countedKeys.add(SHARED_TUNNEL_KEY);
+  }
+
   const parts = groupKeys.map(key => {
     const rd = perRoute[key];
     if (!rd || !rd.avg_seconds) return null;
@@ -897,10 +910,19 @@ function tunnelMonitorParts(perRoute, groupKeys, html) {
     return `${key}: ${rtMin}m`;
   }).filter(Boolean);
 
-  const totalSamples = groupKeys.reduce((s, k) => s + (perRoute[k]?.sample_count || 0), 0);
-  const src = totalSamples > 0
-    ? `(avg from last 20 min, ${totalSamples} trip${totalSamples !== 1 ? 's' : ''})`
-    : '(using historical avg)';
+  // Label reflects whether any displayed group is actually using the
+  // rolling average — a group only switches off fallback once 20 min
+  // have elapsed AND it has at least MIN_MONITOR_SAMPLES trips in the
+  // window.  We apply a defensive client-side threshold check as well.
+  const shown = [...countedKeys].map(k => perRoute[k]).filter(Boolean);
+  const totalSamples = shown.reduce((s, rd) => s + (rd.sample_count || 0), 0);
+  const anyRolling = shown.some(rd => !rd.using_fallback);
+  let src;
+  if (anyRolling && totalSamples >= MIN_MONITOR_SAMPLES) {
+    src = `(avg from last 20 min, ${totalSamples} trip${totalSamples !== 1 ? 's' : ''})`;
+  } else {
+    src = '(using historical avg)';
+  }
   return { parts, src };
 }
 
