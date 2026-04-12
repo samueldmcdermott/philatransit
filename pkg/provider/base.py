@@ -27,7 +27,7 @@ class NormalizedVehicle(TypedDict):
     label: str               # human-readable fleet ID (e.g. fleet number)
     meta: dict               # extensible provider-specific raw data
                              # e.g. {"headsign": "13th St", "delay": 3,
-                             #        "api_bearing": 85, "api_trip_id": "5678"}
+                             #        "api_bearing": 85}
 
 
 class Alert(TypedDict, total=False):
@@ -44,10 +44,12 @@ class Alert(TypedDict, total=False):
 class StopPrediction(TypedDict, total=False):
     """A single arrival prediction at a stop.
 
-    Frontend (map.js) currently reads only `trip`, `minutes`, and `status`,
-    but the others are part of the documented contract for stop-info popups.
+    Frontend (map.js) matches predictions to live vehicles by `label`,
+    which is the fleet number — the same value as the vehicle's `label`
+    in NormalizedVehicle.  Provider-internal trip identifiers must not
+    appear here.
     """
-    trip: str              # provider trip_id matching v.trip_id
+    label: str             # fleet label matching NormalizedVehicle.label
     minutes: float         # minutes until arrival (now-relative)
     status: str            # provider status string (e.g. "ON TIME", "")
 

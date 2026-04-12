@@ -93,8 +93,6 @@ class SeptaProvider(Provider):
                 'delay': int(late) if late is not None else 0,
                 'headsign': v.get('destination') or v.get('dest') or '',
                 'api_bearing': v.get('heading'),
-                'api_trip_id': str(v.get('trip') or ''),
-                'api_vehicle_id': str(v.get('VehicleID') or ''),
             },
         }
 
@@ -140,7 +138,6 @@ class SeptaProvider(Provider):
                 'delay': int(late) if late is not None else 0,
                 'headsign': t.get('dest', ''),
                 'api_bearing': t.get('heading'),
-                'api_trip_id': train_no,
                 'source': t.get('SOURCE', ''),
                 'service': t.get('service', ''),
             },
@@ -182,18 +179,30 @@ class SeptaProvider(Provider):
 
     def fetch_stop_predictions(self, stop_ids: set[str],
                                route_ids: list[str]) -> dict:
-        """Fetch per-stop arrival predictions from SEPTA v2 API."""
+        """Fetch per-stop arrival predictions from SEPTA v2 API.
+
+        SEPTA's trip ID is used internally to query SEPTA's
+        /trip-update/ endpoint, but it never leaves this method.  The
+        prediction result is keyed on the vehicle's fleet label, which
+        is also our canonical vehicle_id, so the client can match
+        predictions to live vehicles by label without needing any
+        SEPTA-internal identifier.
+        """
         now = int(time.time())
         trips_by_route = self._fetch_route_trips(route_ids)
 
-        # Collect GPS-tracked trips
+        # Collect GPS-tracked trips.  septa_trip_id stays here to call
+        # SEPTA's /trip-update/ API; "label" is what we expose outward.
         real_trips = []
         for rid, trips in trips_by_route.items():
             for t in trips:
                 if self._is_gps_tracked(t):
+                    label = str(t.get("vehicle_id", ""))
+                    if not label:
+                        continue
                     real_trips.append({
-                        "trip_id": str(t["trip_id"]),
-                        "vehicle": str(t.get("vehicle_id", "")),
+                        "septa_trip_id": str(t["trip_id"]),
+                        "label": label,
                         "route": rid,
                         "delay": t.get("delay", 0),
                         "status": t.get("status", ""),
@@ -202,7 +211,7 @@ class SeptaProvider(Provider):
         result = {sid: [] for sid in stop_ids}
 
         for trip_info in real_trips:
-            detail = self._fetch_trip_detail(trip_info["trip_id"])
+            detail = self._fetch_trip_detail(trip_info["septa_trip_id"])
             for st in detail.get("stop_times", []):
                 sid = str(st.get("stop_id", ""))
                 if sid not in stop_ids or st.get("departed"):
@@ -211,7 +220,7 @@ class SeptaProvider(Provider):
                 if not eta or eta < now - 120:
                     continue
                 result[sid].append({
-                    "trip": trip_info["trip_id"],
+                    "label": trip_info["label"],
                     "minutes": round((eta - now) / 60, 1),
                     "status": trip_info["status"],
                     "_eta": eta,   # for sorting only; stripped below

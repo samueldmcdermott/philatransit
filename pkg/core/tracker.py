@@ -1,7 +1,16 @@
 """Background trip tracker — detects vehicle trip completions across all routes.
 
-Provider-agnostic: reads from the shared poller caches which contain
-NormalizedVehicle dicts regardless of provider.
+Trip identity comes from TripManager: each transit vehicle in the shared
+cache carries a `trip_id` field of the form ``{label}_{epoch_start}`` that
+remains constant for the lifetime of one round trip (origin → destination →
+back to origin), even across tunnel transits and SEPTA's mid-trip route
+reassignments.  We treat the disappearance of a trip_id from the cache —
+combined with the vehicle not being currently underground — as the
+authoritative "trip completed" signal.
+
+Rail vehicles are not managed by TripManager, so we synthesize a trip_id
+from ``{vehicle_id}`` (the train number) and detect completions the same
+way the legacy tracker did: trip ends when the train number disappears.
 """
 
 import threading
@@ -62,20 +71,35 @@ def _summarize_day(date_str):
 
 class TripTracker:
     """
-    Polls every 30s, tracking every vehicle across all routes.
-    When a vehicle disappears after being seen in >= MIN_DWELL polls it
-    is counted as a completed trip and appended to trips.json.
+    Polls every 30s and records trip completions to trips.json.
+
+    A "trip" is keyed by the trip_id that TripManager writes onto each
+    transit vehicle in the shared cache.  When a trip_id stops appearing
+    in the cache and the vehicle is not currently flagged as a tunnel
+    ghost, that trip is recorded as completed.  This naturally handles:
+
+      - tunnel transits (TripManager keeps the same trip_id alive while
+        the vehicle is underground, since it's protected by the ghost set)
+      - SEPTA's mid-trip route reassignment (TripManager keys trips on
+        the fleet label, so the trip_id is stable across reassignment)
+      - the legitimate end of a round trip (when TripManager retires the
+        Trip on return-to-origin, the trip_id disappears from the cache)
+
+    Rail vehicles are not managed by TripManager; their trip_id is just
+    the train number, which gives the same legacy "disappearance =
+    completion" semantics.
 
     Not a module-level singleton — instantiated by the app factory.
     """
     POLL_INTERVAL = 30
-    MIN_DWELL     = 2
 
-    def __init__(self):
-        self._registry = {}   # vid -> {"route": str, "seen": int, "first_ms": int}
+    def __init__(self, tunnel_detector=None):
+        # trip_id -> {label, route, start_ms, last_seen_ms}
+        self._active = {}
         self._lock     = threading.Lock()
         self._thread   = None
         self.running   = False
+        self._tunnel_detector = tunnel_detector
         self._last_summary_date = None
 
     def start(self):
@@ -95,7 +119,7 @@ class TripTracker:
     @property
     def registry_size(self):
         with self._lock:
-            return len(self._registry)
+            return len(self._active)
 
     def _loop(self):
         while self.running:
@@ -121,61 +145,111 @@ class TripTracker:
                 print(f"  [tracker] summary error: {e}")
             self._last_summary_date = today
 
-    def _poll(self):
-        vehicles = {}   # vid -> route_key
+    def _collect_current_trips(self):
+        """Return {trip_id: {label, route, start_ms}} from current caches."""
+        current = {}
+        now_ms = int(time.time() * 1000)
 
-        # -- regional rail (from normalized rail cache) --
+        # -- regional rail (no TripManager — synthesize trip_id from vehicle_id) --
         try:
             with rail_lock:
                 trains = list(rail_cache["data"])
             for t in trains:
                 vid = t.get("vehicle_id", "")
                 route = t.get("route_id", "")
-                if vid:
-                    vehicles[vid] = route
+                if not vid:
+                    continue
+                tid = f"rail:{vid}"
+                current[tid] = {
+                    "label": vid,
+                    "route": route,
+                    "start_ms": now_ms,  # rail trip start is "first seen"
+                }
         except Exception as e:
             print(f"  [tracker] rail error: {e}")
 
-        # -- bus / trolley / subway (from normalized transit cache) --
+        # -- transit (TripManager already wrote trip_id + start_time) --
         try:
             with transit_lock:
                 routes_snapshot = dict(transit_cache["routes"])
             for route_id, vs in routes_snapshot.items():
                 for v in vs:
-                    vid = v.get("vehicle_id", "")
-                    if vid:
-                        vehicles[vid] = route_id
+                    tid = v.get("trip_id")
+                    if not tid:
+                        continue
+                    start_time = v.get("start_time")
+                    if start_time:
+                        start_ms = int(float(start_time) * 1000)
+                    else:
+                        start_ms = now_ms
+                    current[tid] = {
+                        "label": str(v.get("label", "")) or str(v.get("vehicle_id", "")),
+                        "route": route_id,
+                        "start_ms": start_ms,
+                    }
         except Exception as e:
             print(f"  [tracker] transit error: {e}")
+
+        return current
+
+    def _poll(self):
+        current = self._collect_current_trips()
+
+        # Vehicles currently underground — their trips must NOT be recorded
+        # as completed even though their trip_id disappears from the cache
+        # (TripManager actually keeps the Trip object alive across the
+        # tunnel transit, but we double-check via the ghost label set as
+        # belt-and-braces).
+        ghost_labels = set()
+        if self._tunnel_detector is not None:
+            try:
+                ghost_labels = {g['vid'] for g in self._tunnel_detector.get_ghosts()}
+            except Exception as e:
+                print(f"  [tracker] ghost lookup error: {e}")
 
         now_ms = int(time.time() * 1000)
 
         with self._lock:
-            cur_ids = set(vehicles.keys())
-            trips   = load(TRIPS)
-            changed = False
+            cur_tids = set(current.keys())
 
-            # detect completions
-            for vid, entry in self._registry.items():
-                if vid not in cur_ids and entry["seen"] >= self.MIN_DWELL:
-                    route    = entry["route"]
-                    start_ms = entry["first_ms"]
-                    day      = date_str(start_ms)
-                    trips.setdefault(route, {}).setdefault(day, []).append(
-                        {"start": start_ms, "end": now_ms, "dur": now_ms - start_ms}
-                    )
-                    changed = True
+            # Update / insert active entries from this poll
+            for tid, info in current.items():
+                ex = self._active.get(tid)
+                if ex:
+                    ex["last_seen_ms"] = now_ms
+                    # Route can flip mid-trip (SEPTA reassignment); keep
+                    # the most recent route as the canonical one.
+                    ex["route"] = info["route"]
+                else:
+                    self._active[tid] = {
+                        "label": info["label"],
+                        "route": info["route"],
+                        "start_ms": info["start_ms"],
+                        "last_seen_ms": now_ms,
+                    }
+
+            # Detect completions: trip_ids no longer present in the cache
+            # for vehicles that aren't currently flagged as ghosts.
+            trips_data = load(TRIPS)
+            changed = False
+            for tid in list(self._active):
+                entry = self._active[tid]
+                if tid in cur_tids:
+                    continue
+                if entry["label"] and entry["label"] in ghost_labels:
+                    continue  # underground — protected
+                start_ms = entry["start_ms"]
+                end_ms = entry["last_seen_ms"]
+                if end_ms <= start_ms:
+                    del self._active[tid]
+                    continue
+                route = entry["route"]
+                day = date_str(start_ms)
+                trips_data.setdefault(route, {}).setdefault(day, []).append(
+                    {"start": start_ms, "end": end_ms, "dur": end_ms - start_ms}
+                )
+                del self._active[tid]
+                changed = True
 
             if changed:
-                dump(TRIPS, trips)
-
-            # update registry
-            new_reg = {}
-            for vid, route in vehicles.items():
-                ex = self._registry.get(vid)
-                new_reg[vid] = {
-                    "route":    route,
-                    "seen":     (ex["seen"] + 1) if ex else 1,
-                    "first_ms": ex["first_ms"] if ex else now_ms,
-                }
-            self._registry = new_reg
+                dump(TRIPS, trips_data)

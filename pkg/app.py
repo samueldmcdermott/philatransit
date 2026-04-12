@@ -63,7 +63,7 @@ def create_app(provider_name="septa"):
 
     # -- Background services --
     start_poller(provider, trip_manager)
-    tracker = TripTracker()
+    tracker = TripTracker(tunnel_detector=tunnel_detector)
     tracker.start()
 
     # -- Flask app --

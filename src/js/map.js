@@ -931,8 +931,8 @@ function computeStopArrivals(stop, vehicles, now) {
           let officialStatus = null;
           if (!isGhost && stop.stopId) {
             const preds = stopPredictions[stop.stopId] || [];
-            const tripId = String(v.trip_id || v.meta?.api_trip_id || '');
-            const match = preds.find(p => String(p.trip) === tripId);
+            const vLabel = String(v.label || '');
+            const match = vLabel && preds.find(p => String(p.label) === vLabel);
             if (match) {
               T_official = match.minutes;
               officialStatus = match.status || null;

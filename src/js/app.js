@@ -786,7 +786,6 @@ function renderTrips(trips) {
                          tags.push(`<span class="tag tag-tunnel">Entering tunnel</span>`);
     if (onDetour)        tags.push(`<span class="tag" style="background:#e74c3c;color:#fff;">Detour</span>`);
     if (dir)             tags.push(`<span class="tag">→ ${dir}</span>`);
-    if (t.trip_id)       tags.push(`<span class="tag">Trip #${t.trip_id.split('_')[0]}</span>`);
 
     const card = document.createElement('div');
     card.className = 'vcard' + (isGhost ? ' ghost-card' : '');
