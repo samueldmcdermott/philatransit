@@ -601,13 +601,13 @@ function syncServerGhosts(serverGhosts) {
 
     // Compute current position
     const totalElapsed = (now - sg.enterTs) / 1000;
-    const fore = ghostPosition(totalElapsed, ghostVehicles[vid]);
+    const fore = ghostPosition(totalElapsed, ghostVehicles[label]);
     const aftElapsed = Math.max(0, totalElapsed - sg.lingerSec);
-    const aft = ghostPosition(aftElapsed, ghostVehicles[vid]);
+    const aft = ghostPosition(aftElapsed, ghostVehicles[label]);
     const midElapsed = (totalElapsed + aftElapsed) / 2;
-    const mid = ghostPosition(midElapsed, ghostVehicles[vid]);
+    const mid = ghostPosition(midElapsed, ghostVehicles[label]);
 
-    const g = ghostVehicles[vid];
+    const g = ghostVehicles[label];
     // Westbound: if aft has reached the portal (fraction 1.0), linger at portal.
     // Eastbound return: if aft has reached the portal on the second (westbound)
     // leg, linger at the portal — the ghost did a round trip and exits west.

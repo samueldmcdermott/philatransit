@@ -233,11 +233,14 @@ function tripOnDetour(t) { return t.on_detour || false; }
 
 function setMode(mode) {
   activeMode = mode;
+  selectedRoute = null;
   document.querySelectorAll('.mode-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.mode === mode));
   const subwayBanner = document.getElementById('subwayBanner');
   if (subwayBanner) subwayBanner.style.display = mode === 'SUBWAY' ? '' : 'none';
   buildRouteList();
+  updateTunnelMonitorBanner();
+  updateTunnelClosureBanner();
 }
 
 function buildRouteList() {
