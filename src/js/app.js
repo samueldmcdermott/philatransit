@@ -950,7 +950,8 @@ function tunnelMonitorParts(perRoute, groupKeys, html) {
 // ── Tunnel closure banner ────────────────────────────────────────────────────
 
 function updateTunnelClosureBanner() {
-  const status = getTunnelClosureStatus();
+  const rawStatus = getTunnelClosureStatus();
+  const status = activeMode === 'TROLLEY' ? rawStatus : null;
 
   let label, cls, mapCls;
   if (status) {
