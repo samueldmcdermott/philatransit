@@ -16,8 +16,8 @@ const FIRST_FULL_DATE = '2026-03-17';
 
 // Chart zoom/pan state
 let chartState = {
-  minX: 5 * 60, maxX: 24 * 60,
-  fullMinX: 5 * 60, fullMaxX: 24 * 60,
+  minX: 0, maxX: 24 * 60,
+  fullMinX: 0, fullMaxX: 24 * 60,
   dragging: false, dragStartX: null, dragStartMin: null,
   selecting: false, selectStartX: null, selectEndX: null,
   hoverMin: null, // minute value under cursor (null = no hover)

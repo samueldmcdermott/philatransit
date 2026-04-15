@@ -200,7 +200,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .tunnel-closure-banner.likely { background: rgba(245,158,11,0.15); border: 1px solid var(--yellow);
   color: var(--yellow); }
 .tunnel-closure-icon { font-size: 14px; }
-.tunnel-closure-map-banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+.tunnel-closure-map-banner { position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
   z-index: 1000; padding: 6px 14px; border-radius: 6px; font-size: 11px;
   font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .tunnel-closure-map-banner.official { background: rgba(239,68,68,0.92); color: #fff; }
@@ -335,4 +335,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 
   .cdf-controls { gap: 4px; }
   .cdf-btn { font-size: 10px; padding: 3px 8px; }
+
+  /* Tunnel closure banner needs extra clearance on mobile since the
+     monitor bar can wrap to two lines at narrow widths. */
+  .tunnel-closure-map-banner { top: 72px; white-space: normal;
+    max-width: calc(100% - 20px); text-align: center; }
 }

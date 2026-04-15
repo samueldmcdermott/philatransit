@@ -120,11 +120,21 @@ def main():
                 route_short[rid] = short or rid
 
         # ── calendar → service day type ─────────────────────────────────
+        # SEPTA defines many services entirely via calendar_dates.txt with an
+        # all-zero calendar.txt row (or no calendar.txt row at all). Previously
+        # these defaulted to "weekday", which caused Saturday/Sunday overnight
+        # services to leak into the weekday schedule (notably OWL trips on
+        # T1/T3/T5). Classify those services by the DOW distribution of their
+        # exception dates instead.
+        from datetime import date as _date
         print("Parsing calendar.txt …")
         cal_rows = read_csv(zf, "calendar.txt")
         service_daytype = {}  # service_id → "weekday" | "saturday" | "sunday"
+        unclassified = set()  # services needing calendar_dates fallback
         for row in cal_rows:
             sid = row.get("service_id", "").strip()
+            if not sid:
+                continue
             mon = row.get("monday", "0").strip()
             sat = row.get("saturday", "0").strip()
             sun = row.get("sunday", "0").strip()
@@ -135,16 +145,72 @@ def main():
             elif mon == "1":
                 service_daytype[sid] = "weekday"
             else:
-                service_daytype[sid] = "weekday"  # default
+                unclassified.add(sid)  # all-zero → classify via calendar_dates
 
-        # ── trips → (route_short_name, day_type) ───────────────────────
+        print("Parsing calendar_dates.txt …")
+        try:
+            cdates_rows = read_csv(zf, "calendar_dates.txt")
+        except FileNotFoundError:
+            cdates_rows = []
+        svc_dow_counts = defaultdict(lambda: [0, 0, 0])  # sid → [weekday, sat, sun]
+        for row in cdates_rows:
+            sid = row.get("service_id", "").strip()
+            if row.get("exception_type", "").strip() != "1":
+                continue  # only consider "added" dates
+            ds = row.get("date", "").strip()
+            if len(ds) != 8:
+                continue
+            try:
+                d = _date(int(ds[:4]), int(ds[4:6]), int(ds[6:8]))
+            except ValueError:
+                continue
+            w = d.weekday()
+            bucket = svc_dow_counts[sid]
+            if w == 5:   bucket[1] += 1
+            elif w == 6: bucket[2] += 1
+            else:        bucket[0] += 1
+
+        # Classify services missing from calendar.txt or with all-zero rows.
+        # Tie-breaking favors Sunday, then Saturday, then weekday — this keeps
+        # holiday-overlay services (which run on weekend schedules but include
+        # occasional holiday Mondays) grouped with the correct schedule.
+        for sid in set(svc_dow_counts) | unclassified:
+            if sid in service_daytype:
+                continue
+            wd, sa, su = svc_dow_counts.get(sid, [0, 0, 0])
+            if su > 0 and su >= sa and su >= wd:
+                service_daytype[sid] = "sunday"
+            elif sa > 0 and sa >= wd:
+                service_daytype[sid] = "saturday"
+            else:
+                service_daytype[sid] = "weekday"
+
+        # ── trips → (route_short_name, day_type, keep?) ────────────────
+        # Schedule counting must match the backend's round-trip-based
+        # completion tracking (see pkg/core/tracker.py — one completion per
+        # round trip), so we keep only one GTFS trip per physical vehicle
+        # cycle by filtering to direction_id == "0". For routes that only
+        # have direction_id == "1" in the feed (rare edge cases), fall back
+        # to that direction.
         print("Parsing trips.txt …")
         trips_rows = read_csv(zf, "trips.txt")
+        route_dirs = defaultdict(set)
+        for row in trips_rows:
+            rid = row.get("route_id", "").strip()
+            d   = row.get("direction_id", "").strip()
+            if rid:
+                route_dirs[rid].add(d)
+        primary_dir = {rid: ("0" if "0" in dirs else ("1" if "1" in dirs else ""))
+                       for rid, dirs in route_dirs.items()}
+
         trip_info = {}  # trip_id → {short, daytype}
         for row in trips_rows:
             tid = row.get("trip_id", "").strip()
             rid = row.get("route_id", "").strip()
             sid = row.get("service_id", "").strip()
+            d   = row.get("direction_id", "").strip()
+            if d != primary_dir.get(rid, "0"):
+                continue  # skip reverse-direction trips — same physical run
             short   = route_short.get(rid, rid)
             daytype = service_daytype.get(sid, "weekday")
             trip_info[tid] = {"short": short, "daytype": daytype}
@@ -173,7 +239,12 @@ def main():
 
         # ── build schedule.json ─────────────────────────────────────────
         print("Building schedule …")
-        schedule = defaultdict(lambda: {"weekday": [], "saturday": [], "sunday": []})
+        # SEPTA's GTFS sometimes emits multiple trip_ids for what is physically
+        # one run (shape variants, trolley/bus alternates, etc.), all sharing
+        # the same first-stop departure minute. Two real vehicles on the same
+        # route don't leave the same stop at the same minute, so dedupe by
+        # (route, day_type, departure_minute).
+        schedule = defaultdict(lambda: {"weekday": set(), "saturday": set(), "sunday": set()})
         for tid, (_, dep_min) in trip_first_dep.items():
             info = trip_info.get(tid)
             if not info:
@@ -181,12 +252,11 @@ def main():
             short   = info["short"]
             daytype = info["daytype"]
             if dep_min < 1440:  # keep only 0–23:59
-                schedule[short][daytype].append(dep_min)
+                schedule[short][daytype].add(dep_min)
 
-        # Sort each list
-        for route_data in schedule.values():
-            for dt in ("weekday", "saturday", "sunday"):
-                route_data[dt].sort()
+        # Convert sets to sorted lists
+        schedule = {short: {dt: sorted(mins) for dt, mins in days.items()}
+                    for short, days in schedule.items()}
 
         # ── shapes.json ─────────────────────────────────────────────────────────
         print("Parsing shapes.txt …")
