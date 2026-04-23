@@ -11,6 +11,7 @@ venv/
 # Runtime data (generated per-instance)
 data/trips.json
 data/scheduled.json
+data/daily_cdfs.json
 
 # IDE
 .idea/
