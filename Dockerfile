@@ -23,8 +23,8 @@ RUN mkdir -p data
 
 EXPOSE 5000
 
-# 1 worker + 4 threads: keeps background cache/tracker threads in shared memory.
-# Increase --threads if you need more concurrent request capacity.
+# 1 worker + 4 threads: keeps the background poller and midnight-rollover
+# threads in shared memory.  Increase --threads for more concurrent request capacity.
 CMD ["gunicorn", \
      "--bind", "0.0.0.0:5000", \
      "--workers", "1", \

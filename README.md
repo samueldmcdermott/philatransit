@@ -10,10 +10,10 @@ Real-time transit tracker for the Philadelphia area. Track SEPTA buses, trolleys
 
 - **Live vehicle tracking** for all SEPTA bus, trolley, and regional rail routes
 - **Interactive map** with GTFS route shapes (Leaflet + CartoDB Dark Matter tiles)
-- **Server-side tunnel ghost tracking** — detects trolleys entering the subway-surface tunnel and estimates their position using GTFS schedule data with smooth path interpolation
+- **Tunnel ghost tracking** — detects trolleys entering the subway-surface tunnel and interpolates their position while underground
+- **Rolling tunnel transit times** — 20-minute rolling average of observed trolley tunnel trips
 - **Stop predictions** — real-time arrival estimates at nearby stops via SEPTA v2 API
-- **Trip statistics** with schedule overlay charts
-- **Background trip tracker** that logs completed trips server-side
+- **Trip statistics** — per-day start-time CDFs and histograms with schedule overlay
 - **Server-side SEPTA data caching** — single background poller keeps API call rate fixed regardless of user count
 
 ## Quick Start
@@ -21,7 +21,7 @@ Real-time transit tracker for the Philadelphia area. Track SEPTA buses, trolleys
 ### Local development
 
 ```bash
-pip install flask requests
+pip install -r requirements.txt
 
 # Build static GTFS data (route shapes, stops, schedules, tunnel timing)
 python3 scripts/build_gtfs.py
@@ -45,72 +45,86 @@ The app binds to `127.0.0.1:5000` — use a host-level nginx (or similar) revers
 
 ```
 philatransit/
-├── server.py               # Entrypoint — creates Flask app via pkg/
-├── pkg/                    # Python backend package
-│   ├── app.py              #   Flask app factory, CORS, frontend serving
-│   ├── cache.py            #   Background SEPTA data poller, in-memory caches
-│   ├── ghosts.py           #   Tunnel ghost detection and state
-│   ├── tracker.py          #   Background trip completion tracker
-│   ├── routes.py           #   All API route handlers (Flask Blueprint)
-│   └── helpers.py          #   Shared constants, file I/O, utilities
-├── public/
-│   └── index.html          # Main HTML shell
+├── server.py                   # Entrypoint — creates the Flask app
+├── pkg/
+│   ├── app.py                  # Flask app factory, CORS, frontend serving
+│   ├── poller.py               # Background SEPTA poller, in-memory caches
+│   ├── routes.py               # API route handlers (Flask Blueprint)
+│   ├── helpers.py              # Shared paths, file I/O, date helpers
+│   ├── geo.py                  # Geometry (projection, bearing, headings)
+│   ├── version.py
+│   ├── core/
+│   │   ├── trip.py             # Trip dataclass + TripManager (lifecycle)
+│   │   ├── stats.py            # Start-time persistence + midnight rollover
+│   │   ├── tunnel_monitor.py   # Rolling tunnel transit-time average
+│   │   ├── shapes.py           # Route shape registry
+│   │   └── route.py            # Route config builder
+│   └── provider/
+│       ├── base.py             # Provider / detector interfaces
+│       └── septa/              # SEPTA implementation + tunnel/detour detection
+├── public/index.html           # HTML shell
 ├── src/
-│   ├── css/
-│   │   └── style.css       # All styles
+│   ├── css/style.css
 │   └── js/
-│       ├── app.js          # App state, init, sidebar, panels, auto-refresh
-│       ├── map.js          # Leaflet map, route drawing, vehicle markers
-│       ├── routes.js       # Route definitions, mode config, rail line mapping
-│       ├── stations.js     # Hardcoded station coordinates from GTFS
-│       ├── stats.js        # Statistics panel and chart rendering
-│       └── tunnel.js       # Tunnel constants, ghost interpolation, geometry
-├── static/
-│   ├── shapes.json         # GTFS route shapes (generated)
-│   ├── stops.json          # GTFS stop data (generated)
-│   ├── schedule.json       # GTFS schedule data (generated)
-│   └── tunnel_times.json   # Tunnel transit times (generated)
+│       ├── app.js              # Init, sidebar, panels, auto-refresh
+│       ├── map.js              # Leaflet map, route drawing, vehicle markers
+│       ├── routes.js           # Route definitions, mode config
+│       ├── stations.js         # Hardcoded station coordinates
+│       ├── stats.js            # Statistics panel and chart rendering
+│       └── tunnel.js           # Tunnel constants, ghost interpolation
+├── static/                     # Generated GTFS data (shapes, stops, schedule, termini, tunnel_times)
 ├── scripts/
-│   ├── build_gtfs.py       # Downloads GTFS and builds static data files
-│   └── tunnel_timing.py    # Extracts tunnel transit times from GTFS
-├── data/                   # Runtime data (trip logs — persisted via Docker volume)
+│   ├── build_gtfs.py           # Downloads GTFS and builds the static data files
+│   └── tunnel_timing.py        # Extracts tunnel transit times from GTFS
+├── data/                       # Runtime data (today.json, daily_cdfs.json — Docker volume)
 ├── Dockerfile
 ├── docker-compose.yml
-├── nginx.conf              # Sample nginx config (HTTPS, caching, reverse proxy)
-├── requirements.txt
-├── BACKLOG.md
-├── AUTHORS.md
-└── LICENSE                 # MIT
+├── nginx.conf                  # Sample nginx config (HTTPS, caching, reverse proxy)
+└── requirements.txt
 ```
 
 ## Architecture
 
-### Server-side caching
+### Server-side polling and caching
 
-A single background thread polls the SEPTA API every 15 seconds and stores results in memory. All client requests are served from this cache, so SEPTA sees a fixed call rate regardless of how many users are connected. The app runs with gunicorn (`--workers 1 --threads 4`) to keep background threads and caches in shared memory.
+A single background thread in `pkg/poller.py` polls SEPTA every 5 seconds (transit + regional rail) and stores results in memory. All client requests are served from this cache, so SEPTA sees a fixed call rate regardless of how many users are connected. The app runs under gunicorn with `--workers 1 --threads 4` so background threads and caches stay in shared memory.
+
+### Trip as the primary object
+
+Each observed vehicle becomes a `Trip` owned by `TripManager` ([`pkg/core/trip.py`](pkg/core/trip.py)). A Trip is keyed by our own `trip_id` (`{vehicle_id}_{epoch}`) — SEPTA's trip identifiers are unstable and aren't trusted. The Trip tracks direction along the route shape, current/next stop, stops passed, speed, and origin/destination. Trips retire naturally on return-to-origin and are pruned after 10 minutes without an update.
+
+When a Trip is created, its start time is persisted via [`pkg/core/stats.py`](pkg/core/stats.py) — one Trip, one recorded start. Regional rail isn't Trip-managed; the poller records the first sighting of each train number per day through the same `record_start` path.
+
+Storage schema (shared by `today.json` and `daily_cdfs.json`):
+
+```
+{route: {"YYYY-MM-DD": [sorted minutes-since-midnight, ...]}}
+```
+
+A daemon thread runs `rollover()` shortly after each midnight, moving finished-day buckets from `today.json` into `daily_cdfs.json`.
 
 ### Tunnel ghost tracking
 
-SEPTA trolley lines T1-T5 share an underground tunnel between their western portals (36th St or 40th St) and 13th St. Vehicles lose GPS and disappear from the API inside the tunnel. The server detects tunnel entries by:
+SEPTA trolley lines T1–T5 share an underground tunnel between their western portals (36th St or 40th St) and 13th St. Vehicles lose GPS and disappear from the API inside the tunnel. The tunnel detector in [`pkg/provider/septa/tunnel.py`](pkg/provider/septa/tunnel.py):
 
-1. Monitoring vehicle GPS positions near tunnel portals for stationary linger (60s threshold)
-2. Detecting sudden vehicle disappearance near portals
-3. Creating "ghost" entries with estimated position interpolated along the GTFS route shape
-4. Removing ghosts when the real vehicle reappears at the far end
+1. Watches vehicle GPS near tunnel portals for stationary linger (≥60s).
+2. Detects sudden disappearance near a portal.
+3. Creates a "ghost" with position interpolated along the route shape, protected from stale-pruning while it's underground.
+4. Removes the ghost when the real vehicle reappears at the far end.
 
-Ghost state is maintained server-side so all users see tunnel vehicles immediately, even on first page load.
+`pkg/core/tunnel_monitor.py` keeps a 20-minute rolling average of observed tunnel transit times (T2–T5 pooled, T1 separate). When fewer than 5 samples exist in the window, it falls back to the historical average from `static/tunnel_times.json`.
 
 ### Data sources
 
-- **SEPTA TransitView API** — real-time vehicle positions for buses, trolleys, and subway
+- **SEPTA TransitView API** — real-time positions for buses, trolleys, subway
 - **SEPTA TrainView API** — real-time positions for regional rail
 - **SEPTA v2 API** — trip-level stop predictions and service alerts
-- **SEPTA GTFS** — static schedule data, route shapes, and stop coordinates
+- **SEPTA GTFS** — static schedule data, route shapes, stop coordinates
 
 ### Known limitations
 
-- **Subway lines (MFL/BSL)**: SEPTA does not provide real-time GPS data for subway vehicles. The API returns only placeholder entries.
-- Tunnel estimation is approximate — actual transit times vary with traffic and dwell times.
+- **Subway lines (MFL/BSL)**: SEPTA does not provide real-time GPS for subway vehicles. The API returns only placeholder entries.
+- Tunnel position estimation is approximate — actual transit times vary with traffic and dwell.
 
 ## Deployment
 
