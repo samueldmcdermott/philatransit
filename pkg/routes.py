@@ -6,7 +6,7 @@ from datetime import datetime
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .helpers import (
-    TRIPS, SCHED, DAILY_CDFS,
+    TODAY, SCHED, DAILY_CDFS,
     load, dump, date_str, minutes_since_midnight,
 )
 from .poller import transit_lock, transit_cache, rail_lock, rail_cache
@@ -126,39 +126,37 @@ def monitoring():
 
 @api.route("/api/stats")
 def get_stats():
-    return jsonify(load(TRIPS))
+    return jsonify(load(TODAY))
 
 
 @api.route("/api/stats/cdfs")
 def get_cdfs():
-    """Return CDF data: historical summaries + today's live trips."""
-    from .core.tracker import _CUTOFF_DATE, _CUTOFF_MS
+    """Return CDF data: daily_cdfs.json for history + today.json for live."""
+    from .core.tracker import _CUTOFF_DATE
 
     cdfs = load(DAILY_CDFS)
-    trips = load(TRIPS)
 
-    # Remove historical CDF entries before cutoff
+    # Strip pre-tracker entries from historical CDFs
     for route in list(cdfs.keys()):
         for day in list(cdfs[route].keys()):
             if day < _CUTOFF_DATE:
                 del cdfs[route][day]
 
-    # Compute today's minutes from live trip data
-    for route, days in trips.items():
-        for day_str, day_trips in days.items():
-            if day_str < _CUTOFF_DATE:
-                continue
-            mins = []
-            for t in day_trips:
-                ts = t.get("start") or t.get("end")
-                if not ts:
-                    continue
-                if day_str == _CUTOFF_DATE and ts < _CUTOFF_MS:
-                    continue
-                mins.append(round(minutes_since_midnight(ts), 2))
-            mins.sort()
-            if mins:
-                cdfs.setdefault(route, {})[day_str] = mins
+    # Live-compute today from today.json (overrides whatever a rollover
+    # may have written into daily_cdfs earlier)
+    today_str = date_str()
+    today_trips = load(TODAY)
+    for route, days in today_trips.items():
+        day_trips = days.get(today_str, [])
+        if not day_trips:
+            continue
+        mins = sorted(
+            round(minutes_since_midnight(t.get("start") or t.get("end")), 2)
+            for t in day_trips
+            if (t.get("start") or t.get("end"))
+        )
+        if mins:
+            cdfs.setdefault(route, {})[today_str] = mins
 
     return jsonify(cdfs)
 
@@ -173,26 +171,26 @@ def record_trip():
     if not route:
         return jsonify(error="missing route"), 400
 
-    trips = load(TRIPS)
+    trips = load(TODAY)
     day   = date_str(start)
     trips.setdefault(route, {}).setdefault(day, []).append(
         {"start": start, "end": end, "dur": end - start}
     )
-    dump(TRIPS, trips)
+    dump(TODAY, trips)
 
     return jsonify(ok=True, route=route, day=day, count=len(trips[route][day]))
 
 
 @api.route("/api/stats/clear", methods=["POST"])
 def clear_stats():
-    dump(TRIPS, {})
+    dump(TODAY, {})
     return jsonify(ok=True)
 
 
 @api.route("/api/stats/export")
 def export_stats():
     fmt   = request.args.get("format", "json").lower()
-    trips = load(TRIPS)
+    trips = load(TODAY)
 
     if fmt == "csv":
         route_filters = set(r for r in request.args.getlist("route") if r.strip()) or None

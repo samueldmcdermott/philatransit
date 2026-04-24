@@ -18,7 +18,7 @@ RUN APP_VERSION=${APP_VERSION:-$(cat VERSION 2>/dev/null || echo "unknown")} && 
     echo "Building version: $APP_VERSION"
 LABEL version="${APP_VERSION}"
 
-# Ensure data directory exists (trips.json lives here; mounted as a volume in prod)
+# Ensure data directory exists (today.json + daily_cdfs.json live here; mounted as a volume in prod)
 RUN mkdir -p data
 
 EXPOSE 5000

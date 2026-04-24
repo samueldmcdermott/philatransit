@@ -8,7 +8,7 @@ from pathlib import Path
 
 BASE = Path(__file__).parent.parent
 DATA = BASE / "data"
-TRIPS = DATA / "trips.json"
+TODAY = DATA / "today.json"
 SCHED = DATA / "scheduled.json"
 DAILY_CDFS = DATA / "daily_cdfs.json"
 

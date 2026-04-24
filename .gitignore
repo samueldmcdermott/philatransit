@@ -9,7 +9,7 @@ venv/
 .venv/
 
 # Runtime data (generated per-instance)
-data/trips.json
+data/today.json
 data/scheduled.json
 data/daily_cdfs.json
 

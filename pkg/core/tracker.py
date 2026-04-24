@@ -11,6 +11,11 @@ authoritative "trip completed" signal.
 Rail vehicles are not managed by TripManager, so we synthesize a trip_id
 from ``{vehicle_id}`` (the train number) and detect completions the same
 way the legacy tracker did: trip ends when the train number disappears.
+
+``today.json`` holds only the current day's completions.  At startup and
+on every midnight rollover, older buckets are summarized into
+``daily_cdfs.json`` (minutes-since-midnight) and then cleared from
+``today.json``.
 """
 
 import threading
@@ -18,60 +23,61 @@ import time
 from datetime import datetime
 
 from ..helpers import (
-    TRIPS, DAILY_CDFS,
+    TODAY, DAILY_CDFS,
     load, dump, date_str, minutes_since_midnight,
 )
 from ..poller import transit_lock, transit_cache, rail_lock, rail_cache
 
 
-# ── Startup cleanup: discard data before cutoff ──────────────────────────
-
+# First full day of tracking.  Used by the UI / stats endpoint to filter
+# pre-tracker entries out of daily_cdfs.json.
 _CUTOFF_DATE = "2026-03-17"
 _CUTOFF_MS = int(datetime(2026, 3, 17, 0, 0, 0).timestamp() * 1000)
 
 
-def _cleanup_old_data():
-    """Remove all trip data before the cutoff date/time."""
-    trips = load(TRIPS)
-    cleaned = {}
-    for route, days in trips.items():
-        for day, trip_list in days.items():
-            if day < _CUTOFF_DATE:
-                continue
-            if day == _CUTOFF_DATE:
-                trip_list = [t for t in trip_list
-                             if (t.get("start") or t.get("end") or 0) >= _CUTOFF_MS]
-            if trip_list:
-                cleaned.setdefault(route, {})[day] = trip_list
-    dump(TRIPS, cleaned)
-    print("  [tracker] startup cleanup complete")
+def _archive_old_days():
+    """Summarize any non-today buckets in today.json into daily_cdfs.json, then clear them.
 
-
-def _summarize_day(date_str):
-    """Summarize a day's trips into daily_cdfs.json (minutes-since-midnight)."""
-    trips = load(TRIPS)
+    Skips days that already exist in daily_cdfs.json — those have been
+    summarized in a prior run (possibly with post-hoc corrections) and we
+    don't want to overwrite them with whatever is still sitting in
+    today.json.
+    """
+    today = date_str()
+    trips = load(TODAY)
     cdfs = load(DAILY_CDFS)
+    t_changed = False
+    c_changed = False
 
-    for route, days in trips.items():
-        day_trips = days.get(date_str, [])
-        if not day_trips:
-            continue
-        mins = []
-        for t in day_trips:
-            ts = t.get("start") or t.get("end")
-            if not ts:
+    for route, days in list(trips.items()):
+        for day in list(days.keys()):
+            if day == today:
                 continue
-            mins.append(round(minutes_since_midnight(ts), 2))
-        mins.sort()
-        if mins:
-            cdfs.setdefault(route, {})[date_str] = mins
+            day_trips = days.pop(day)
+            t_changed = True
+            if day in cdfs.get(route, {}):
+                continue
+            mins = sorted(
+                round(minutes_since_midnight(t.get("start") or t.get("end")), 2)
+                for t in day_trips
+                if (t.get("start") or t.get("end"))
+            )
+            if mins:
+                cdfs.setdefault(route, {})[day] = mins
+                c_changed = True
+        if not days:
+            del trips[route]
+            t_changed = True
 
-    dump(DAILY_CDFS, cdfs)
+    if t_changed:
+        dump(TODAY, trips)
+    if c_changed:
+        dump(DAILY_CDFS, cdfs)
 
 
 class TripTracker:
     """
-    Polls every 30s and records trip completions to trips.json.
+    Polls every 30s and records trip completions to today.json.
 
     A "trip" is keyed by the trip_id that TripManager writes onto each
     transit vehicle in the shared cache.  When a trip_id stops appearing
@@ -105,7 +111,7 @@ class TripTracker:
     def start(self):
         if self.running:
             return
-        _cleanup_old_data()
+        _archive_old_days()
         self.running = True
         self._last_summary_date = date_str()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="TripTracker")
@@ -134,15 +140,14 @@ class TripTracker:
                 time.sleep(0.5)
 
     def _check_day_rollover(self):
-        """At midnight, summarize the previous day's data."""
+        """At midnight, archive all non-today data into daily_cdfs.json."""
         today = date_str()
         if self._last_summary_date and today != self._last_summary_date:
-            prev = self._last_summary_date
-            print(f"  [tracker] summarizing day: {prev}")
+            print(f"  [tracker] day rolled to {today} — archiving prior buckets")
             try:
-                _summarize_day(prev)
+                _archive_old_days()
             except Exception as e:
-                print(f"  [tracker] summary error: {e}")
+                print(f"  [tracker] archive error: {e}")
             self._last_summary_date = today
 
     def _collect_current_trips(self):
@@ -230,7 +235,7 @@ class TripTracker:
 
             # Detect completions: trip_ids no longer present in the cache
             # for vehicles that aren't currently flagged as ghosts.
-            trips_data = load(TRIPS)
+            trips_data = load(TODAY)
             changed = False
             for tid in list(self._active):
                 entry = self._active[tid]
@@ -252,4 +257,4 @@ class TripTracker:
                 changed = True
 
             if changed:
-                dump(TRIPS, trips_data)
+                dump(TODAY, trips_data)
