@@ -10,6 +10,8 @@ from __future__ import annotations
 import threading
 import time
 
+from .helpers import date_str
+
 POLL_INTERVAL = 5  # seconds
 
 # transit cache: route_id -> list of enriched vehicle dicts
@@ -23,6 +25,30 @@ rail_lock = threading.Lock()
 
 _provider = None
 _trip_manager = None
+
+# Rail first-sighting state: rail isn't Trip-managed, so we record a
+# rail start the first time each train number appears on a given day.
+_rail_seen: set[str] = set()
+_rail_date: str | None = None
+
+
+def _record_rail_starts(trains):
+    from .core.stats import record_starts  # avoid import cycle at module load
+    global _rail_date
+    today = date_str()
+    if today != _rail_date:
+        _rail_seen.clear()
+        _rail_date = today
+    now_ms = int(time.time() * 1000)
+    new = []
+    for t in trains:
+        vid = t.get('vehicle_id', '')
+        route = t.get('route_id', '')
+        if not vid or not route or vid in _rail_seen:
+            continue
+        _rail_seen.add(vid)
+        new.append((route, now_ms))
+    record_starts(new)
 
 
 def _poll_loop():
@@ -76,6 +102,7 @@ def _poll_loop():
         # -- Rail vehicles --
         try:
             rail_vehicles = _provider.poll_rail()
+            _record_rail_starts(rail_vehicles)
             with rail_lock:
                 rail_cache["data"] = rail_vehicles
                 rail_cache["ts"] = time.time()

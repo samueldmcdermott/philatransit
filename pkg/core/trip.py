@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass, field
 
 from .. import geo
+from .stats import record_start
 
 
 # ── Configuration ─────────────────────────────────────────────────────
@@ -315,6 +316,7 @@ class TripManager:
             trip._last_stop_da = _stop_da(shape.stops, trip.current_stop)
             trip._prev_stop_da = da
 
+        record_start(trip.route, int(trip.start_time * 1000))
         return trip
 
     def _update_trip(self, trip, new_da, lat, lng, shape, now):

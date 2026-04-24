@@ -10,7 +10,7 @@ from .poller import start_poller
 from .core.shapes import load_shapes
 from .core.trip import TripManager
 from .core.route import build_route_config
-from .core.tracker import TripTracker
+from .core.stats import rollover, start_midnight_scheduler
 from .core.tunnel_monitor import TunnelMonitor
 
 
@@ -62,9 +62,9 @@ def create_app(provider_name="septa"):
         tunnel_detector.set_monitor(tunnel_monitor)
 
     # -- Background services --
+    rollover()
+    start_midnight_scheduler()
     start_poller(provider, trip_manager)
-    tracker = TripTracker(tunnel_detector=tunnel_detector)
-    tracker.start()
 
     # -- Flask app --
     app = Flask(__name__, static_folder=None)
@@ -72,7 +72,6 @@ def create_app(provider_name="septa"):
     # Store dependencies for route handlers
     app.config['provider'] = provider
     app.config['trip_manager'] = trip_manager
-    app.config['tracker'] = tracker
     app.config['route_config'] = route_config
     app.config['tunnel_monitor'] = tunnel_monitor
 

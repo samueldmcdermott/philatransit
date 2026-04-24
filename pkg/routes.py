@@ -5,11 +5,9 @@ from datetime import datetime
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from .helpers import (
-    TODAY, SCHED, DAILY_CDFS,
-    load, dump, date_str, minutes_since_midnight,
-)
+from .helpers import TODAY, SCHED, DAILY_CDFS, load, dump, date_str
 from .poller import transit_lock, transit_cache, rail_lock, rail_cache
+from .core.stats import CUTOFF_DATE, record_start
 from .version import get_version
 
 api = Blueprint("api", __name__)
@@ -20,8 +18,8 @@ api = Blueprint("api", __name__)
 def _provider():
     return current_app.config['provider']
 
-def _tracker():
-    return current_app.config['tracker']
+def _trip_manager():
+    return current_app.config['trip_manager']
 
 def _tunnel_monitor():
     return current_app.config['tunnel_monitor']
@@ -131,32 +129,17 @@ def get_stats():
 
 @api.route("/api/stats/cdfs")
 def get_cdfs():
-    """Return CDF data: daily_cdfs.json for history + today.json for live."""
-    from .core.tracker import _CUTOFF_DATE
-
+    """Return {route: {day: [sorted start-minutes]}} — history + today merged."""
     cdfs = load(DAILY_CDFS)
-
-    # Strip pre-tracker entries from historical CDFs
     for route in list(cdfs.keys()):
         for day in list(cdfs[route].keys()):
-            if day < _CUTOFF_DATE:
+            if day < CUTOFF_DATE:
                 del cdfs[route][day]
 
-    # Live-compute today from today.json (overrides whatever a rollover
-    # may have written into daily_cdfs earlier)
     today_str = date_str()
-    today_trips = load(TODAY)
-    for route, days in today_trips.items():
-        day_trips = days.get(today_str, [])
-        if not day_trips:
-            continue
-        mins = sorted(
-            round(minutes_since_midnight(t.get("start") or t.get("end")), 2)
-            for t in day_trips
-            if (t.get("start") or t.get("end"))
-        )
-        if mins:
-            cdfs.setdefault(route, {})[today_str] = mins
+    for route, days in load(TODAY).items():
+        if today_str in days:
+            cdfs.setdefault(route, {})[today_str] = days[today_str]
 
     return jsonify(cdfs)
 
@@ -166,19 +149,10 @@ def record_trip():
     body  = request.get_json(force=True, silent=True) or {}
     route = str(body.get("route", "")).strip()
     start = int(body.get("start", body.get("timestamp", datetime.now().timestamp() * 1000)))
-    end   = int(body.get("end", start))
-
     if not route:
         return jsonify(error="missing route"), 400
-
-    trips = load(TODAY)
-    day   = date_str(start)
-    trips.setdefault(route, {}).setdefault(day, []).append(
-        {"start": start, "end": end, "dur": end - start}
-    )
-    dump(TODAY, trips)
-
-    return jsonify(ok=True, route=route, day=day, count=len(trips[route][day]))
+    record_start(route, start)
+    return jsonify(ok=True, route=route, day=date_str(start))
 
 
 @api.route("/api/stats/clear", methods=["POST"])
@@ -194,16 +168,16 @@ def export_stats():
 
     if fmt == "csv":
         route_filters = set(r for r in request.args.getlist("route") if r.strip()) or None
-        rows = ["route,date,timestamp_ms,time_of_day"]
+        rows = ["route,date,time_of_day,minutes"]
         for route in sorted(trips):
             if route_filters and route not in route_filters:
                 continue
+            safe = route.replace('"', '""')
             for day in sorted(trips[route]):
-                for trip in sorted(trips[route][day], key=lambda x: x.get("start", 0)):
-                    ts = trip.get("start") or trip.get("end") or 0
-                    t = datetime.fromtimestamp(ts / 1000).strftime("%H:%M:%S")
-                    safe = route.replace('"', '""')
-                    rows.append(f'"{safe}",{day},{ts},{t}')
+                for mins in trips[route][day]:
+                    h, m = int(mins // 60), int(mins % 60)
+                    s = int(round((mins - int(mins)) * 60))
+                    rows.append(f'"{safe}",{day},{h:02d}:{m:02d}:{s:02d},{mins}')
         return Response(
             "\n".join(rows),
             mimetype="text/csv",
@@ -235,23 +209,9 @@ def set_scheduled():
     return jsonify(ok=True)
 
 
-# ── Tracker control ──────────────────────────────────────────
+# ── Tracker status (server-side tracking is always on) ──────
 
 @api.route("/api/tracker/status")
 def tracker_status():
-    t = _tracker()
-    return jsonify(running=t.running, tracked=t.registry_size)
-
-
-@api.route("/api/tracker/start", methods=["POST"])
-def tracker_start():
-    t = _tracker()
-    t.start()
-    return jsonify(ok=True, running=True)
-
-
-@api.route("/api/tracker/stop", methods=["POST"])
-def tracker_stop():
-    t = _tracker()
-    t.stop()
-    return jsonify(ok=True, running=False)
+    tm = _trip_manager()
+    return jsonify(running=True, tracked=len(tm._trips))
