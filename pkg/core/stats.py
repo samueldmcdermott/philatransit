@@ -1,16 +1,25 @@
 """Start-time persistence.
 
-Storage schema (shared by today.json and daily_cdfs.json):
-    {route: {"YYYY-MM-DD": [sorted minutes-since-midnight, ...]}}
+Storage schema:
+    daily_cdfs.json — {route: {"YYYY-MM-DD": [sorted minutes-since-midnight]}}
+    today.json      — {route: {"YYYY-MM-DD": [sorted entries]}}, where each
+                      entry is {"start": minutes-since-midnight (local time),
+                                "elapsed_seconds": int|null,
+                                "stops_passed": int|null,
+                                "tunnel_seconds": int|null  # T routes only
+                               }
 
-``record_start`` / ``record_starts`` are called by Trip-creation sites
-(transit via TripManager, rail via the poller).  ``rollover`` is fired
-once at startup and then nightly by ``start_midnight_scheduler``.
+``record_start`` is called when a Trip is created; ``record_finish`` is
+called when the same Trip retires (filling in the elapsed/stops/tunnel
+fields by matching on start time).  Rail trips, which aren't Trip-managed,
+only get a start record.
+
+``rollover`` runs once at startup and then nightly; it drains finished
+days into daily_cdfs.json, flattening rich entries to minute lists.
 """
 
 from __future__ import annotations
 
-import bisect
 import threading
 import time
 from datetime import datetime, timedelta
@@ -26,37 +35,64 @@ CUTOFF_DATE = "2026-03-17"
 _file_lock = threading.Lock()
 
 
-def _as_mins(val):
-    """Normalize a day bucket to a sorted, deduped list of minute floats.
+def _entry_minute(entry):
+    """Return the start-minute for an entry, regardless of schema version."""
+    if isinstance(entry, dict):
+        if 'start' in entry and isinstance(entry['start'], (int, float)):
+            val = entry['start']
+            # Heuristic: legacy ms timestamps are huge; new schema is <1440 min.
+            if val > 10000:
+                return round(minutes_since_midnight(val), 2)
+            return round(float(val), 2)
+        if 'end' in entry:
+            return round(minutes_since_midnight(entry['end']), 2)
+        return None
+    return round(float(entry), 2)
 
-    Accepts either the new form (list of floats) or the legacy form
-    (list of {start, end, dur} dicts).
-    """
+
+def _as_mins(val):
+    """Flatten any bucket form to a sorted, deduped list of minute floats."""
     out = set()
     for x in val:
-        if isinstance(x, dict):
-            ts = x.get("start") or x.get("end")
-            if ts:
-                out.add(round(minutes_since_midnight(ts), 2))
-        else:
-            out.add(round(float(x), 2))
+        m = _entry_minute(x)
+        if m is not None:
+            out.add(m)
     return sorted(out)
 
 
+def _insort_entry(entries, entry):
+    """Insert a rich entry into a list sorted by start-minute."""
+    start = entry['start']
+    lo, hi = 0, len(entries)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        m = _entry_minute(entries[mid])
+        if m is not None and m < start:
+            lo = mid + 1
+        else:
+            hi = mid
+    entries.insert(lo, entry)
+
+
 def record_start(route, start_ms):
-    """Insert one start time (ms) into today.json, keeping each day sorted."""
+    """Append a new trip-start entry to today.json (sorted by minute)."""
     if not route:
         return
     day = date_str(start_ms)
-    mins = round(minutes_since_midnight(start_ms), 2)
+    entry = {
+        'start': round(minutes_since_midnight(start_ms), 2),
+        'elapsed_seconds': None,
+        'stops_passed': None,
+    }
     with _file_lock:
         data = load(TODAY)
-        bisect.insort(data.setdefault(route, {}).setdefault(day, []), mins)
+        bucket = data.setdefault(route, {}).setdefault(day, [])
+        _insort_entry(bucket, entry)
         dump(TODAY, data)
 
 
 def record_starts(entries):
-    """Batch-insert (route, start_ms) pairs with a single file write."""
+    """Batch-insert (route, start_ms) pairs with one file write."""
     if not entries:
         return
     with _file_lock:
@@ -65,13 +101,53 @@ def record_starts(entries):
             if not route:
                 continue
             day = date_str(start_ms)
-            mins = round(minutes_since_midnight(start_ms), 2)
-            bisect.insort(data.setdefault(route, {}).setdefault(day, []), mins)
+            entry = {
+                'start': round(minutes_since_midnight(start_ms), 2),
+                'elapsed_seconds': None,
+                'stops_passed': None,
+            }
+            bucket = data.setdefault(route, {}).setdefault(day, [])
+            _insort_entry(bucket, entry)
         dump(TODAY, data)
 
 
+def record_finish(route, start_ms, elapsed_seconds=None,
+                  stops_passed=None, tunnel_seconds=None):
+    """Update the matching today.json entry with retirement stats.
+
+    Matches the entry by route + day + start-minute (within 0.02 min).
+    If no match exists (rare — e.g. the day rolled over mid-trip), the
+    finish stats are silently dropped.
+    """
+    if not route:
+        return
+    day = date_str(start_ms)
+    target = round(minutes_since_midnight(start_ms), 2)
+    with _file_lock:
+        data = load(TODAY)
+        bucket = data.get(route, {}).get(day)
+        if not bucket:
+            return
+        for i, e in enumerate(bucket):
+            m = _entry_minute(e)
+            if m is None or abs(m - target) > 0.02:
+                continue
+            if not isinstance(e, dict):
+                e = {'start': m}
+            e['elapsed_seconds'] = elapsed_seconds
+            e['stops_passed'] = stops_passed
+            if tunnel_seconds is not None:
+                e['tunnel_seconds'] = tunnel_seconds
+            bucket[i] = e
+            dump(TODAY, data)
+            return
+
+
 def rollover():
-    """Normalize all buckets in place; move finished days into daily_cdfs."""
+    """Drain finished days from today.json into daily_cdfs.json.
+
+    today.json keeps rich entries; daily_cdfs.json stores flat minute lists.
+    """
     today = date_str()
     with _file_lock:
         trips = load(TODAY)
@@ -80,14 +156,10 @@ def rollover():
 
         for route, days in list(trips.items()):
             for day in list(days.keys()):
-                mins = _as_mins(days[day])
-                if mins != days[day]:
-                    days[day] = mins
-                    dirty_t = True
                 if day == today:
                     continue
                 if day not in cdfs.get(route, {}):
-                    cdfs.setdefault(route, {})[day] = mins
+                    cdfs.setdefault(route, {})[day] = _as_mins(days[day])
                     dirty_c = True
                 days.pop(day)
                 dirty_t = True
@@ -106,6 +178,14 @@ def rollover():
             dump(TODAY, trips)
         if dirty_c:
             dump(DAILY_CDFS, cdfs)
+
+
+def today_minutes(data=None):
+    """Return today.json reshaped as {route: {day: [minutes]}} for CDFs."""
+    if data is None:
+        data = load(TODAY)
+    return {r: {d: _as_mins(v) for d, v in days.items()}
+            for r, days in data.items()}
 
 
 def _seconds_until_midnight() -> float:

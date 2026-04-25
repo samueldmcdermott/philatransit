@@ -129,6 +129,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .next-stop-name.tunnel-stop { color: #93c5fd; }
 .vcard-progress { font-size: 9px; color: var(--muted); margin-top: 3px; letter-spacing: 0.02em; }
+.vcard-timing   { font-size: 9px; color: var(--muted); margin-top: 1px; letter-spacing: 0.02em; }
 
 /* ghost vehicle (tunnel estimation) */
 .vcard.ghost-card { opacity: 0.75; border-style: dashed; }

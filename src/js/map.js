@@ -477,9 +477,18 @@ function updateVehiclesOnMap(vehicles) {
     const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
     const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${aftPct}–${forePct}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
     const detourInfo = (!isGhost && v.on_detour) ? `<div style="font-size:10px;color:#e74c3c;margin-bottom:3px;font-weight:600;">Detour</div>` : '';
-    const sPassed = tripStopsPassed(v), sRemaining = tripStopsRemaining(v);
-    const stopProgress = (!isGhost && sPassed != null && sRemaining != null)
-      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${sPassed} stops passed · ${sRemaining} remaining</div>` : '';
+    const sPassed = tripStopsPassed(v), sTotal = tripStopsTotal(v);
+    const stopProgress = (!isGhost && sPassed != null && sTotal != null && sTotal > 0)
+      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${sPassed}/${sTotal} stops passed</div>` : '';
+    const startMs    = tripStartMs(v);
+    const elapsedSec = tripElapsedSeconds(v);
+    const tunnelSec  = tripTunnelSeconds(v);
+    const timingBits = [];
+    if (startMs != null)    timingBits.push(`Started ${fmtTime(startMs)}`);
+    if (elapsedSec != null) timingBits.push(`elapsed ${fmtElapsed(elapsedSec)}`);
+    if (tunnelSec != null && tunnelSec > 0) timingBits.push(`${fmtElapsed(tunnelSec)} in tunnel`);
+    const timingInfo = (!isGhost && timingBits.length)
+      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${timingBits.join(' · ')}</div>` : '';
 
     // Next stop and ETA
     const nsInfo = computeNextStopInfo(v, lat, lng);
@@ -499,6 +508,7 @@ function updateVehiclesOnMap(vehicles) {
         ${nextStopLine}
         <div style="font-size:11px;color:#78818c;margin-top:2px;">${lateText}${dir?' · → '+dir:''}</div>
         ${stopProgress}
+        ${timingInfo}
       </div>`;
 
     // Ghost band polyline

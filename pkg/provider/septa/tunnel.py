@@ -299,6 +299,7 @@ class SeptaTunnelDetector:
                             'direction': ghost['direction'],
                             'entry_lat': ghost['entryLat'],
                             'entry_lng': ghost['entryLng'],
+                            'entry_time': ghost['enterTs'] / 1000,
                             'exit_time': now,
                         }
                         del _ghosts[label]

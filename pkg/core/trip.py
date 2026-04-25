@@ -32,7 +32,7 @@ import time
 from dataclasses import dataclass, field
 
 from .. import geo
-from .stats import record_start
+from .stats import record_finish, record_start
 
 
 # ── Configuration ─────────────────────────────────────────────────────
@@ -71,11 +71,16 @@ class Trip:
     next_stop: str | None = None
     stops_passed: int = 0
     stops_remaining: int = 0
+    stops_total: int = 0
+    total_stops_crossed: int = 0         # cumulative stop-transitions over trip lifetime
 
     # Classification
     vehicle_type: str = ''               # from RouteInfo mode (e.g. "TROLLEY", "BUS")
     label: str = ''                      # fleet number (stable across trip ID changes)
     on_detour: bool = False              # set by DetourDetector
+
+    # Tunnel timing (T routes only — accumulated across emergences)
+    tunnel_seconds: float = 0.0
 
     # Lifecycle
     passed_destination: bool = False
@@ -106,6 +111,11 @@ def _stop_da(stop_dists, name):
 def _update_stop_info(trip, stop_dists):
     """Compute current_stop, next_stop, stops_passed, stops_remaining.
 
+    stops_passed / stops_remaining are absolute counts along the route in the
+    direction of travel — not relative to where the trip was first observed —
+    so they always sum to stops_total (e.g. 14/27 stops passed) and remain
+    consistent across mid-route pickups, tunnel transits, and direction flips.
+
     stop_dists: [(name, dist_along), ...] sorted by dist_along.
     """
     if not stop_dists:
@@ -114,28 +124,28 @@ def _update_stop_info(trip, stop_dists):
     dists = [s[1] for s in stop_dists]
     names = [s[0] for s in stop_dists]
     n = len(dists)
+    trip.stops_total = n
 
     idx = bisect.bisect_right(dists, trip.dist_along)
 
     if trip.toward_destination:
         trip.current_stop = names[idx - 1] if idx > 0 else None
         trip.next_stop = names[idx] if idx < n else None
-        first_idx = bisect.bisect_right(dists, trip.first_dist_along)
-        trip.stops_passed = max(0, idx - first_idx)
+        trip.stops_passed = idx
         trip.stops_remaining = n - idx
     else:
         trip.current_stop = names[idx] if idx < n else None
         trip.next_stop = names[idx - 1] if idx > 0 else None
-        first_idx = bisect.bisect_left(dists, trip.first_dist_along)
-        trip.stops_passed = max(0, first_idx - idx)
+        trip.stops_passed = n - idx
         trip.stops_remaining = idx
 
 
 def _update_previous_stops(trip):
-    """Update previous_stops list from current_stop changes."""
+    """Update previous_stops list and bump cumulative stop-crossings on change."""
     if trip.current_stop and (not trip.previous_stops or
                               trip.previous_stops[0] != trip.current_stop):
         trip.previous_stops = [trip.current_stop] + trip.previous_stops[:1]
+        trip.total_stops_crossed += 1
 
 
 # ── TripManager ───────────────────────────────────────────────────────
@@ -239,6 +249,7 @@ class TripManager:
                         self._trips[vid] = trip
 
                     if trip.retired:
+                        self._record_retirement(trip)
                         del self._trips[vid]
                         continue
 
@@ -267,6 +278,7 @@ class TripManager:
                 if trip.label and trip.label in self._ghost_labels:
                     continue
                 if now - trip.last_update > _STALE_S:
+                    self._record_retirement(trip)
                     del self._trips[vid]
 
     def _create_trip(self, vid, route_id, lat, lng, da, shape, now,
@@ -407,12 +419,11 @@ class TripManager:
     def apply_tunnel_emergence(self, emerged: dict[str, dict]):
         """Flip direction on trips whose vehicles just exited the tunnel.
 
-        emerged: {label: {route, direction, ...}} from the tunnel detector.
-        Emergence is always westbound — the vehicle has reached the
-        destination (13th St) underground and is now heading back toward
-        the origin.  We flip the trip to toward_destination=False and
-        reset first_dist_along to the destination end so that
-        stops_passed correctly counts the return-leg tunnel stops.
+        emerged: {label: {route, direction, entry_time, exit_time, ...}}
+        from the tunnel detector.  Eastbound emergence flips the trip to
+        toward_destination=False (the vehicle has reached 13th St and is
+        heading back).  In both directions we accumulate tunnel_seconds
+        for the trip from the entry/exit timestamps.
         """
         if not emerged or not self._shapes:
             return
@@ -423,15 +434,28 @@ class TripManager:
                 info = emerged[trip.label]
                 if trip.route != info['route']:
                     continue
+                # Accumulate tunnel time for this trip
+                entry = info.get('entry_time')
+                exit_ = info.get('exit_time')
+                if entry and exit_ and exit_ > entry:
+                    trip.tunnel_seconds = round(trip.tunnel_seconds + (exit_ - entry), 1)
                 # Flip to return if still heading toward destination
                 if trip.toward_destination:
                     self._flip_to_return(trip)
-                # Reset first_dist_along to the destination (turnaround
-                # point) so stops_passed counts westbound tunnel stops.
                 shape = self._shapes.get(trip.route)
                 if shape:
-                    trip.first_dist_along = shape.total_len
                     _update_stop_info(trip, shape.stops)
+
+    def _record_retirement(self, trip):
+        """Persist final trip stats to today.json on retirement."""
+        is_tunnel_route = trip.route in {'T1', 'T2', 'T3', 'T4', 'T5'}
+        record_finish(
+            trip.route,
+            int(trip.start_time * 1000),
+            elapsed_seconds=round(trip.last_update - trip.start_time, 1),
+            stops_passed=trip.total_stops_crossed,
+            tunnel_seconds=round(trip.tunnel_seconds, 1) if is_tunnel_route else None,
+        )
 
     def _flip_to_forward(self, trip):
         """Correct a wrong return flip back to forward."""
@@ -466,12 +490,17 @@ class TripManager:
             'shape_total_len': round(shape.total_len, 1),
         }
 
-        v['progress'] = {
+        is_tunnel_route = trip.route in {'T1', 'T2', 'T3', 'T4', 'T5'}
+        progress = {
             'current_stop': trip.current_stop,
             'next_stop': trip.next_stop,
             'previous_stops': list(trip.previous_stops),
             'stops_passed': trip.stops_passed,
             'stops_remaining': trip.stops_remaining,
+            'stops_total': trip.stops_total,
             'delay_minutes': delay,
             'elapsed_seconds': round(trip.elapsed, 1),
         }
+        if is_tunnel_route:
+            progress['tunnel_seconds'] = round(trip.tunnel_seconds, 1)
+        v['progress'] = progress

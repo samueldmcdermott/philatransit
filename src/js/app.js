@@ -227,7 +227,33 @@ function tripCurrentStop(t) { return t.progress?.current_stop ?? null; }
 function tripNextStop(t) { return t.progress?.next_stop ?? null; }
 function tripStopsPassed(t) { return t.progress?.stops_passed ?? null; }
 function tripStopsRemaining(t) { return t.progress?.stops_remaining ?? null; }
+function tripStopsTotal(t) {
+  const tot = t.progress?.stops_total;
+  if (tot != null) return tot;
+  const p = t.progress?.stops_passed, r = t.progress?.stops_remaining;
+  return (p != null && r != null) ? p + r : null;
+}
 function tripOnDetour(t) { return t.on_detour || false; }
+function tripStartMs(t) {
+  const s = t.start_time;
+  if (s == null) return null;
+  return s < 1e12 ? s * 1000 : s; // start_time is unix seconds
+}
+function tripElapsedSeconds(t) {
+  const e = t.progress?.elapsed_seconds;
+  if (e != null) return e;
+  const ms = tripStartMs(t);
+  return ms != null ? Math.max(0, (Date.now() - ms) / 1000) : null;
+}
+function tripTunnelSeconds(t) { return t.progress?.tunnel_seconds ?? null; }
+function fmtElapsed(secs) {
+  if (secs == null || isNaN(secs)) return '';
+  const s = Math.max(0, Math.round(secs));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2,'0')}m`
+       : m > 0 ? `${m}m ${String(ss).padStart(2,'0')}s`
+       : `${ss}s`;
+}
 
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 
@@ -798,9 +824,18 @@ function renderTrips(trips) {
     const ghostDir = t._direction || '';
     const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${aftPct}–${forePct}% ${ghostDir}${t._leg === 'second' ? ' (return)' : ''}</div>` : '';
     const sPassed = tripStopsPassed(t);
-    const sRemaining = tripStopsRemaining(t);
-    const progressInfo = (!isGhost && sPassed != null && sRemaining != null)
-      ? `<div class="vcard-progress">${sPassed} passed · ${sRemaining} remaining</div>` : '';
+    const sTotal  = tripStopsTotal(t);
+    const progressInfo = (!isGhost && sPassed != null && sTotal != null && sTotal > 0)
+      ? `<div class="vcard-progress">${sPassed}/${sTotal} stops passed</div>` : '';
+    const startMs    = tripStartMs(t);
+    const elapsedSec = tripElapsedSeconds(t);
+    const tunnelSec  = tripTunnelSeconds(t);
+    const timingBits = [];
+    if (startMs != null)    timingBits.push(`Started ${fmtTime(startMs)}`);
+    if (elapsedSec != null) timingBits.push(`elapsed ${fmtElapsed(elapsedSec)}`);
+    if (tunnelSec != null && tunnelSec > 0) timingBits.push(`${fmtElapsed(tunnelSec)} in tunnel`);
+    const timingInfo = (!isGhost && timingBits.length)
+      ? `<div class="vcard-timing">${timingBits.join(' · ')}</div>` : '';
     const dest = t.destination || t.meta?.headsign || '—';
     card.innerHTML = `
       ${ghostBanner}
@@ -813,6 +848,7 @@ function renderTrips(trips) {
         <div class="next-stop-label">Next Stop</div>
         <div class="next-stop-name tunnel-stop">${nextStop || '—'}${nextStopEta != null ? ` <span style="color:#78818c;font-size:11px;">~${Math.round(nextStopEta)} min</span>` : ''}</div>
         ${progressInfo}
+        ${timingInfo}
       </div>
       <div class="vcard-tags">${tags.join('')}</div>`;
     grid.appendChild(card);

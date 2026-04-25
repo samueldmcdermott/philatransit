@@ -7,7 +7,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 
 from .helpers import TODAY, SCHED, DAILY_CDFS, load, dump, date_str
 from .poller import transit_lock, transit_cache, rail_lock, rail_cache
-from .core.stats import CUTOFF_DATE, record_start
+from .core.stats import CUTOFF_DATE, record_start, today_minutes
 from .version import get_version
 
 api = Blueprint("api", __name__)
@@ -137,7 +137,7 @@ def get_cdfs():
                 del cdfs[route][day]
 
     today_str = date_str()
-    for route, days in load(TODAY).items():
+    for route, days in today_minutes().items():
         if today_str in days:
             cdfs.setdefault(route, {})[today_str] = days[today_str]
 
@@ -163,18 +163,19 @@ def clear_stats():
 
 @api.route("/api/stats/export")
 def export_stats():
-    fmt   = request.args.get("format", "json").lower()
+    fmt = request.args.get("format", "json").lower()
     trips = load(TODAY)
 
     if fmt == "csv":
         route_filters = set(r for r in request.args.getlist("route") if r.strip()) or None
+        flat = today_minutes(trips)
         rows = ["route,date,time_of_day,minutes"]
-        for route in sorted(trips):
+        for route in sorted(flat):
             if route_filters and route not in route_filters:
                 continue
             safe = route.replace('"', '""')
-            for day in sorted(trips[route]):
-                for mins in trips[route][day]:
+            for day in sorted(flat[route]):
+                for mins in flat[route][day]:
                     h, m = int(mins // 60), int(mins % 60)
                     s = int(round((mins - int(mins)) * 60))
                     rows.append(f'"{safe}",{day},{h:02d}:{m:02d}:{s:02d},{mins}')
