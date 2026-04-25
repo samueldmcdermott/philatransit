@@ -32,6 +32,11 @@ from ..helpers import (
 
 CUTOFF_DATE = "2026-03-17"
 
+# Completed trips that traversed less than this fraction of their effective
+# route are treated as anomalies: they're left in today.json for same-day
+# debugging but excluded from CDF stats and from the daily_cdfs harvest.
+MIN_VALID_STOP_FRACTION = 0.95
+
 _file_lock = threading.Lock()
 
 
@@ -50,10 +55,32 @@ def _entry_minute(entry):
     return round(float(entry), 2)
 
 
-def _as_mins(val):
-    """Flatten any bucket form to a sorted, deduped list of minute floats."""
+def _is_valid_for_stats(entry):
+    """True if the entry should count toward CDFs.
+
+    In-flight entries (no elapsed_seconds yet) and entries without a
+    fraction (e.g. rail trips, which aren't Trip-managed) are kept.
+    Only completed entries with an explicit low fraction are excluded.
+    """
+    if not isinstance(entry, dict):
+        return True
+    if entry.get('elapsed_seconds') is None:
+        return True
+    f = entry.get('fraction_stops_passed')
+    if f is None:
+        return True
+    return f >= MIN_VALID_STOP_FRACTION
+
+
+def _as_mins(val, *, valid_only=False):
+    """Flatten any bucket form to a sorted, deduped list of minute floats.
+
+    If valid_only is True, completed-but-anomalous trips are dropped.
+    """
     out = set()
     for x in val:
+        if valid_only and not _is_valid_for_stats(x):
+            continue
         m = _entry_minute(x)
         if m is not None:
             out.add(m)
@@ -111,8 +138,45 @@ def record_starts(entries):
         dump(TODAY, data)
 
 
+def record_travel_start(route, nominal_start_ms, travel_start_ms, idle_seconds):
+    """Promote a trip's nominal start to its travel-start in today.json.
+
+    Finds the entry inserted by record_start (matched on nominal-minute),
+    rewrites its ``start`` field to the travel-start minute, records the
+    nominal start under ``nominal_start``, and stores ``idle_seconds``.
+    The bucket is re-sorted so CDF readers stay in order.
+    """
+    if not route or nominal_start_ms == travel_start_ms:
+        return
+    day = date_str(nominal_start_ms)
+    if date_str(travel_start_ms) != day:
+        # Idle period crossed midnight — don't bother shifting buckets.
+        return
+    nominal_min = round(minutes_since_midnight(nominal_start_ms), 2)
+    travel_min = round(minutes_since_midnight(travel_start_ms), 2)
+    with _file_lock:
+        data = load(TODAY)
+        bucket = data.get(route, {}).get(day)
+        if not bucket:
+            return
+        for i, e in enumerate(bucket):
+            m = _entry_minute(e)
+            if m is None or abs(m - nominal_min) > 0.02:
+                continue
+            if not isinstance(e, dict):
+                e = {'start': m}
+            e['start'] = travel_min
+            e['nominal_start'] = nominal_min
+            e['idle_seconds'] = round(idle_seconds, 1)
+            bucket.pop(i)
+            _insort_entry(bucket, e)
+            dump(TODAY, data)
+            return
+
+
 def record_finish(route, start_ms, elapsed_seconds=None,
-                  stops_passed=None, tunnel_seconds=None):
+                  stops_passed=None, fraction_stops_passed=None,
+                  was_on_detour=False, tunnel_seconds=None):
     """Update the matching today.json entry with retirement stats.
 
     Matches the entry by route + day + start-minute (within 0.02 min).
@@ -136,6 +200,9 @@ def record_finish(route, start_ms, elapsed_seconds=None,
                 e = {'start': m}
             e['elapsed_seconds'] = elapsed_seconds
             e['stops_passed'] = stops_passed
+            e['fraction_stops_passed'] = fraction_stops_passed
+            if was_on_detour:
+                e['was_on_detour'] = True
             if tunnel_seconds is not None:
                 e['tunnel_seconds'] = tunnel_seconds
             bucket[i] = e
@@ -146,7 +213,8 @@ def record_finish(route, start_ms, elapsed_seconds=None,
 def rollover():
     """Drain finished days from today.json into daily_cdfs.json.
 
-    today.json keeps rich entries; daily_cdfs.json stores flat minute lists.
+    today.json keeps rich entries (including anomalous ones); daily_cdfs.json
+    stores flat minute lists with anomalous trips filtered out.
     """
     today = date_str()
     with _file_lock:
@@ -159,7 +227,8 @@ def rollover():
                 if day == today:
                     continue
                 if day not in cdfs.get(route, {}):
-                    cdfs.setdefault(route, {})[day] = _as_mins(days[day])
+                    cdfs.setdefault(route, {})[day] = _as_mins(
+                        days[day], valid_only=True)
                     dirty_c = True
                 days.pop(day)
                 dirty_t = True
@@ -180,11 +249,15 @@ def rollover():
             dump(DAILY_CDFS, cdfs)
 
 
-def today_minutes(data=None):
-    """Return today.json reshaped as {route: {day: [minutes]}} for CDFs."""
+def today_minutes(data=None, *, valid_only=True):
+    """Return today.json reshaped as {route: {day: [minutes]}} for CDFs.
+
+    Anomalous completed trips are filtered out by default; pass
+    valid_only=False to include them (e.g. for raw export).
+    """
     if data is None:
         data = load(TODAY)
-    return {r: {d: _as_mins(v) for d, v in days.items()}
+    return {r: {d: _as_mins(v, valid_only=valid_only) for d, v in days.items()}
             for r, days in data.items()}
 
 

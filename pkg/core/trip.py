@@ -32,7 +32,7 @@ import time
 from dataclasses import dataclass, field
 
 from .. import geo
-from .stats import record_finish, record_start
+from .stats import record_finish, record_start, record_travel_start
 
 
 # ── Configuration ─────────────────────────────────────────────────────
@@ -42,6 +42,8 @@ _STALE_S = 600         # seconds — drop trip after this long without update
 _TERMINUS_RADIUS = 200 # meters — "at terminus" threshold
 _DA_HISTORY_LEN = 4    # polls of dist_along history for movement-based direction
 _DA_FLIP_THRESH = 100  # meters — minimum net movement to trigger a direction flip
+_TRAVEL_MIN_MOVE = 20  # meters — distance from origin that counts as "started moving"
+_TRAVEL_IDLE_POLLS = 4 # min polls stationary near origin before idle override applies
 
 
 # ── Trip dataclass ────────────────────────────────────────────────────
@@ -61,7 +63,9 @@ class Trip:
     # Position tracking
     dist_along: float = 0.0
     first_dist_along: float = 0.0
-    start_time: float = 0.0
+    start_time: float = 0.0              # effective start (= travel_start once override fires)
+    nominal_start: float = 0.0           # when SEPTA first marked the trip live
+    idle_seconds: float = 0.0            # travel_start - nominal_start (0 if no idle period)
     last_update: float = 0.0
     total_travel: float = 0.0
     speed_mps: float | None = None
@@ -78,6 +82,8 @@ class Trip:
     vehicle_type: str = ''               # from RouteInfo mode (e.g. "TROLLEY", "BUS")
     label: str = ''                      # fleet number (stable across trip ID changes)
     on_detour: bool = False              # set by DetourDetector
+    was_on_detour: bool = False          # ever on detour during trip lifetime
+    stops_at_detour_start: int = 0       # stops_passed snapshot at first detour entry
 
     # Tunnel timing (T routes only — accumulated across emergences)
     tunnel_seconds: float = 0.0
@@ -91,6 +97,8 @@ class Trip:
     _last_stop_da: float | None = field(default=None, repr=False)
     _prev_stop_da: float | None = field(default=None, repr=False)
     _da_history: list = field(default_factory=list, repr=False)  # recent dist_along samples
+    _stationary_polls: int = field(default=1, repr=False)        # consecutive polls within _TRAVEL_MIN_MOVE
+    _travel_detected: bool = field(default=False, repr=False)
 
     @property
     def elapsed(self) -> float:
@@ -257,6 +265,13 @@ class TripManager:
                     if self._detour_detector:
                         trip.on_detour = self._detour_detector.check_detour(
                             vid, route_id, lat, lng)
+                        # Snapshot stops on first transition into detour:
+                        # the trolley skips the underground stops, so only
+                        # the stops it had passed up to this point count
+                        # toward its effective denominator.
+                        if trip.on_detour and not trip.was_on_detour:
+                            trip.was_on_detour = True
+                            trip.stops_at_detour_start = trip.stops_passed
                         if trip.on_detour and self._detour_detector.detect_turnaround(
                                 vid, route_id, lat, lng, trip.toward_destination):
                             self._flip_to_return(trip)
@@ -315,6 +330,7 @@ class TripManager:
             dist_along=da,
             first_dist_along=da,
             start_time=now,
+            nominal_start=now,
             last_update=now,
             vehicle_type=route_info.get('mode', ''),
             label=label,
@@ -328,7 +344,7 @@ class TripManager:
             trip._last_stop_da = _stop_da(shape.stops, trip.current_stop)
             trip._prev_stop_da = da
 
-        record_start(trip.route, int(trip.start_time * 1000))
+        record_start(trip.route, int(trip.nominal_start * 1000))
         return trip
 
     def _update_trip(self, trip, new_da, lat, lng, shape, now):
@@ -338,6 +354,25 @@ class TripManager:
         trip.dist_along = new_da
         trip.current_location = (lat, lng)
         trip.last_update = now
+
+        # Travel-start detection: SEPTA can mark a trip live while the vehicle
+        # sits at the terminus.  If the trip stays within _TRAVEL_MIN_MOVE of
+        # its first observed position for _TRAVEL_IDLE_POLLS or more polls,
+        # the first subsequent movement is treated as the real start time.
+        if not trip._travel_detected:
+            if abs(new_da - trip.first_dist_along) > _TRAVEL_MIN_MOVE:
+                if trip._stationary_polls >= _TRAVEL_IDLE_POLLS:
+                    trip.start_time = now
+                    trip.idle_seconds = round(now - trip.nominal_start, 1)
+                    record_travel_start(
+                        trip.route,
+                        int(trip.nominal_start * 1000),
+                        int(now * 1000),
+                        trip.idle_seconds,
+                    )
+                trip._travel_detected = True
+            else:
+                trip._stationary_polls += 1
 
         # Speed from cumulative travel
         elapsed = now - trip.start_time
@@ -447,13 +482,29 @@ class TripManager:
                     _update_stop_info(trip, shape.stops)
 
     def _record_retirement(self, trip):
-        """Persist final trip stats to today.json on retirement."""
+        """Persist final trip stats to today.json on retirement.
+
+        fraction_stops_passed is total_stops_crossed / effective_total,
+        capped at 1.0.  For detoured trolleys the denominator is the stops
+        passed before the detour began (the route the vehicle could
+        actually traverse), not the full route.
+        """
         is_tunnel_route = trip.route in {'T1', 'T2', 'T3', 'T4', 'T5'}
+        if trip.was_on_detour and trip.stops_at_detour_start > 0:
+            denom = trip.stops_at_detour_start
+        else:
+            denom = trip.stops_total
+        if denom > 0:
+            fraction = round(min(trip.total_stops_crossed, denom) / denom, 3)
+        else:
+            fraction = None
         record_finish(
             trip.route,
             int(trip.start_time * 1000),
             elapsed_seconds=round(trip.last_update - trip.start_time, 1),
             stops_passed=trip.total_stops_crossed,
+            fraction_stops_passed=fraction,
+            was_on_detour=trip.was_on_detour,
             tunnel_seconds=round(trip.tunnel_seconds, 1) if is_tunnel_route else None,
         )
 
@@ -478,6 +529,8 @@ class TripManager:
         v['toward_destination'] = trip.toward_destination
         v['bearing'] = trip.bearing
         v['start_time'] = round(trip.start_time, 3)
+        v['nominal_start_time'] = round(trip.nominal_start, 3)
+        v['idle_seconds'] = round(trip.idle_seconds, 1)
         v['vehicle_type'] = trip.vehicle_type
         v['on_detour'] = trip.on_detour
 

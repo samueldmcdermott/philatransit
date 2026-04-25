@@ -246,6 +246,7 @@ function tripElapsedSeconds(t) {
   return ms != null ? Math.max(0, (Date.now() - ms) / 1000) : null;
 }
 function tripTunnelSeconds(t) { return t.progress?.tunnel_seconds ?? null; }
+function tripIdleSeconds(t) { return t.idle_seconds ?? 0; }
 function fmtElapsed(secs) {
   if (secs == null || isNaN(secs)) return '';
   const s = Math.max(0, Math.round(secs));
@@ -830,9 +831,11 @@ function renderTrips(trips) {
     const startMs    = tripStartMs(t);
     const elapsedSec = tripElapsedSeconds(t);
     const tunnelSec  = tripTunnelSeconds(t);
+    const idleSec    = tripIdleSeconds(t);
     const timingBits = [];
     if (startMs != null)    timingBits.push(`Started ${fmtTime(startMs)}`);
     if (elapsedSec != null) timingBits.push(`elapsed ${fmtElapsed(elapsedSec)}`);
+    if (idleSec > 0)        timingBits.push(`idled ${fmtElapsed(idleSec)}`);
     if (tunnelSec != null && tunnelSec > 0) timingBits.push(`${fmtElapsed(tunnelSec)} in tunnel`);
     const timingInfo = (!isGhost && timingBits.length)
       ? `<div class="vcard-timing">${timingBits.join(' · ')}</div>` : '';

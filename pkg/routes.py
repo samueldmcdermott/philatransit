@@ -129,7 +129,12 @@ def get_stats():
 
 @api.route("/api/stats/cdfs")
 def get_cdfs():
-    """Return {route: {day: [sorted start-minutes]}} — history + today merged."""
+    """Return {route: {day: [sorted start-minutes]}} — history + today merged.
+
+    Anomalous completed trips are excluded by default; pass ?include_invalid=1
+    to include them (today's bucket only — daily_cdfs.json never contains them).
+    """
+    include_invalid = request.args.get("include_invalid") in ("1", "true", "yes")
     cdfs = load(DAILY_CDFS)
     for route in list(cdfs.keys()):
         for day in list(cdfs[route].keys()):
@@ -137,7 +142,7 @@ def get_cdfs():
                 del cdfs[route][day]
 
     today_str = date_str()
-    for route, days in today_minutes().items():
+    for route, days in today_minutes(valid_only=not include_invalid).items():
         if today_str in days:
             cdfs.setdefault(route, {})[today_str] = days[today_str]
 

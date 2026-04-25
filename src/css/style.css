@@ -164,6 +164,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .cdf-btn.active[data-cdf="dow"] { background: #22c55e; border-color: #22c55e; }
 .cdf-btn.active[data-cdf="ndays"] { background: #f59e0b; border-color: #f59e0b; color: #000; }
 .cdf-btn.active[data-cdf="scheduled"] { background: #78818c; border-color: #78818c; }
+.cdf-btn-invalid { margin-left: auto; }
+.cdf-btn-invalid:not(.active) { background: #2a1f1f; border-color: #b45a3c; color: #f3a986; }
 .cdf-ndays-group { display: flex; align-items: center; gap: 4px; }
 .cdf-select { background: var(--card); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; font-size: 11px; padding: 3px 4px; cursor: pointer; }

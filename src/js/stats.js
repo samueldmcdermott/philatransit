@@ -5,6 +5,10 @@
 // Which CDF series are active (toggled by buttons)
 let cdfActive = { scheduled: true, today: true, dow: false, ndays: false };
 
+// Filter out trips that completed but traversed <95% of their route.
+// Default true; toggled off temporarily for debugging anomalies.
+let filterInvalid = true;
+
 // Cached CDF data from the server
 let cdfData = {};       // route -> {date: [sorted mins], ...}
 let cdfSchedMins = [];  // schedule minutes for current route/day-type
@@ -41,7 +45,8 @@ async function loadStats() {
   document.getElementById('emptyStats').style.display   = 'none';
   document.getElementById('statsContent').style.display = '';
   try {
-    const data = await apiFetch('/api/stats/cdfs');
+    const url = '/api/stats/cdfs' + (filterInvalid ? '' : '?include_invalid=1');
+    const data = await apiFetch(url);
     cdfData = data;
     renderStats();
   } catch (e) { setStatus('Stats error: ' + e.message); }
@@ -261,6 +266,16 @@ function onNdaysChange() {
     redrawChart();
     updateLegend();
   }
+}
+
+function toggleInvalidFilter() {
+  filterInvalid = !filterInvalid;
+  const btn = document.querySelector('.cdf-btn[data-cdf="filterInvalid"]');
+  if (btn) {
+    btn.classList.toggle('active', filterInvalid);
+    btn.textContent = filterInvalid ? 'Filter invalid' : 'Including invalid';
+  }
+  loadStats();
 }
 
 function updateLegend() {

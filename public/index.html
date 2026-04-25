@@ -186,6 +186,7 @@
             <span class="cdf-ndays-suffix">days</span>
             <input type="number" id="ndaysCustom" class="cdf-custom-input" min="1" max="365" value="14" style="display:none" onchange="onNdaysChange()">
           </div>
+          <button class="cdf-btn cdf-btn-invalid active" data-cdf="filterInvalid" onclick="toggleInvalidFilter()" title="Filter out completed trips that traversed less than 95% of their route">Filter invalid</button>
         </div>
         <canvas id="tripChart" height="300"></canvas>
         <div class="chart-legend" id="chartLegend"></div>
