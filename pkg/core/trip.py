@@ -46,6 +46,16 @@ _TRAVEL_IDLE_POLLS = 4 # min polls stationary near origin before idle override a
 _DORMANT_AFTER_S = 1800  # seconds — auto-dormant after this long without movement
 _DORMANT_MOVE_M = 20     # meters — movement threshold to wake a dormant trip
 
+# A trip first observed near its origin is "born dormant": SEPTA marks
+# trolleys as active before they actually leave the yard, so we hide
+# them until we have evidence of real motion.  Wake when EITHER three
+# consecutive polls each show >_BORN_DORMANT_STEP_M of movement OR the
+# vehicle is >_BORN_DORMANT_TOTAL_M (straight-line) from its first
+# sighting.  Both thresholds are deliberately tight to filter GPS jitter.
+_BORN_DORMANT_STEP_M = 3
+_BORN_DORMANT_TOTAL_M = 10
+_BORN_DORMANT_STEPS = 3
+
 # Trolley tunnel routes — the only routes that accumulate tunnel_seconds
 # and surface that field on the API.
 _TUNNEL_ROUTES = frozenset({'T1', 'T2', 'T3', 'T4', 'T5'})
@@ -110,6 +120,14 @@ class Trip:
     _stationary_polls: int = field(default=1, repr=False)        # consecutive polls within _TRAVEL_MIN_MOVE
     _travel_detected: bool = field(default=False, repr=False)
     _last_move_ts: float = field(default=0.0, repr=False)        # last poll where dist_along moved >_DORMANT_MOVE_M
+    # Born-dormant state: trip created near origin terminus and never
+    # observed moving.  Wakes only after _BORN_DORMANT_STEPS consecutive
+    # polls each >_BORN_DORMANT_STEP_M, or >_BORN_DORMANT_TOTAL_M total
+    # straight-line displacement from the first sighting.
+    _born_dormant: bool = field(default=False, repr=False)
+    _first_lat: float = field(default=0.0, repr=False)
+    _first_lng: float = field(default=0.0, repr=False)
+    _consecutive_moves: int = field(default=0, repr=False)
 
     @property
     def elapsed(self) -> float:
@@ -384,6 +402,14 @@ class TripManager:
             label=label,
         )
         trip._last_move_ts = now
+        trip._first_lat = lat
+        trip._first_lng = lng
+        # Born-dormant: a trip first observed near its origin terminus
+        # is hidden from the API until we have evidence of real motion
+        # (SEPTA flags trolleys active before they leave the yard).
+        if da <= _TERMINUS_RADIUS:
+            trip.dormant = True
+            trip._born_dormant = True
 
         # Populate stop info and seed stop history
         _update_stop_info(trip, shape.stops)
@@ -399,19 +425,42 @@ class TripManager:
     def _update_trip(self, trip, new_da, lat, lng, shape, now):
         """Advance an existing trip: direction, lifecycle, stops.
 
-        Dormancy: if the vehicle hasn't moved (>_DORMANT_MOVE_M) for
-        _DORMANT_AFTER_S seconds the trip is marked dormant and excluded
-        from API output.  Movement wakes a dormant trip; if the wake
-        position is near the origin terminus, the dormant trip is retired
-        and a fresh one will be created on the next poll.
+        Dormancy:
+          * Born-dormant (created near origin, never seen moving): wake
+            only after _BORN_DORMANT_STEPS consecutive polls each moving
+            >_BORN_DORMANT_STEP_M, or >_BORN_DORMANT_TOTAL_M total
+            straight-line displacement from the first sighting.
+          * 30-min stationary (was live, then idle): wake on any
+            >_DORMANT_MOVE_M move along the shape.  If the wake position
+            is near the origin terminus, the dormant trip is retired and
+            a fresh one will be created on the next poll.
         """
+        prev_lat, prev_lng = trip.current_location
+        step_m = geo.distance(prev_lat, prev_lng, lat, lng)
         prev_da = trip.dist_along
-        moved = abs(new_da - prev_da) > _DORMANT_MOVE_M
         trip.total_travel += abs(new_da - prev_da)
         trip.dist_along = new_da
         trip.current_location = (lat, lng)
         trip.last_update = now
 
+        if trip._born_dormant:
+            # Track consecutive small movements + cumulative displacement
+            # using raw lat/lng (not shape projections) so GPS jitter at
+            # the terminus doesn't accidentally wake the trip.
+            if step_m > _BORN_DORMANT_STEP_M:
+                trip._consecutive_moves += 1
+            else:
+                trip._consecutive_moves = 0
+            displacement = geo.distance(
+                trip._first_lat, trip._first_lng, lat, lng)
+            if (trip._consecutive_moves >= _BORN_DORMANT_STEPS
+                    or displacement > _BORN_DORMANT_TOTAL_M):
+                trip.dormant = False
+                trip._born_dormant = False
+                trip._last_move_ts = now
+            return
+
+        moved = abs(new_da - prev_da) > _DORMANT_MOVE_M
         if moved:
             trip._last_move_ts = now
             if trip.dormant:
