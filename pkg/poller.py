@@ -66,10 +66,13 @@ def _poll_loop():
                 if tunnel_detector:
                     tunnel_detector.process(by_route, _trip_manager.get_direction)
                     tunnel_emerged = tunnel_detector.pop_emerged()
-                    # Tell TripManager which vehicles are underground —
-                    # active + dormant — so their Trip objects survive in
-                    # case the vehicle later returns and we need to keep
-                    # the trip-counting stats consistent.
+                    # Forward FIFO-violation labels to TripManager so the
+                    # underlying Trip is marked dormant (kept alive on
+                    # the backend but excluded from /api/vehicles).
+                    _trip_manager.mark_dormant_by_labels(
+                        tunnel_detector.pop_newly_dormant())
+                    # Tell TripManager which vehicles are underground so
+                    # their Trip objects are protected from stale-pruning.
                     _trip_manager.set_ghost_labels(tunnel_detector.get_all_ghost_labels())
                     lingering = tunnel_detector.get_lingering()
                     for route_vehicles in by_route.values():

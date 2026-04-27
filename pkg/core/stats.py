@@ -267,8 +267,9 @@ def _seconds_until_midnight() -> float:
     return (nxt - now).total_seconds()
 
 
-def start_midnight_scheduler():
-    """Launch a daemon thread that fires rollover() shortly after each midnight."""
+def start_midnight_scheduler(*hooks):
+    """Launch a daemon thread that fires rollover() and any additional
+    hooks shortly after each midnight."""
     def _loop():
         while True:
             time.sleep(_seconds_until_midnight() + 5)
@@ -276,6 +277,11 @@ def start_midnight_scheduler():
                 rollover()
             except Exception as e:
                 print(f"  [stats] rollover error: {e}")
+            for hook in hooks:
+                try:
+                    hook()
+                except Exception as e:
+                    print(f"  [midnight] hook error: {e}")
     t = threading.Thread(target=_loop, daemon=True, name="RolloverScheduler")
     t.start()
     print("  [stats] midnight scheduler started")

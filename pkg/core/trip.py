@@ -43,6 +43,8 @@ _DA_HISTORY_LEN = 4    # polls of dist_along history for movement-based directio
 _DA_FLIP_THRESH = 100  # meters — minimum net movement to trigger a direction flip
 _TRAVEL_MIN_MOVE = 20  # meters — distance from origin that counts as "started moving"
 _TRAVEL_IDLE_POLLS = 4 # min polls stationary near origin before idle override applies
+_DORMANT_AFTER_S = 1800  # seconds — auto-dormant after this long without movement
+_DORMANT_MOVE_M = 20     # meters — movement threshold to wake a dormant trip
 
 # Trolley tunnel routes — the only routes that accumulate tunnel_seconds
 # and surface that field on the API.
@@ -94,6 +96,11 @@ class Trip:
     # Lifecycle
     passed_destination: bool = False
     retired: bool = False
+    # Dormant trips are kept alive on the backend (so the next time the
+    # vehicle reappears we can decide between continuation and a fresh
+    # trip) but excluded from API output entirely — the client never sees
+    # them.  Causes: 30+ min stationary, or tunnel-FIFO violation.
+    dormant: bool = False
 
     # Internal direction-correction state (not exposed in API)
     _last_stop_name: str | None = field(default=None, repr=False)
@@ -102,6 +109,7 @@ class Trip:
     _da_history: list = field(default_factory=list, repr=False)  # recent dist_along samples
     _stationary_polls: int = field(default=1, repr=False)        # consecutive polls within _TRAVEL_MIN_MOVE
     _travel_detected: bool = field(default=False, repr=False)
+    _last_move_ts: float = field(default=0.0, repr=False)        # last poll where dist_along moved >_DORMANT_MOVE_M
 
     @property
     def elapsed(self) -> float:
@@ -197,6 +205,30 @@ class TripManager:
         with self._lock:
             self._ghost_labels = labels
 
+    def mark_dormant_by_labels(self, labels):
+        """Mark trips dormant by fleet label (used when the tunnel detector
+        observes a FIFO-queue violation — the vehicle whose place was
+        skipped is no longer reliably in the active queue, so we hide it
+        from the API but keep its Trip alive)."""
+        if not labels:
+            return
+        labels = set(labels)
+        with self._lock:
+            for trip in self._trips.values():
+                if trip.label in labels:
+                    trip.dormant = True
+
+    def retire_dormant_trips(self):
+        """Force-retire every dormant trip.  Called at the daily rollover
+        so that long-lived dormant trips don't accumulate forever."""
+        with self._lock:
+            for vid in list(self._trips):
+                trip = self._trips[vid]
+                if not trip.dormant:
+                    continue
+                self._record_retirement(trip)
+                del self._trips[vid]
+
     def get_direction(self, vid) -> bool | None:
         """Return True if vehicle is heading toward destination.
 
@@ -233,6 +265,7 @@ class TripManager:
                 if not shape or shape.total_len == 0:
                     continue
 
+                visible = []  # vehicles to expose to the API this cycle
                 for v in vehicles:
                     vid = v.get('vehicle_id')
                     if not vid:
@@ -264,6 +297,11 @@ class TripManager:
                         del self._trips[vid]
                         continue
 
+                    # Dormant trips remain alive on the backend but are
+                    # excluded from /api/vehicles output entirely.
+                    if trip.dormant:
+                        continue
+
                     # Detour detection (provider-specific)
                     if self._detour_detector:
                         trip.on_detour = self._detour_detector.check_detour(
@@ -281,6 +319,8 @@ class TripManager:
 
                     # Write Trip fields onto the vehicle dict
                     self._write_vehicle_fields(v, trip, shape, da, now)
+                    visible.append(v)
+                transit_routes[route_id] = visible
 
             # Compute route average speeds
             route_speeds: dict[str, list[float]] = {}
@@ -290,9 +330,14 @@ class TripManager:
             for rid, speeds in route_speeds.items():
                 self._route_avg_speed[rid] = round(sum(speeds) / len(speeds), 2)
 
-            # Prune stale trips (but not vehicles currently underground)
+            # Prune stale trips.  Skip vehicles currently underground (the
+            # tunnel ghost layer is the source of truth for them) and
+            # dormant trips (kept alive until end-of-day or until the
+            # vehicle reappears at the origin — see _update_trip).
             for vid in list(self._trips):
                 trip = self._trips[vid]
+                if trip.dormant:
+                    continue
                 if trip.label and trip.label in self._ghost_labels:
                     continue
                 if now - trip.last_update > _STALE_S:
@@ -338,6 +383,7 @@ class TripManager:
             vehicle_type=route_info.get('mode', ''),
             label=label,
         )
+        trip._last_move_ts = now
 
         # Populate stop info and seed stop history
         _update_stop_info(trip, shape.stops)
@@ -351,12 +397,34 @@ class TripManager:
         return trip
 
     def _update_trip(self, trip, new_da, lat, lng, shape, now):
-        """Advance an existing trip: direction, lifecycle, stops."""
+        """Advance an existing trip: direction, lifecycle, stops.
+
+        Dormancy: if the vehicle hasn't moved (>_DORMANT_MOVE_M) for
+        _DORMANT_AFTER_S seconds the trip is marked dormant and excluded
+        from API output.  Movement wakes a dormant trip; if the wake
+        position is near the origin terminus, the dormant trip is retired
+        and a fresh one will be created on the next poll.
+        """
         prev_da = trip.dist_along
+        moved = abs(new_da - prev_da) > _DORMANT_MOVE_M
         trip.total_travel += abs(new_da - prev_da)
         trip.dist_along = new_da
         trip.current_location = (lat, lng)
         trip.last_update = now
+
+        if moved:
+            trip._last_move_ts = now
+            if trip.dormant:
+                if new_da <= _TERMINUS_RADIUS:
+                    # Dormant trip woke up at the origin — treat as a fresh
+                    # trip.  Retire here; the next poll will create the new
+                    # trip via the usual _create_trip path.
+                    trip.retired = True
+                    return
+                trip.dormant = False  # continuation
+        elif (not trip.dormant
+              and now - trip._last_move_ts > _DORMANT_AFTER_S):
+            trip.dormant = True
 
         # Travel-start detection: SEPTA can mark a trip live while the vehicle
         # sits at the terminus.  If the trip stays within _TRAVEL_MIN_MOVE of

@@ -506,8 +506,6 @@ function tickGhosts() {
   const now = Date.now();
   let changed = false;
   for (const [vid, ghost] of Object.entries(ghostVehicles)) {
-    // Dormant ghosts have no live path and don't move on the map.
-    if (ghost.dormant) continue;
     const totalElapsed = (now - ghost.enterTs) / 1000;
 
     // Ghosts are NEVER removed for being idle — a vehicle that entered
@@ -649,7 +647,7 @@ async function syncTunnelOverlay() {
   try {
     await fetchMonitoringData();
     const ghostResp = await apiFetch('/api/ghosts');
-    syncServerGhosts(ghostResp.ghosts || ghostResp, ghostResp.dormant || []);
+    syncServerGhosts(ghostResp.ghosts || ghostResp);
     lingeringVids = ghostResp.lingering || {};
   } catch (_) {}
 }
@@ -1026,10 +1024,9 @@ function tunnelQueueRowHtml(g) {
   // halfTime is one-way; ghosts stay alive for the full round-trip.
   const expectedSec = (g.halfTime || 0) * 2;
   const expStr = expectedSec > 0 ? ` (${fmtElapsed(expectedSec)} expected)` : '';
-  const dormantTag = g.dormant ? ` <span class="tunnel-queue-dormant">dormant</span>` : '';
   return `<div class="tunnel-queue-row">`
        + `<span class="tunnel-queue-route">${g.route}</span> `
-       + `<span class="tunnel-queue-vid">#${g.label || '?'}</span>${dormantTag} `
+       + `<span class="tunnel-queue-vid">#${g.label || '?'}</span> `
        + `<span class="tunnel-queue-time">in tunnel ${fmtElapsed(elapsedSec)}${expStr}</span>`
        + `</div>`;
 }

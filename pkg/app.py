@@ -63,7 +63,7 @@ def create_app(provider_name="septa"):
 
     # -- Background services --
     rollover()
-    start_midnight_scheduler()
+    start_midnight_scheduler(trip_manager.retire_dormant_trips)
     start_poller(provider, trip_manager)
 
     # -- Flask app --

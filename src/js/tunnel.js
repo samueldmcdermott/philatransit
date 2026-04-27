@@ -458,11 +458,8 @@ function pointAlongPath(path, fraction) {
 
 // ── Ghost vehicle management ───────────────────────────────────────────────
 
-/** Sync local ghost state from server-side ghost tracker (/api/ghosts).
- *  `dormantGhosts` (optional): ghosts the server has marked dormant after
- *  a younger same-direction ghost emerged ahead of them.  They are tracked
- *  for display but excluded from map markers and live trip cards. */
-function syncServerGhosts(serverGhosts, dormantGhosts = []) {
+/** Sync local ghost state from server-side ghost tracker (/api/ghosts). */
+function syncServerGhosts(serverGhosts) {
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
     ghostReplacedLabels.clear();
@@ -530,31 +527,6 @@ function syncServerGhosts(serverGhosts, dormantGhosts = []) {
       g.aftFraction = aft.fraction; g.foreFraction = fore.fraction;
       g.bandPath = extractBandPath(g, aft, fore);
     }
-  }
-
-  // Merge in dormant ghosts as lightweight entries — kept around so they
-  // appear in the tunnel-queue detail with a "dormant" badge, but excluded
-  // from map markers and live trip cards (their position is unreliable).
-  for (const dg of dormantGhosts) {
-    const label = dg.vid;
-    serverLabels.add(label);
-    ghostReplacedLabels.add(label);
-    const existing = ghostVehicles[label];
-    if (existing) {
-      existing.dormant = true;
-      existing.dormantSince = dg.dormantSince || existing.dormantSince;
-      continue;
-    }
-    ghostVehicles[label] = {
-      route: dg.route, label: dg.label, dest: dg.dest, late: dg.late,
-      _routeLabel: dg.route,
-      _entryLat: dg.entryLat, _entryLng: dg.entryLng,
-      enterTs: dg.enterTs, lingerSec: dg.lingerSec || 0,
-      direction: dg.direction,
-      halfTime: getHalfTunnelTime(dg.route),
-      dormant: true,
-      dormantSince: dg.dormantSince,
-    };
   }
 
   // Remove ghosts no longer reported by server
@@ -651,8 +623,7 @@ function getGhostVehicles() {
   if (!tunnelEstimationOn) return [];
   const routeKey = selectedRoute?.id;
   return Object.entries(ghostVehicles)
-    .filter(([_, g]) => !g.dormant
-                     && (routeKey === 'T-ALL' || g.route === routeKey))
+    .filter(([_, g]) => routeKey === 'T-ALL' || g.route === routeKey)
     .map(([label, g]) => ({
     _id:     label,
     _rkey:   g.route,
