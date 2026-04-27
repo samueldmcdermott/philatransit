@@ -185,6 +185,18 @@ def _update_previous_stops(trip):
         trip.total_stops_crossed += 1
 
 
+def _near_origin(shape, lat, lng) -> bool:
+    """True if (lat, lng) is within _TERMINUS_RADIUS straight-line meters
+    of the start-terminus coord.  Used in preference to a `dist_along`
+    check because some GTFS shapes don't actually reach the terminus
+    point (T4 is ~1.4 km off), making projection-based distance unreliable
+    near the origin."""
+    t = shape.terminus
+    if not t or not t[1] or not t[2]:
+        return False
+    return geo.distance(lat, lng, t[1], t[2]) <= _TERMINUS_RADIUS
+
+
 # ── TripManager ───────────────────────────────────────────────────────
 
 class TripManager:
@@ -407,7 +419,7 @@ class TripManager:
         # Born-dormant: a trip first observed near its origin terminus
         # is hidden from the API until we have evidence of real motion
         # (SEPTA flags trolleys active before they leave the yard).
-        if da <= _TERMINUS_RADIUS:
+        if _near_origin(shape, lat, lng):
             trip.dormant = True
             trip._born_dormant = True
 
@@ -464,7 +476,7 @@ class TripManager:
         if moved:
             trip._last_move_ts = now
             if trip.dormant:
-                if new_da <= _TERMINUS_RADIUS:
+                if _near_origin(shape, lat, lng):
                     # Dormant trip woke up at the origin — treat as a fresh
                     # trip.  Retire here; the next poll will create the new
                     # trip via the usual _create_trip path.
