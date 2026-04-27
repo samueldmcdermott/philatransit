@@ -32,9 +32,7 @@ let lastMapVehicles    = [];
 
 // Tunnel estimation state
 let tunnelEstimationOn = true;
-let vehicleHistory     = {};
 let ghostVehicles      = {};
-let ghostedVids        = {};
 let tunnelShapePaths   = {};
 let lingeringVids      = {};
 
@@ -184,8 +182,6 @@ function fmtDate(d)  {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
 }
-function pctFmt(n)   { return isNaN(n)?'–':n.toFixed(1); }
-
 function getRouteColor(routeId) {
   for (const mode of Object.values(MODES)) {
     const r = mode.routes.find(r => r.id === routeId);
@@ -223,10 +219,8 @@ function tripLat(t) { return t.position?.lat ?? t.lat ?? 0; }
 function tripLng(t) { return t.position?.lng ?? t.lng ?? 0; }
 function tripHeading(t) { return t.position?.heading ?? t.bearing ?? null; }
 function tripDelay(t) { return t.progress?.delay_minutes ?? t.meta?.delay ?? 0; }
-function tripCurrentStop(t) { return t.progress?.current_stop ?? null; }
 function tripNextStop(t) { return t.progress?.next_stop ?? null; }
 function tripStopsPassed(t) { return t.progress?.stops_passed ?? null; }
-function tripStopsRemaining(t) { return t.progress?.stops_remaining ?? null; }
 function tripStopsTotal(t) {
   const tot = t.progress?.stops_total;
   if (tot != null) return tot;
@@ -247,6 +241,17 @@ function tripElapsedSeconds(t) {
 }
 function tripTunnelSeconds(t) { return t.progress?.tunnel_seconds ?? null; }
 function tripIdleSeconds(t) { return t.idle_seconds ?? 0; }
+// Distance (m) the vehicle has traveled from its current journey origin —
+// always measured in the direction of travel, so it grows monotonically
+// during a leg and resets at each terminus flip. Returns null for ghosts /
+// vehicles without dist_along (sorted to the end).
+function tripDistFromOrigin(t) {
+  if (t._ghost) return null;
+  const da = t.position?.dist_along;
+  const total = t.position?.shape_total_len;
+  if (da == null || total == null) return null;
+  return t.toward_destination === false ? Math.max(0, total - da) : da;
+}
 function fmtElapsed(secs) {
   if (secs == null || isNaN(secs)) return '';
   const s = Math.max(0, Math.round(secs));
@@ -296,7 +301,6 @@ async function selectRoute(route, type) {
   liveRegistry  = {};
   routeStops        = [];
   routeStopsOrdered = false;
-  vehicleHistory    = {};
   buildRouteList();
   updateAlertsBadge();
   const isTunnel = TUNNEL_ROUTE_IDS.has(route.id);
@@ -414,6 +418,33 @@ function setPanel(panel) {
   }
 }
 
+// ── Live trip → map navigation ─────────────────────────────────────────────
+
+// Switch to the map panel, recenter on the vehicle, and open its popup.
+// Resets the map direction filter so the target marker isn't hidden.
+async function goToVehicleOnMap(vid) {
+  if (!vid) return;
+  const mapFilter = document.getElementById('mapFilterDirection');
+  if (mapFilter && mapFilter.value !== 'all') {
+    mapFilter.value = 'all';
+    if (lastMapVehicles.length > 0) applyMapFilter();
+  }
+  setPanel('map');
+  // drawMap()/refreshMapVehicles run asynchronously after setPanel switches
+  // panels, so poll briefly for the marker to appear before opening it.
+  const start = Date.now();
+  while ((!leafletMap || !vehicleMarkers[vid]) && Date.now() - start < 4000) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+  const marker = vehicleMarkers[vid];
+  if (!leafletMap || !marker) return;
+  const ll = marker.getLatLng();
+  const targetZoom = Math.max(15, leafletMap.getZoom());
+  leafletMap.setView(ll, targetZoom, { animate: true });
+  // Defer popup until after the pan settles so Leaflet positions it correctly.
+  setTimeout(() => marker.openPopup(), 350);
+}
+
 // ── Tracker ─────────────────────────────────────────────────────────────────
 
 async function checkTrackerStatus() {
@@ -475,6 +506,8 @@ function tickGhosts() {
   const now = Date.now();
   let changed = false;
   for (const [vid, ghost] of Object.entries(ghostVehicles)) {
+    // Dormant ghosts have no live path and don't move on the map.
+    if (ghost.dormant) continue;
     const totalElapsed = (now - ghost.enterTs) / 1000;
 
     // Ghosts are NEVER removed for being idle — a vehicle that entered
@@ -490,9 +523,7 @@ function tickGhosts() {
     const ebReturnAtPortal = ghost.direction === 'eastbound' && aft.leg === 'second' && aft.fraction >= 1.0;
     if ((fore.done && aft.done) || ebReturnAtPortal) {
       if (!ghost._lingersAtPortal) {
-        const exitPos = MOUTH_40TH_ROUTES.has(ghost.route)
-          ? TUNNEL_MOUTH_40TH
-          : PORTALS[ghost.route];
+        const exitPos = TUNNEL_MOUTH[ghost.route];
         if (exitPos) {
           ghost._lingersAtPortal = true;
           ghost.lat = exitPos.lat;
@@ -555,66 +586,11 @@ async function fetchNow() {
   btn.disabled = true;
   setStatus('Fetching…');
   try {
-    let trips;
-    if (selectedRoute.type === 'rail') {
-      const data = await apiFetch(`/api/vehicles/rail?route=${encodeURIComponent(selectedRoute.id)}`);
-      trips = (data.trips || []).map(t => ({
-        ...t,
-        _id: t.vehicle_id || t.trip_id || String(Math.random()),
-        _rkey: t.route_id || selectedRoute.id,
-      }));
-    } else {
-      const apiIds = selectedRoute.apiIds || [selectedRoute.id];
-      const results = await Promise.all(
-        apiIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
-      );
-      const raw = results.flatMap(r => r?.trips || []);
-      trips = processTrips(raw, selectedRoute.id, selectedRoute.multi);
-    }
-
-    updateVehicleHistory(trips);
-    const isTunnelRoute = TUNNEL_ROUTE_IDS.has(selectedRoute.id);
-
-    if (isTunnelRoute) {
-      try {
-        await fetchMonitoringData();
-        const ghostResp = await apiFetch('/api/ghosts');
-        syncServerGhosts(ghostResp.ghosts || ghostResp);
-        lingeringVids = ghostResp.lingering || {};
-      } catch (_) {}
-    }
-
-    const ghosts = isTunnelRoute ? getGhostVehicles() : [];
-    const visible = isTunnelRoute
-      ? trips.filter(t => !ghostReplacedLabels.has(t.label))
-      : trips;
-    const allTrips = [...visible, ...ghosts];
-
+    const trips = await fetchVehiclesForRoute();
+    await syncTunnelOverlay();
+    const allTrips = combineWithGhosts(trips);
     renderTrips(allTrips);
-
-    // Tunnel closure detection
-    if (isTunnelRoute) {
-      try {
-        let gpsVehicles = trips;
-        if (!selectedRoute.multi) {
-          const allIds = ['T1','T2','T3','T4','T5'];
-          const otherIds = allIds.filter(id => !(selectedRoute.apiIds || []).includes(id));
-          if (otherIds.length) {
-            const otherResults = await Promise.all(
-              otherIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
-            );
-            const otherTrips = otherResults.flatMap((r, i) => {
-              return (r?.trips || []).map(t => ({ ...t, _rkey: otherIds[i] }));
-            });
-            gpsVehicles = [...trips, ...otherTrips];
-          }
-        }
-        detectTunnelClosureFromGPS(gpsVehicles);
-        detectTunnelClosureFromAlerts();
-        updateTunnelClosureBanner();
-        updateTunnelMonitorBanner();
-      } catch (e) { console.warn('tunnel closure detection error:', e); }
-    }
+    await detectClosureForSelectedRoute(trips);
     if (activePanel === 'map') updateVehiclesOnMap(allTrips);
     return allTrips;
   } catch (e) {
@@ -643,6 +619,76 @@ function processTrips(rawTrips, routeId, isMulti) {
         _routeLabel: isMulti ? actualRoute : null,
       };
     });
+}
+
+// ── Shared route-fetch / tunnel-overlay helpers ────────────────────────────
+
+// Fetch the trips for the currently selected route, returning a normalized
+// list with {_id, _rkey, ...}. Handles rail vs transit transparently.
+async function fetchVehiclesForRoute() {
+  if (!selectedRoute) return [];
+  if (selectedRoute.type === 'rail') {
+    const data = await apiFetch(`/api/vehicles/rail?route=${encodeURIComponent(selectedRoute.id)}`);
+    return (data.trips || []).map(t => ({
+      ...t,
+      _id: t.vehicle_id || t.trip_id || String(Math.random()),
+      _rkey: t.route_id || selectedRoute.id,
+    }));
+  }
+  const apiIds = selectedRoute.apiIds || [selectedRoute.id];
+  const results = await Promise.all(
+    apiIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
+  );
+  return processTrips(results.flatMap(r => r?.trips || []), selectedRoute.id, selectedRoute.multi);
+}
+
+// Refresh tunnel monitoring + ghosts + lingering state from the server.
+// No-op for non-tunnel routes.
+async function syncTunnelOverlay() {
+  if (!selectedRoute || !TUNNEL_ROUTE_IDS.has(selectedRoute.id)) return;
+  try {
+    await fetchMonitoringData();
+    const ghostResp = await apiFetch('/api/ghosts');
+    syncServerGhosts(ghostResp.ghosts || ghostResp, ghostResp.dormant || []);
+    lingeringVids = ghostResp.lingering || {};
+  } catch (_) {}
+}
+
+// Combine real trips with ghost vehicles, hiding real entries that have
+// been ghosted (server returned a fleet number both as ghost and as live
+// data — keep the ghost rendering).  Pass-through for non-tunnel routes.
+function combineWithGhosts(trips) {
+  if (!selectedRoute || !TUNNEL_ROUTE_IDS.has(selectedRoute.id)) return trips;
+  const ghosts = getGhostVehicles();
+  const visible = trips.filter(t => !ghostReplacedLabels.has(t.label));
+  return [...visible, ...ghosts];
+}
+
+// Run tunnel-closure detection for the selected route.  When viewing a
+// single sub-route, we also fetch the other trolleys' positions so a
+// detour anywhere in T1-T5 is detected.  No-op for non-tunnel routes.
+async function detectClosureForSelectedRoute(trips) {
+  if (!selectedRoute || !TUNNEL_ROUTE_IDS.has(selectedRoute.id)) return;
+  try {
+    let gpsVehicles = trips;
+    if (!selectedRoute.multi) {
+      const otherIds = ['T1','T2','T3','T4','T5']
+        .filter(id => !(selectedRoute.apiIds || []).includes(id));
+      if (otherIds.length) {
+        const otherResults = await Promise.all(
+          otherIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
+        );
+        const otherTrips = otherResults.flatMap((r, i) =>
+          (r?.trips || []).map(t => ({ ...t, _rkey: otherIds[i] }))
+        );
+        gpsVehicles = [...trips, ...otherTrips];
+      }
+    }
+    detectTunnelClosureFromGPS(gpsVehicles);
+    detectTunnelClosureFromAlerts();
+    updateTunnelClosureBanner();
+    updateTunnelMonitorBanner();
+  } catch (e) { console.warn('tunnel closure detection error:', e); }
 }
 
 // ── Live trip filtering & sorting ──────────────────────────────────────────
@@ -687,6 +733,15 @@ function sortTrips(trips, mode) {
       const rDiff = (a._rkey || '').localeCompare(b._rkey || '');
       if (rDiff !== 0) return rDiff;
       return (a.label || '').localeCompare(b.label || '', undefined, { numeric: true });
+    }
+    if (mode === 'far' || mode === 'near') {
+      const da = tripDistFromOrigin(a);
+      const db = tripDistFromOrigin(b);
+      // Trips without dist_along go to the end regardless of direction
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+      return mode === 'far' ? db - da : da - db;
     }
     // Default: delay (worst first), then route, then label
     const lateDiff = tripDelay(a) - tripDelay(b);
@@ -766,7 +821,7 @@ function renderTrips(trips) {
   trips = filterTrips(trips);
 
   // Sort
-  const sortMode = document.getElementById('filterSort')?.value || 'delay';
+  const sortMode = document.getElementById('filterSort')?.value || 'far';
   trips = sortTrips(trips, sortMode);
 
   // Update filter count
@@ -820,14 +875,21 @@ function renderTrips(trips) {
     const card = document.createElement('div');
     card.className = 'vcard' + (isGhost ? ' ghost-card' : '');
     if (isGhost) card.dataset.vid = t._id;
+    card.title = 'Click to view on map';
+    card.onclick = () => goToVehicleOnMap(t._id);
     const aftPct = isGhost ? Math.round((t._aftFraction || 0) * 100) : 0;
     const forePct = isGhost ? Math.round((t._foreFraction || 0) * 100) : 0;
     const ghostDir = t._direction || '';
     const ghostBanner = isGhost ? `<div class="ghost-label">Tunnel estimate · ${aftPct}–${forePct}% ${ghostDir}${t._leg === 'second' ? ' (return)' : ''}</div>` : '';
-    const sPassed = tripStopsPassed(t);
-    const sTotal  = tripStopsTotal(t);
-    const progressInfo = (!isGhost && sPassed != null && sTotal != null && sTotal > 0)
-      ? `<div class="vcard-progress">${sPassed}/${sTotal} stops passed</div>` : '';
+    let sPassed = tripStopsPassed(t);
+    let sTotal  = tripStopsTotal(t);
+    if (isGhost) {
+      const est = ghostStopProgress(t);
+      if (est) { sPassed = est.passed; sTotal = est.total; }
+    }
+    const progressEst = isTunneled ? ' (est.)' : '';
+    const progressInfo = (sPassed != null && sTotal != null && sTotal > 0)
+      ? `<div class="vcard-progress">${sPassed}/${sTotal} stops passed${progressEst}</div>` : '';
     const startMs    = tripStartMs(t);
     const elapsedSec = tripElapsedSeconds(t);
     const tunnelSec  = tripTunnelSeconds(t);
@@ -848,7 +910,7 @@ function renderTrips(trips) {
         <span class="late-pill" style="background:${isGhost ? '#1e3a6e' : lateColor}">${isGhost ? 'In tunnel' : lateText}</span>
       </div>
       <div class="next-stop-block" style="border-left:3px solid ${isGhost ? '#93c5fd' : vColor}">
-        <div class="next-stop-label">Next Stop</div>
+        <div class="next-stop-label">Next Stop${isTunneled ? ' (est.)' : ''}</div>
         <div class="next-stop-name tunnel-stop">${nextStop || '—'}${nextStopEta != null ? ` <span style="color:#78818c;font-size:11px;">~${Math.round(nextStopEta)} min</span>` : ''}</div>
         ${progressInfo}
         ${timingInfo}
@@ -918,10 +980,10 @@ function updateTunnelMonitorBanner() {
     const groupKeys = selectedRoute.multi
       ? Object.keys(perRoute).sort()
       : [selKey];
-    const { parts, src } = tunnelMonitorParts(perRoute, groupKeys, false);
+    const { parts, src } = tunnelMonitorParts(perRoute, groupKeys, true);
     if (parts.length) {
-      const occ = tunnelOccupancySummary();
-      mapBanner.textContent = `Tunnel round trip avg: ${parts.join(' \u00b7 ')} ${src}`
+      const occ = tunnelOccupancySummary(true);
+      mapBanner.innerHTML = `Tunnel round trip avg: ${parts.join(' \u00b7 ')} ${src}`
         + (occ ? ` \u2014 ${occ}` : '');
       mapBanner.style.display = '';
     } else {
@@ -937,7 +999,10 @@ const MIN_MONITOR_SAMPLES = 5;
 
 // Build a short "Currently N trolleys in tunnel (entry order: ...)" summary
 // from the client's ghost state.  Returns an empty string when no ghosts.
-function tunnelOccupancySummary() {
+// When `html` is true the summary is wrapped as a clickable toggle that
+// reveals per-vehicle detail rows (route, vehicle number, elapsed, expected).
+let tunnelQueueDetailsOpen = false;
+function tunnelOccupancySummary(html = true) {
   const ghosts = Object.values(ghostVehicles || {});
   if (!ghosts.length) return '';
   // FIFO entry order by enterTs (oldest first = next to exit)
@@ -946,8 +1011,35 @@ function tunnelOccupancySummary() {
     .sort((a, b) => (a.enterTs || 0) - (b.enterTs || 0));
   const queue = ordered.map(g => g.route).join('/');
   const n = ordered.length;
-  return `Currently ${n} trolley${n === 1 ? '' : 's'} in tunnel `
-       + `(first out \u2190 ${queue} \u2190 last in)`;
+  const summary = `Currently ${n} trolley${n === 1 ? '' : 's'} in tunnel `
+                + `(first out \u2190 ${queue} \u2190 last in)`;
+  if (!html) return summary;
+  const detailRows = ordered.map(g => tunnelQueueRowHtml(g)).join('');
+  const display = tunnelQueueDetailsOpen ? '' : 'none';
+  return `<span class="tunnel-queue-toggle" onclick="toggleTunnelQueueDetails(this)" title="Click for vehicle details">${summary}</span>`
+       + `<div class="tunnel-queue-details" data-tunnel-queue-details style="display:${display}">${detailRows}</div>`;
+}
+
+function tunnelQueueRowHtml(g) {
+  const now = Date.now();
+  const elapsedSec = Math.max(0, (now - (g.enterTs || now)) / 1000);
+  // halfTime is one-way; ghosts stay alive for the full round-trip.
+  const expectedSec = (g.halfTime || 0) * 2;
+  const expStr = expectedSec > 0 ? ` (${fmtElapsed(expectedSec)} expected)` : '';
+  const dormantTag = g.dormant ? ` <span class="tunnel-queue-dormant">dormant</span>` : '';
+  return `<div class="tunnel-queue-row">`
+       + `<span class="tunnel-queue-route">${g.route}</span> `
+       + `<span class="tunnel-queue-vid">#${g.label || '?'}</span>${dormantTag} `
+       + `<span class="tunnel-queue-time">in tunnel ${fmtElapsed(elapsedSec)}${expStr}</span>`
+       + `</div>`;
+}
+
+function toggleTunnelQueueDetails(toggle) {
+  tunnelQueueDetailsOpen = !tunnelQueueDetailsOpen;
+  // Sync every banner instance (live, stats — both render the queue)
+  for (const el of document.querySelectorAll('[data-tunnel-queue-details]')) {
+    el.style.display = tunnelQueueDetailsOpen ? '' : 'none';
+  }
 }
 
 function tunnelMonitorParts(perRoute, groupKeys, html) {

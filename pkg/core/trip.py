@@ -37,13 +37,16 @@ from .stats import record_finish, record_start, record_travel_start
 
 # ── Configuration ─────────────────────────────────────────────────────
 
-_MIN_MOVE = 20         # meters — ignore jitter below this
 _STALE_S = 600         # seconds — drop trip after this long without update
 _TERMINUS_RADIUS = 200 # meters — "at terminus" threshold
 _DA_HISTORY_LEN = 4    # polls of dist_along history for movement-based direction
 _DA_FLIP_THRESH = 100  # meters — minimum net movement to trigger a direction flip
 _TRAVEL_MIN_MOVE = 20  # meters — distance from origin that counts as "started moving"
 _TRAVEL_IDLE_POLLS = 4 # min polls stationary near origin before idle override applies
+
+# Trolley tunnel routes — the only routes that accumulate tunnel_seconds
+# and surface that field on the API.
+_TUNNEL_ROUTES = frozenset({'T1', 'T2', 'T3', 'T4', 'T5'})
 
 
 # ── Trip dataclass ────────────────────────────────────────────────────
@@ -274,7 +277,7 @@ class TripManager:
                             trip.stops_at_detour_start = trip.stops_passed
                         if trip.on_detour and self._detour_detector.detect_turnaround(
                                 vid, route_id, lat, lng, trip.toward_destination):
-                            self._flip_to_return(trip)
+                            self._flip(trip, to_return=True)
 
                     # Write Trip fields onto the vehicle dict
                     self._write_vehicle_fields(v, trip, shape, da, now)
@@ -385,7 +388,7 @@ class TripManager:
 
         # toward_destination flips to False at destination terminus
         if trip.toward_destination and new_da >= shape.total_len - _TERMINUS_RADIUS:
-            self._flip_to_return(trip)
+            self._flip(trip, to_return=True)
 
         # Retirement: back at origin after having flipped
         if trip.passed_destination and new_da <= _TERMINUS_RADIUS:
@@ -406,10 +409,10 @@ class TripManager:
 
                 if trip._prev_stop_da is not None:
                     if trip.toward_destination and cur_da < trip._prev_stop_da:
-                        self._flip_to_return(trip)
+                        self._flip(trip, to_return=True)
                         stop_flipped = True
                     elif not trip.toward_destination and cur_da > trip._prev_stop_da:
-                        self._flip_to_forward(trip)
+                        self._flip(trip, to_return=False)
                         stop_flipped = True
 
                 if stop_flipped:
@@ -434,20 +437,22 @@ class TripManager:
                 all_rev = all(d < 0 for d in deltas)
                 net = trip._da_history[-1] - trip._da_history[0]
                 if all_fwd and net > _DA_FLIP_THRESH and not trip.toward_destination:
-                    self._flip_to_forward(trip)
+                    self._flip(trip, to_return=False)
                     _update_stop_info(trip, shape.stops)
                     trip._da_history.clear()
                 elif all_rev and net < -_DA_FLIP_THRESH and trip.toward_destination:
-                    self._flip_to_return(trip)
+                    self._flip(trip, to_return=True)
                     _update_stop_info(trip, shape.stops)
                     trip._da_history.clear()
         else:
             trip._da_history.clear()
 
-    def _flip_to_return(self, trip):
-        """Flip from toward_destination=True to False (reached destination)."""
-        trip.toward_destination = False
-        trip.passed_destination = True
+    def _flip(self, trip, *, to_return: bool):
+        """Flip a trip's direction.  to_return=True means the vehicle just
+        reached its destination terminus and is now heading back; False
+        means an earlier flip was wrong and is being corrected forward."""
+        trip.toward_destination = not to_return
+        trip.passed_destination = to_return
         trip.origin, trip.destination = trip.destination, trip.origin
         trip.bearing = (trip.bearing + 180) % 360
 
@@ -476,7 +481,7 @@ class TripManager:
                     trip.tunnel_seconds = round(trip.tunnel_seconds + (exit_ - entry), 1)
                 # Flip to return if still heading toward destination
                 if trip.toward_destination:
-                    self._flip_to_return(trip)
+                    self._flip(trip, to_return=True)
                 shape = self._shapes.get(trip.route)
                 if shape:
                     _update_stop_info(trip, shape.stops)
@@ -489,7 +494,7 @@ class TripManager:
         passed before the detour began (the route the vehicle could
         actually traverse), not the full route.
         """
-        is_tunnel_route = trip.route in {'T1', 'T2', 'T3', 'T4', 'T5'}
+        is_tunnel_route = trip.route in _TUNNEL_ROUTES
         if trip.was_on_detour and trip.stops_at_detour_start > 0:
             denom = trip.stops_at_detour_start
         else:
@@ -507,13 +512,6 @@ class TripManager:
             was_on_detour=trip.was_on_detour,
             tunnel_seconds=round(trip.tunnel_seconds, 1) if is_tunnel_route else None,
         )
-
-    def _flip_to_forward(self, trip):
-        """Correct a wrong return flip back to forward."""
-        trip.toward_destination = True
-        trip.passed_destination = False
-        trip.origin, trip.destination = trip.destination, trip.origin
-        trip.bearing = (trip.bearing + 180) % 360
 
     def _write_vehicle_fields(self, v, trip, shape, da, now):
         """Write Trip fields onto a vehicle dict for the API response."""
@@ -543,7 +541,7 @@ class TripManager:
             'shape_total_len': round(shape.total_len, 1),
         }
 
-        is_tunnel_route = trip.route in {'T1', 'T2', 'T3', 'T4', 'T5'}
+        is_tunnel_route = trip.route in _TUNNEL_ROUTES
         progress = {
             'current_stop': trip.current_stop,
             'next_stop': trip.next_stop,

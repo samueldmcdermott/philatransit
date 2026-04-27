@@ -114,7 +114,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 /* vehicle cards */
 .vehicle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .vcard { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-  padding: 12px; display: flex; flex-direction: column; gap: 0; }
+  padding: 12px; display: flex; flex-direction: column; gap: 0;
+  cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.vcard:hover { border-color: var(--accent); background: #1a1f28; }
 .vcard-hdr { display: flex; align-items: center; justify-content: space-between; }
 .vcard-id  { font-size: 16px; font-weight: 700; }
 .late-pill { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #fff; }
@@ -232,9 +234,24 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
 .tunnel-monitor-banner .monitor-fallback { font-style: italic; opacity: 0.7; }
 .tunnel-monitor-banner .monitor-occupancy { flex-basis: 100%; font-size: 10px;
   opacity: 0.85; color: var(--text); }
+.tunnel-queue-toggle { cursor: pointer; text-decoration: underline dotted;
+  text-underline-offset: 2px; }
+.tunnel-queue-toggle:hover { color: #93c5fd; }
+.tunnel-queue-details { margin-top: 4px; padding: 6px 8px; border-radius: 4px;
+  background: rgba(15,23,42,0.45); display: flex; flex-direction: column; gap: 2px; }
+.tunnel-queue-row { font-size: 10px; color: var(--text); display: flex;
+  align-items: center; gap: 6px; flex-wrap: wrap; }
+.tunnel-queue-route { font-weight: 700; color: #93c5fd; min-width: 24px; }
+.tunnel-queue-vid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tunnel-queue-time { color: var(--muted); }
+.tunnel-queue-dormant { background: #4b3a1a; color: #f3a986;
+  padding: 0 5px; border-radius: 3px; font-size: 9px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em; }
 .map-monitor-bar { padding: 5px 14px; font-size: 11px; flex-shrink: 0;
   background: rgba(30,58,110,0.35); border-bottom: 1px solid rgba(59,130,246,0.25);
   color: #93c5fd; }
+.map-monitor-bar .monitor-value { color: #fff; font-weight: 600; }
+.map-monitor-bar .monitor-fallback { font-style: italic; opacity: 0.75; }
 
 /* alerts tab badge */
 .alerts-badge { display: inline-block; min-width: 14px; height: 14px; line-height: 14px;

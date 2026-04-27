@@ -66,9 +66,11 @@ def _poll_loop():
                 if tunnel_detector:
                     tunnel_detector.process(by_route, _trip_manager.get_direction)
                     tunnel_emerged = tunnel_detector.pop_emerged()
-                    # Tell TripManager which vehicles are underground
-                    ghost_labels = {g['vid'] for g in tunnel_detector.get_ghosts()}
-                    _trip_manager.set_ghost_labels(ghost_labels)
+                    # Tell TripManager which vehicles are underground —
+                    # active + dormant — so their Trip objects survive in
+                    # case the vehicle later returns and we need to keep
+                    # the trip-counting stats consistent.
+                    _trip_manager.set_ghost_labels(tunnel_detector.get_all_ghost_labels())
                     lingering = tunnel_detector.get_lingering()
                     for route_vehicles in by_route.values():
                         for v in route_vehicles:

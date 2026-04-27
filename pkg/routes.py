@@ -102,9 +102,10 @@ def get_ghosts():
     if detector:
         return jsonify({
             'ghosts': detector.get_ghosts(),
+            'dormant': detector.get_dormant(),
             'lingering': detector.get_lingering(),
         })
-    return jsonify({'ghosts': [], 'lingering': {}})
+    return jsonify({'ghosts': [], 'dormant': [], 'lingering': {}})
 
 
 # ── Tunnel monitoring ────────────────────────────────────────

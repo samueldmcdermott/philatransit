@@ -3,7 +3,7 @@
 // Hardcoded station lists from GTFS data for nearest-neighbor stop resolution.
 const HARDCODED_STATIONS = {
   T1: [
-    ...TUNNEL_36TH,
+    ...TUNNEL_STOPS.T1,
     {name:'36th & Market',              lat:39.9561, lng:-75.1941},
     {name:'Lancaster Av & Powelton Av', lat:39.9598, lng:-75.1961},
     {name:'Lancaster Av & 38th St',     lat:39.9603, lng:-75.1970},
@@ -27,7 +27,7 @@ const HARDCODED_STATIONS = {
     {name:'63rd-Malvern',               lat:39.9838, lng:-75.2460},
   ],
   T2: [
-    ...TUNNEL_40TH,
+    ...TUNNEL_STOPS.T2,
     {name:'Baltimore Av & 42nd St',     lat:39.9497, lng:-75.2073},
     {name:'Baltimore Av & 43rd St',     lat:39.9495, lng:-75.2093},
     {name:'Baltimore Av & 44th St',     lat:39.9492, lng:-75.2113},
@@ -48,7 +48,7 @@ const HARDCODED_STATIONS = {
     {name:'61st-Baltimore',             lat:39.9440, lng:-75.2463},
   ],
   T3: [
-    ...TUNNEL_40TH,
+    ...TUNNEL_STOPS.T2,
     {name:'Chester Av & 42nd St',       lat:39.9484, lng:-75.2072},
     {name:'Chester Av & 45th St',       lat:39.9477, lng:-75.2114},
     {name:'Chester Av & 46th St',       lat:39.9468, lng:-75.2127},
@@ -72,7 +72,7 @@ const HARDCODED_STATIONS = {
     {name:'Darby Transit Center',       lat:39.9191, lng:-75.2624},
   ],
   T4: [
-    ...TUNNEL_40TH,
+    ...TUNNEL_STOPS.T2,
     {name:'Woodland Av & 42nd St',      lat:39.9467, lng:-75.2071},
     {name:'Woodland Av & 45th St',      lat:39.9454, lng:-75.2086},
     {name:'Woodland Av & 46th St',      lat:39.9443, lng:-75.2098},
@@ -92,7 +92,7 @@ const HARDCODED_STATIONS = {
     {name:'Woodland Av & Island Av',    lat:39.9171, lng:-75.2464},
   ],
   T5: [
-    ...TUNNEL_40TH,
+    ...TUNNEL_STOPS.T2,
     {name:'Woodland Av & 42nd St',      lat:39.9467, lng:-75.2071},
     {name:'Woodland Av & 45th St',      lat:39.9454, lng:-75.2086},
     {name:'Woodland Av & 46th St',      lat:39.9443, lng:-75.2098},

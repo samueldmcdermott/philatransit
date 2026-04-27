@@ -31,82 +31,58 @@ function alertIsActive(a) {
 // ── Tunnel / underground constants ─────────────────────────────────────────
 // TUNNEL_ROUTE_IDS is defined in routes.js and loaded from /api/config
 
-const TUNNEL_STOPS = [
-  { name:'40th St Portal', lat:39.94939, lng:-75.20333 },
-  { name:'37th & Spruce',  lat:39.9510, lng:-75.1969 },
-  { name:'36th & Sansom',  lat:39.9539, lng:-75.1947 },
-  { name:'36th St Portal', lat:39.9553, lng:-75.1942 },
-  { name:'33rd St',        lat:39.9548, lng:-75.1895 },
-  { name:'30th St',        lat:39.9548, lng:-75.1835 },
-  { name:'22nd St',        lat:39.9540, lng:-75.1767 },
-  { name:'19th St',        lat:39.9533, lng:-75.1716 },
-  { name:'15th St',        lat:39.9525, lng:-75.1653 },
-  { name:'13th St',        lat:39.9525, lng:-75.1626 },
+// Single bounding box covering the entire trolley tunnel.  Per-route
+// surface↔underground classification is layered on top via TUNNEL_MOUTH.
+const TUNNEL_BOX = { minLat: 39.948, maxLat: 39.957, maxLng: -75.160 };
+
+// The geographic mouth where each trolley route's tunnel begins.  T1
+// drops south at 36th St Portal; T2-T5 share the 40th St mouth a few
+// meters NE of the 40th St Portal stop coord.  This is the anchor for
+// ghost paths AND the surface↔underground transition on the drawn route.
+const TUNNEL_MOUTH = {
+  T1: { lat: 39.9553,  lng: -75.1942  },
+  T2: { lat: 39.94958, lng: -75.20311 },
+  T3: { lat: 39.94958, lng: -75.20311 },
+  T4: { lat: 39.94958, lng: -75.20311 },
+  T5: { lat: 39.94958, lng: -75.20311 },
+};
+const TUNNEL_EAST_END = { lat: 39.9525, lng: -75.1626 };  // 13th St
+
+// Subway lines are mostly underground; their stops get the "underground"
+// styling via these bounds.  No mouth/portal logic — we don't track
+// ghosts for subways.
+const SUBWAY_ZONES = {
+  MFL: { minLat: 39.948, maxLat: 39.966, minLng: -75.253, maxLng: -75.143 },
+  BSL: { minLat: 39.870, maxLat: 40.050, minLng: -75.175, maxLng: -75.152 },
+};
+
+// Tunnel stops per route, east→west.  All routes share the 13th St → 33rd
+// St core; T1 ends west at 36th St Portal, T2-T5 share 36th & Sansom →
+// 37th & Spruce → 40th St Portal.  Used by nearestTunnelStop, and as a
+// fallback for ghost-path interpolation when GTFS shapes are unavailable.
+const _TUNNEL_CORE = [
+  { name: '13th St',           lat: 39.9525,  lng: -75.1626 },
+  { name: '15th St/City Hall', lat: 39.9525,  lng: -75.1653 },
+  { name: '19th St',           lat: 39.9533,  lng: -75.1716 },
+  { name: '22nd St',           lat: 39.9540,  lng: -75.1767 },
+  { name: '30th St',           lat: 39.9548,  lng: -75.1835 },
+  { name: '33rd St',           lat: 39.9548,  lng: -75.1895 },
 ];
-
-const TUNNEL_BOX_40TH = { minLat:39.948, maxLat:39.956, minLng:-75.204, maxLng:-75.160 };
-const TUNNEL_BOX_36TH = { minLat:39.950, maxLat:39.957, minLng:-75.196, maxLng:-75.160 };
-const UNDERGROUND_ZONES = {
-  T1: TUNNEL_BOX_36TH,
-  T2: TUNNEL_BOX_40TH, T3: TUNNEL_BOX_40TH, T4: TUNNEL_BOX_40TH, T5: TUNNEL_BOX_40TH,
-  MFL: { minLat:39.948, maxLat:39.966, minLng:-75.253, maxLng:-75.143 },
-  BSL: { minLat:39.870, maxLat:40.050, minLng:-75.175, maxLng:-75.152 },
+const TUNNEL_STOPS = {
+  T1: [..._TUNNEL_CORE,
+    { name: '36th St Portal',    lat: 39.9553,  lng: -75.1942  },
+  ],
+  T2: [..._TUNNEL_CORE,
+    { name: '36th & Sansom',     lat: 39.9539,  lng: -75.1947  },
+    { name: '37th & Spruce',     lat: 39.9510,  lng: -75.1969  },
+    { name: '40th St Portal',    lat: 39.94939, lng: -75.20333 },
+  ],
 };
+TUNNEL_STOPS.T3 = TUNNEL_STOPS.T4 = TUNNEL_STOPS.T5 = TUNNEL_STOPS.T2;
 
-const PORTALS = {
-  T1:  {name:'36th St Portal',  lat:39.9553,   lng:-75.1942  },
-  T2:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
-  T3:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
-  T4:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
-  T5:  {name:'40th St Portal',  lat:39.94939,  lng:-75.20333  },
-};
-
-const TUNNEL_EAST_END = {lat:39.9525, lng:-75.1626};
-
-// Tight bounding box around the 40th St tunnel mouth (T2-T5 portal entrance).
-const MOUTH_40TH_BOX = {
-  minLat: 39.949499, maxLat: 39.949647,
-  minLng: -75.203387, maxLng: -75.202749,
-};
-const MOUTH_40TH_ROUTES = new Set(['T2','T3','T4','T5']);
-
-// 40th St tunnel mouth — the actual point where T2-T5 tracks descend.
-// This sits slightly NE of the 40th St Portal stop and is used as the
-// anchor for the ghost band's aft edge and the "exit" linger position.
-const TUNNEL_MOUTH_40TH = { lat: 39.94958, lng: -75.20311 };
-
-// Tunnel stop sequences (east → west)
-const TUNNEL_40TH = [
-  {name:'13th St',           lat:39.9525, lng:-75.1626},
-  {name:'15th St/City Hall', lat:39.9525, lng:-75.1653},
-  {name:'19th St',           lat:39.9533, lng:-75.1716},
-  {name:'22nd St',           lat:39.9540, lng:-75.1767},
-  {name:'30th St',           lat:39.9548, lng:-75.1835},
-  {name:'33rd St',           lat:39.9548, lng:-75.1895},
-  {name:'36th & Sansom',     lat:39.9539, lng:-75.1947},
-  {name:'37th & Spruce',     lat:39.9510, lng:-75.1969},
-  {name:'40th St Portal',    lat:39.94939,  lng:-75.20333  },
-];
-
-const TUNNEL_36TH = [
-  {name:'13th St',           lat:39.9525, lng:-75.1626},
-  {name:'15th St/City Hall', lat:39.9525, lng:-75.1653},
-  {name:'19th St',           lat:39.9533, lng:-75.1716},
-  {name:'22nd St',           lat:39.9540, lng:-75.1767},
-  {name:'30th St',           lat:39.9548, lng:-75.1835},
-  {name:'33rd St',           lat:39.9548, lng:-75.1895},
-  {name:'36th St Portal',    lat:39.9553, lng:-75.1942},
-];
-
-// Tunnel path coordinates for interpolation (west→east, fallback if no GTFS shape)
-const TUNNEL_PATHS = {
-  T1: TUNNEL_36TH.slice().reverse(),
-  T2: TUNNEL_40TH.slice().reverse(),
-  T3: TUNNEL_40TH.slice().reverse(),
-  T4: TUNNEL_40TH.slice().reverse(),
-  T5: TUNNEL_40TH.slice().reverse(),
-};
-
+// One-way tunnel times in seconds, for ghost interpolation when neither
+// the rolling monitoring average nor the static tunnel_times.json are
+// available.  Last-resort fallback only.
 const FALLBACK_HALF_TIME = { T1: 441, T2: 660, T3: 619, T4: 665, T5: 618 };
 
 // ── Surface detour route geometry ────────────────────────────────────────
@@ -207,28 +183,20 @@ const DETOUR_ZONE = { minLat: 39.952, maxLat: 39.970, minLng: -75.210, maxLng: -
 
 let tunnelClosureState = { gps: false, alert: false, reopenTime: null, alertRoutes: [] };
 
-function isInDetourZone(lat, lng) {
-  return lat >= DETOUR_ZONE.minLat && lat <= DETOUR_ZONE.maxLat
-      && lng >= DETOUR_ZONE.minLng && lng <= DETOUR_ZONE.maxLng;
-}
-
 /** Detect tunnel closure from vehicle positions.  Returns true if any
- *  T2-T5 trolley is currently in the surface-detour zone.
- *  T1 is excluded — it uses the 36th St portal and its normal surface
- *  route on Lancaster Ave runs through the detour zone. */
+ *  T2-T5 trolley is currently in the surface-detour zone (north of Baltimore
+ *  Ave — an area they never reach during normal service).  T1 is excluded:
+ *  it uses the 36th St portal and its normal surface route on Lancaster
+ *  Ave runs through the detour zone. */
 function detectTunnelClosureFromGPS(vehicles) {
-  const detourRoutes = new Set(['T2','T3','T4','T5']);
+  const z = DETOUR_ZONE;
   for (const v of vehicles) {
-    if (!detourRoutes.has(v._rkey)) continue;
-    if (v._ghost) continue;
-    // Prefer server-provided on_detour flag (has hysteresis), fall back to zone check
-    if (v.on_detour) {
-      tunnelClosureState.gps = true;
-      return true;
-    }
+    if (!TUNNEL_MOUTH[v._rkey] || v._rkey === 'T1' || v._ghost) continue;
+    // Prefer server-provided on_detour flag (has hysteresis); fall back to bbox.
+    if (v.on_detour) { tunnelClosureState.gps = true; return true; }
     const lat = tripLat(v), lng = tripLng(v);
     if (isNaN(lat) || isNaN(lng)) continue;
-    if (isInDetourZone(lat, lng)) {
+    if (lat >= z.minLat && lat <= z.maxLat && lng >= z.minLng && lng <= z.maxLng) {
       tunnelClosureState.gps = true;
       return true;
     }
@@ -246,7 +214,6 @@ function detectTunnelClosureFromAlerts() {
   tunnelClosureState.alertRoutes = [];
   if (typeof alertsData === 'undefined' || !alertsData.length) return false;
 
-  const trolleyAlertIds = new Set(['T1','T2','T3','T4','T5']);
   const closureKw = /tunnel|15th\s*st|13th\s*st|subway.?surface|shuttle|divert|diversion|bypass|not\s+serv/i;
   const reopenKw  = /resum|restor|reopen|back\s+in\s+service|normal\s+service/i;
 
@@ -256,7 +223,7 @@ function detectTunnelClosureFromAlerts() {
     if (a.type !== 'ALERT' && a.type !== 'DETOUR' && a.type !== 'ADVISORY') continue;
     if (!alertIsActive(a)) continue;
     if (!a.routes) continue;
-    const matchedRoutes = a.routes.filter(r => trolleyAlertIds.has(r));
+    const matchedRoutes = a.routes.filter(r => TUNNEL_MOUTH[r]);
     if (!matchedRoutes.length) continue;
     const text = (a.message || '') + ' ' + (a.subject || '');
 
@@ -288,32 +255,9 @@ function getTunnelClosureStatus() {
   };
 }
 
-// ── Tunnel estimation constants ────────────────────────────────────────────
-const HISTORY_LEN         = 6;       // keep more history for linger detection
-const LINGER_RADIUS       = 0.002;   // distance to portal to be "near" it (T1 and east end)
-const LINGER_TIME_MS      = 20000;   // 20s of frozen GPS to trigger ghost
-const STATIONARY_THRESH   = 0.0005;  // max position change to count as "frozen"
-
-// Destinations that indicate eastbound (into tunnel from west portal)
-const EASTBOUND_DESTS = ['13th', 'market'];
-
-/** Return true if (lat, lng) is inside the triangle defined by tri (array of 3 {lat,lng}). */
-function pointInTriangle(lat, lng, tri) {
-  const [a, b, c] = tri;
-  const d1 = (lat - b.lat) * (a.lng - b.lng) - (a.lat - b.lat) * (lng - b.lng);
-  const d2 = (lat - c.lat) * (b.lng - c.lng) - (b.lat - c.lat) * (lng - c.lng);
-  const d3 = (lat - a.lat) * (c.lng - a.lng) - (c.lat - a.lat) * (lng - a.lng);
-  const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-  const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-  return !(hasNeg && hasPos);
-}
-
-// ── Portal linger tracking ───────────────────────────────────────────────
-// vid → { firstTs, route, direction, lat, lng }
-let portalLingerMap   = {};
-// Labels (fleet numbers) that have active ghosts.
-// Ghost tracking is keyed by label (not SEPTA's trip-based vehicle_id)
-// because the trip ID can change when a vehicle exits the tunnel.
+// Labels (fleet numbers) that have active ghosts.  Ghost tracking is keyed
+// by label (not SEPTA's trip-based vehicle_id) because the trip ID can
+// change when a vehicle exits the tunnel.
 let ghostReplacedLabels = new Set();
 
 // ── Monitoring data (rolling tunnel averages) ─────────────────────────────
@@ -362,26 +306,27 @@ function getHalfTunnelTime(routeKey) {
   return FALLBACK_HALF_TIME[routeKey] || 600;
 }
 
+// 36th St Portal coords — T1's mouth.  T2-T5 routes legitimately pass
+// 36th & Sansom (~78m away), so this only drops points sitting essentially
+// on top of the portal (defends against future stray shape data).
+const PORTAL_36TH_REJECT_M = 10;
+
 function getTunnelShapePath(routeKey) {
   if (tunnelShapePaths[routeKey]) return tunnelShapePaths[routeKey];
 
-  const shapeCoords = shapesData[routeKey];
-  if (!shapeCoords || shapeCoords.length < 2) {
-    tunnelShapePaths[routeKey] = TUNNEL_PATHS[routeKey] || [];
-    return tunnelShapePaths[routeKey];
-  }
+  const mouth = TUNNEL_MOUTH[routeKey];
+  if (!mouth) return (tunnelShapePaths[routeKey] = []);
 
-  const zone = UNDERGROUND_ZONES[routeKey];
-  if (!zone) {
-    tunnelShapePaths[routeKey] = TUNNEL_PATHS[routeKey] || [];
-    return tunnelShapePaths[routeKey];
-  }
-
-  const portal = PORTALS[routeKey];
+  // Extract the longest contiguous run of underground points from the
+  // GTFS shape, dropping any stray landing on top of 36th St Portal for
+  // T2-T5 (they don't visit it; only stale data would put a point there).
+  const reject36th = routeKey !== 'T1' ? TUNNEL_MOUTH.T1 : null;
+  const shapeCoords = shapesData[routeKey] || [];
   let bestRun = [], curRun = [];
-  for (const coord of shapeCoords) {
-    const [lat, lng] = coord;
-    if (lat >= zone.minLat && lat <= zone.maxLat && lng >= zone.minLng && lng <= zone.maxLng) {
+  for (const [lat, lng] of shapeCoords) {
+    const ok = isPointUnderground(routeKey, lat, lng)
+            && (!reject36th || distLatLng({ lat, lng }, reject36th) > PORTAL_36TH_REJECT_M);
+    if (ok) {
       curRun.push({ lat, lng });
     } else {
       if (curRun.length > bestRun.length) bestRun = curRun;
@@ -390,66 +335,94 @@ function getTunnelShapePath(routeKey) {
   }
   if (curRun.length > bestRun.length) bestRun = curRun;
 
+  // Fall back to the canonical stop list (reversed to west→east) if no
+  // GTFS shape is available.
   if (bestRun.length < 2) {
-    tunnelShapePaths[routeKey] = TUNNEL_PATHS[routeKey] || [];
-    return tunnelShapePaths[routeKey];
+    const stops = TUNNEL_STOPS[routeKey] || [];
+    bestRun = stops.slice().reverse().map(s => ({ lat: s.lat, lng: s.lng }));
+    if (bestRun.length < 2) return (tunnelShapePaths[routeKey] = []);
   }
 
-  // Ensure path goes west (portal) → east (13th St)
-  if (portal) {
-    const d0 = Math.abs(bestRun[0].lng - portal.lng) + Math.abs(bestRun[0].lat - portal.lat);
-    const dN = Math.abs(bestRun[bestRun.length-1].lng - portal.lng) + Math.abs(bestRun[bestRun.length-1].lat - portal.lat);
-    if (d0 > dN) bestRun.reverse();
-
-    // Trim points west of the portal (surface yard track that leaked in)
-    const portalLng = portal.lng;
-    while (bestRun.length > 1 && bestRun[0].lng < portalLng) {
-      bestRun.shift();
-    }
+  // Orient west→east: 13th St is the shared east terminus.  If the run
+  // starts closer to the east end than it ends, it's east→west; reverse.
+  const eLng = TUNNEL_EAST_END.lng;
+  if (Math.abs(bestRun[0].lng - eLng) < Math.abs(bestRun[bestRun.length - 1].lng - eLng)) {
+    bestRun.reverse();
   }
 
-  // For T2-T5, anchor the path at the tunnel mouth so band edges and
-  // emergence positions line up with the physical tunnel entrance rather
-  // than the 40th St Portal stop a few meters away.
-  if (MOUTH_40TH_ROUTES.has(routeKey) && bestRun.length >= 1) {
-    bestRun = [{ ...TUNNEL_MOUTH_40TH }, ...bestRun];
-  }
-
-  tunnelShapePaths[routeKey] = bestRun;
-  return bestRun;
+  // Anchor at the mouth so every ghost starts at the actual portal —
+  // not 220m east of it (T1) or at a slightly-offset stop coord (T2-T5).
+  return (tunnelShapePaths[routeKey] = [{ ...mouth }, ...bestRun]);
 }
 
 // ── Underground detection ──────────────────────────────────────────────────
 
 function inTunnel(v) {
-  if (!TUNNEL_ROUTE_IDS.has(v._rkey)) return false;
-  const zone = UNDERGROUND_ZONES[v._rkey];
-  if (!zone) return false;
+  if (!TUNNEL_MOUTH[v._rkey]) return false;
   const lat = tripLat(v), lng = tripLng(v);
   if (isNaN(lat) || isNaN(lng)) return false;
-  return lat >= zone.minLat && lat <= zone.maxLat && lng >= zone.minLng && lng <= zone.maxLng;
+  return isPointUnderground(v._rkey, lat, lng);
 }
 
 function nearestTunnelStop(v) {
   const lat = tripLat(v), lng = tripLng(v);
-  let best = TUNNEL_STOPS[0], bestD = Infinity;
-  for (const s of TUNNEL_STOPS) {
+  // T2 list (which excludes 36th St Portal) is the fallback for unknown routes.
+  const list = TUNNEL_STOPS[v._rkey] || TUNNEL_STOPS.T2;
+  let best = list[0], bestD = Infinity;
+  for (const s of list) {
     const d = (lat - s.lat) ** 2 + (lng - s.lng) ** 2;
     if (d < bestD) { bestD = d; best = s; }
   }
   return best.name;
 }
 
+// Per-route tunnel-stop index ranges (derived from static/route_stops.json).
+// portal = stop index where the route enters the tunnel; last = final stop
+// (13th St); total = total stops in the directional list.
+const TUNNEL_ROUTE_STOPS = {
+  T1: { portal: 21, last: 27, total: 28 },
+  T2: { portal: 18, last: 26, total: 27 },
+  T3: { portal: 21, last: 29, total: 30 },
+  T4: { portal: 17, last: 25, total: 26 },
+  T5: { portal: 17, last: 25, total: 26 },
+};
+
+// Estimate {passed, total} for a ghost trolley by linearly interpolating
+// its stop index through the tunnel from its aft/fore-fraction.  Returns
+// null for routes we don't have a portal mapping for.
+function ghostStopProgress(ghost) {
+  const t = TUNNEL_ROUTE_STOPS[ghost._rkey];
+  if (!t) return null;
+  const aft = ghost._aftFraction ?? 0;
+  const fore = ghost._foreFraction ?? aft;
+  const frac = Math.max(0, Math.min(1, (aft + fore) / 2));
+  const tunnelLen = t.last - t.portal;
+  const dir = (ghost._direction || '').toLowerCase();
+  const isEast = dir.includes('east');
+  const idx = isEast
+    ? t.portal + Math.round(frac * tunnelLen)
+    : t.last - Math.round(frac * tunnelLen);
+  const passed = isEast ? idx : (t.total - idx);
+  return { passed: Math.max(0, Math.min(passed, t.total)), total: t.total };
+}
+
 function isPointUnderground(routeKey, lat, lng) {
-  const zone = UNDERGROUND_ZONES[routeKey];
-  if (!zone) return false;
-  // For T2-T5, nothing west of the 40th St Portal is underground.
-  if (MOUTH_40TH_ROUTES.has(routeKey)) {
-    const portal = PORTALS[routeKey];
-    if (portal && lng < portal.lng) return false;
+  // Trolley tunnel: a point is underground iff it sits inside TUNNEL_BOX
+  // AND on the underground side of the route's mouth.  The mouth side is
+  // "east of mouth.lng" for every route; T1 also has a "south of mouth.lat"
+  // constraint because its mouth is at the NORTH end of the tunnel (the
+  // surface 36th St segment runs north from there).
+  const mouth = TUNNEL_MOUTH[routeKey];
+  if (mouth) {
+    if (lng < mouth.lng) return false;
+    if (routeKey === 'T1' && lat > mouth.lat) return false;
+    return lat >= TUNNEL_BOX.minLat && lat <= TUNNEL_BOX.maxLat
+        && lng <= TUNNEL_BOX.maxLng;
   }
-  return lat >= zone.minLat && lat <= zone.maxLat
-      && lng >= zone.minLng && lng <= zone.maxLng;
+  // Subway lines — single bounding box.
+  const z = SUBWAY_ZONES[routeKey];
+  return !!z && lat >= z.minLat && lat <= z.maxLat
+             && lng >= z.minLng && lng <= z.maxLng;
 }
 
 // ── Geometry helpers ───────────────────────────────────────────────────────
@@ -483,83 +456,13 @@ function pointAlongPath(path, fraction) {
   return path[path.length - 1];
 }
 
-// ── Vehicle history tracking ───────────────────────────────────────────────
-
-function updateVehicleHistory(vehicles) {
-  const now = Date.now();
-  const newHistory = {};
-  for (const [vid, hist] of Object.entries(vehicleHistory)) {
-    const recent = hist.filter(h => (now - h.ts) < 180000);
-    if (recent.length > 0) {
-      newHistory[vid] = recent;
-      newHistory[vid]._label = hist._label;
-      newHistory[vid]._dest  = hist._dest;
-      newHistory[vid]._late  = hist._late;
-      newHistory[vid]._trip  = hist._trip;
-      newHistory[vid]._rkey  = hist._rkey;
-      newHistory[vid]._toward_destination = hist._toward_destination;
-    }
-  }
-  for (const v of vehicles) {
-    const lat = tripLat(v), lng = tripLng(v);
-    if (isNaN(lat) || isNaN(lng)) continue;
-    const prev = newHistory[v._id] || [];
-    const entry = { lat, lng, ts: now };
-    const updated = [...prev.slice(-(HISTORY_LEN - 1)), entry];
-    updated._label = v.label;
-    updated._dest  = v.destination || v.meta?.headsign || '';
-    updated._late  = tripDelay(v);
-    updated._trip  = v.trip_id || '';
-    updated._rkey  = v._rkey;
-    updated._toward_destination = v.toward_destination;
-    newHistory[v._id] = updated;
-  }
-  vehicleHistory = newHistory;
-}
-
-// ── Direction detection ──────────────────────────────────────────────────
-
-function isHeadingEast(dest, v) {
-  // Prefer toward_destination from server (shape-based)
-  if (v && v.toward_destination != null) {
-    return v.toward_destination;  // toward_destination = toward 13th St = eastbound
-  }
-  // Fallback to destination keyword detection
-  if (!dest) return false;
-  const d = dest.toLowerCase();
-  return EASTBOUND_DESTS.some(k => d.includes(k));
-}
-
-function getPortalAndDirection(lat, lng, routeKey, dest, v) {
-  // Check if near a west portal AND heading eastbound into tunnel.
-  // T2-T5 use the tight mouth box; T1 uses a radius.
-  if (MOUTH_40TH_ROUTES.has(routeKey)) {
-    if (lat >= MOUTH_40TH_BOX.minLat && lat <= MOUTH_40TH_BOX.maxLat
-        && lng >= MOUTH_40TH_BOX.minLng && lng <= MOUTH_40TH_BOX.maxLng
-        && isHeadingEast(dest, v)) {
-      return { near: true, direction: 'eastbound', portal: PORTALS[routeKey] };
-    }
-  } else {
-    const portal = PORTALS[routeKey];
-    if (portal) {
-      const dWest = Math.abs(lat - portal.lat) + Math.abs(lng - portal.lng);
-      if (dWest < LINGER_RADIUS && isHeadingEast(dest, v)) {
-        return { near: true, direction: 'eastbound', portal };
-      }
-    }
-  }
-  // Check if near 13th St (east end) AND heading westbound into tunnel
-  const dEast = Math.abs(lat - TUNNEL_EAST_END.lat) + Math.abs(lng - TUNNEL_EAST_END.lng);
-  if (dEast < LINGER_RADIUS && !isHeadingEast(dest, v)) {
-    return { near: true, direction: 'westbound', portal: TUNNEL_EAST_END };
-  }
-  return { near: false };
-}
-
 // ── Ghost vehicle management ───────────────────────────────────────────────
 
-/** Sync local ghost state from server-side ghost tracker (/api/ghosts). */
-function syncServerGhosts(serverGhosts) {
+/** Sync local ghost state from server-side ghost tracker (/api/ghosts).
+ *  `dormantGhosts` (optional): ghosts the server has marked dormant after
+ *  a younger same-direction ghost emerged ahead of them.  They are tracked
+ *  for display but excluded from map markers and live trip cards. */
+function syncServerGhosts(serverGhosts, dormantGhosts = []) {
   if (!tunnelEstimationOn) {
     ghostVehicles = {};
     ghostReplacedLabels.clear();
@@ -617,9 +520,7 @@ function syncServerGhosts(serverGhosts) {
       // Both eastbound (round-trip) and westbound ghosts exit at the tunnel
       // mouth — the point where tracks resurface, which is a few meters NE
       // of the 40th St Portal stop for T2-T5.
-      const exitPos = MOUTH_40TH_ROUTES.has(sg.route)
-        ? TUNNEL_MOUTH_40TH
-        : PORTALS[sg.route];
+      const exitPos = TUNNEL_MOUTH[sg.route];
       if (exitPos) { g._lingersAtPortal = true; g.lat = exitPos.lat; g.lng = exitPos.lng; }
     } else {
       g._lingersAtPortal = false;
@@ -629,6 +530,31 @@ function syncServerGhosts(serverGhosts) {
       g.aftFraction = aft.fraction; g.foreFraction = fore.fraction;
       g.bandPath = extractBandPath(g, aft, fore);
     }
+  }
+
+  // Merge in dormant ghosts as lightweight entries — kept around so they
+  // appear in the tunnel-queue detail with a "dormant" badge, but excluded
+  // from map markers and live trip cards (their position is unreliable).
+  for (const dg of dormantGhosts) {
+    const label = dg.vid;
+    serverLabels.add(label);
+    ghostReplacedLabels.add(label);
+    const existing = ghostVehicles[label];
+    if (existing) {
+      existing.dormant = true;
+      existing.dormantSince = dg.dormantSince || existing.dormantSince;
+      continue;
+    }
+    ghostVehicles[label] = {
+      route: dg.route, label: dg.label, dest: dg.dest, late: dg.late,
+      _routeLabel: dg.route,
+      _entryLat: dg.entryLat, _entryLng: dg.entryLng,
+      enterTs: dg.enterTs, lingerSec: dg.lingerSec || 0,
+      direction: dg.direction,
+      halfTime: getHalfTunnelTime(dg.route),
+      dormant: true,
+      dormantSince: dg.dormantSince,
+    };
   }
 
   // Remove ghosts no longer reported by server
@@ -725,7 +651,8 @@ function getGhostVehicles() {
   if (!tunnelEstimationOn) return [];
   const routeKey = selectedRoute?.id;
   return Object.entries(ghostVehicles)
-    .filter(([_, g]) => routeKey === 'T-ALL' || g.route === routeKey)
+    .filter(([_, g]) => !g.dormant
+                     && (routeKey === 'T-ALL' || g.route === routeKey))
     .map(([label, g]) => ({
     _id:     label,
     _rkey:   g.route,

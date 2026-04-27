@@ -156,32 +156,40 @@ async function drawMap() {
 }
 
 function drawSegmentedPath(coords, routeKey, color) {
-  if (coords.length < 2) return;
-  let segStart = 0;
-  let segUnder = isPointUnderground(routeKey, coords[0][0], coords[0][1]);
+  const n = coords.length;
+  if (n < 2) return;
+  // Per-point underground flag, then edge-based dashing: an edge is dashed
+  // iff EITHER endpoint is underground.  This keeps the mouth-crossing
+  // edge dashed regardless of whether the GTFS shape iterates west→east
+  // (T2/T4) or east→west (T3/T5), so the dashed line always reaches the
+  // mouth.
+  const under = coords.map(c => isPointUnderground(routeKey, c[0], c[1]));
+  const edgeDashed = i => under[i] || under[i + 1];
 
-  for (let i = 1; i <= coords.length; i++) {
-    const atEnd  = i === coords.length;
-    const nowUnder = atEnd ? !segUnder : isPointUnderground(routeKey, coords[i][0], coords[i][1]);
-    if (nowUnder !== segUnder || atEnd) {
-      const segCoords = coords.slice(segStart, i);
-      if (segCoords.length >= 2) {
-        L.polyline(segCoords, {
-          color: color,
-          weight: segUnder ? 4 : 5,
-          opacity: segUnder ? 0.6 : 0.9,
-          dashArray: segUnder ? '8 6' : null,
-        }).addTo(routeLayerGroup);
-        if (segUnder) {
-          L.polyline(segCoords, {
-            color: '#ffffff', weight: 1.5, opacity: 0.25,
-          }).addTo(routeLayerGroup);
-        }
-      }
-      segStart = i - 1;
-      segUnder = nowUnder;
+  const flush = (start, end, dashed) => {
+    if (end - start < 1) return;
+    const seg = coords.slice(start, end + 1);
+    L.polyline(seg, {
+      color, weight: dashed ? 4 : 5,
+      opacity: dashed ? 0.6 : 0.9,
+      dashArray: dashed ? '8 6' : null,
+    }).addTo(routeLayerGroup);
+    if (dashed) {
+      L.polyline(seg, { color: '#ffffff', weight: 1.5, opacity: 0.25 }).addTo(routeLayerGroup);
+    }
+  };
+
+  let segStart = 0;
+  let dashed = edgeDashed(0);
+  for (let i = 1; i < n - 1; i++) {
+    const next = edgeDashed(i);
+    if (next !== dashed) {
+      flush(segStart, i, dashed);
+      segStart = i;
+      dashed = next;
     }
   }
+  flush(segStart, n - 1, dashed);
 }
 
 function drawThinPath(coords, color) {
@@ -259,52 +267,27 @@ function orderStops(stops) {
 async function refreshMapVehicles() {
   if (!selectedRoute || !mapInitialized) return;
   try {
-    let vehicles;
-    if (selectedRoute.type === 'rail') {
-      const data = await apiFetch(`/api/vehicles/rail?route=${encodeURIComponent(selectedRoute.id)}`);
-      vehicles = processTrips(data.trips || [], selectedRoute.id, false);
-    } else {
-      const apiIds = selectedRoute.apiIds || [selectedRoute.id];
-      const results = await Promise.all(
-        apiIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
-      );
-      const raw = results.flatMap(r => r?.trips || []);
-      vehicles = processTrips(raw, selectedRoute.id, selectedRoute.multi);
-    }
-    updateVehicleHistory(vehicles);
-    // Update liveRegistry so stop arrival predictions work from map refresh
+    const vehicles = await fetchVehiclesForRoute();
+
+    // Seed liveRegistry from this fetch so stop arrival predictions also
+    // work on map-only refreshes (the user may never visit the live tab).
     const now = Date.now();
-    const newReg = {};
     for (const v of vehicles) {
       const ex = liveRegistry[v._id];
-      newReg[v._id] = {
+      liveRegistry[v._id] = {
         route: v._rkey, firstSeen: ex?.firstSeen ?? now, lastSeen: now,
         firstLat: ex?.firstLat ?? tripLat(v), firstLng: ex?.firstLng ?? tripLng(v),
       };
     }
-    Object.assign(liveRegistry, newReg);
 
-    const isTunnelRoute = TUNNEL_ROUTE_IDS.has(selectedRoute.id);
-    if (isTunnelRoute) {
-      try {
-        await fetchMonitoringData();
-        const ghostResp = await apiFetch('/api/ghosts');
-        syncServerGhosts(ghostResp.ghosts || ghostResp);
-        lingeringVids = ghostResp.lingering || {};
-      } catch (_) {}
-    }
-    const ghosts = isTunnelRoute ? getGhostVehicles() : [];
-    const visible = isTunnelRoute
-      ? vehicles.filter(v => !ghostReplacedLabels.has(v.label))
-      : vehicles;
-    const allVehicles = [...visible, ...ghosts];
+    await syncTunnelOverlay();
+    const allVehicles = combineWithGhosts(vehicles);
 
-    // Store unfiltered for re-filtering; show filter bar
+    // Show filter bar; remember the unfiltered list for filter re-application.
     lastMapVehicles = allVehicles;
     const mapFilterBar = document.getElementById('mapFilterBar');
     if (mapFilterBar) mapFilterBar.style.display = allVehicles.length ? '' : 'none';
 
-    // Apply direction filter
     const filtered = filterByDirection(allVehicles, 'mapFilterDirection');
     updateVehiclesOnMap(filtered);
     const countEl = document.getElementById('mapFilterCount');
@@ -314,30 +297,9 @@ async function refreshMapVehicles() {
         ? `${filtered.length}/${total} shown` : `${total} total`;
     }
 
-    // Tunnel closure detection — after render so errors don't block it
-    if (isTunnelRoute) {
-      try {
-        // For individual trolley routes, fetch all trolley vehicles for GPS detection
-        let gpsVehicles = vehicles;
-        if (!selectedRoute.multi) {
-          const allIds = ['T1','T2','T3','T4','T5'];
-          const otherIds = allIds.filter(id => !(selectedRoute.apiIds || []).includes(id));
-          if (otherIds.length) {
-            const otherResults = await Promise.all(
-              otherIds.map(id => apiFetch(`/api/vehicles?route=${encodeURIComponent(id)}`))
-            );
-            const otherVehicles = otherResults.flatMap(r =>
-              processTrips(r.trips || [], 'detect', true)
-            );
-            gpsVehicles = [...vehicles, ...otherVehicles];
-          }
-        }
-        detectTunnelClosureFromGPS(gpsVehicles);
-        detectTunnelClosureFromAlerts();
-        updateTunnelClosureBanner();
-        updateTunnelMonitorBanner();
-        drawDetourPaths(selectedRoute.id, selectedRoute.color || '#2f69f3', []);
-      } catch (e) { console.warn('tunnel closure detection error:', e); }
+    await detectClosureForSelectedRoute(vehicles);
+    if (TUNNEL_ROUTE_IDS.has(selectedRoute.id)) {
+      drawDetourPaths(selectedRoute.id, selectedRoute.color || '#2f69f3', []);
     }
   } catch (_) {}
 }
@@ -477,9 +439,14 @@ function updateVehiclesOnMap(vehicles) {
     const forePct = isGhost ? Math.round((v._foreFraction || 0) * 100) : 0;
     const ghostInfo = isGhost ? `<div style="font-size:10px;color:#93c5fd;margin-bottom:3px;">Estimated · ${aftPct}–${forePct}% ${v._direction||''}${v._leg==='second'?' (return)':''}</div>` : '';
     const detourInfo = (!isGhost && v.on_detour) ? `<div style="font-size:10px;color:#e74c3c;margin-bottom:3px;font-weight:600;">Detour</div>` : '';
-    const sPassed = tripStopsPassed(v), sTotal = tripStopsTotal(v);
-    const stopProgress = (!isGhost && sPassed != null && sTotal != null && sTotal > 0)
-      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${sPassed}/${sTotal} stops passed</div>` : '';
+    let sPassed = tripStopsPassed(v), sTotal = tripStopsTotal(v);
+    if (isGhost) {
+      const est = ghostStopProgress(v);
+      if (est) { sPassed = est.passed; sTotal = est.total; }
+    }
+    const progressSuffix = tunneled ? ' (est.)' : '';
+    const stopProgress = (sPassed != null && sTotal != null && sTotal > 0)
+      ? `<div style="font-size:10px;color:#555;margin-top:2px;">${sPassed}/${sTotal} stops passed${progressSuffix}</div>` : '';
     const startMs    = tripStartMs(v);
     const elapsedSec = tripElapsedSeconds(v);
     const tunnelSec  = tripTunnelSeconds(v);
@@ -492,12 +459,13 @@ function updateVehiclesOnMap(vehicles) {
 
     // Next stop and ETA
     const nsInfo = computeNextStopInfo(v, lat, lng);
+    const nextStopEst = tunneled ? ' (est.)' : '';
     let nextStopLine = '';
     if (nsInfo) {
       const etaStr = nsInfo.etaMin != null ? ` · ~${Math.round(nsInfo.etaMin)} min` : '';
-      nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nsInfo.name}${etaStr}${tunneled?' (tunnel)':''}</div>`;
+      nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nsInfo.name}${etaStr}${nextStopEst}</div>`;
     } else if (nextStop) {
-      nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${tunneled?' (tunnel)':''}</div>`;
+      nextStopLine = `<div style="font-size:12px;color:#93c5fd;margin-bottom:3px;">▶ ${nextStop}${nextStopEst}</div>`;
     }
 
     const destLabel = v.destination || v.meta?.headsign || '';

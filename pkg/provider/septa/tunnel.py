@@ -32,6 +32,7 @@ _LINGER_STOP_A = '40th St Portal'
 _LINGER_STOP_B = '37th & Spruce'
 _ON_ROUTE_THRESH_M = 20   # must be within 20m of route shape
 _LINGER_TIME_S = 20       # seconds of frozen GPS before flagging
+_DORMANT_MAX_S = 1800     # drop dormant ghosts after 30 min with no sign of life
 
 _ghost_lock = threading.Lock()
 _ghosts = {}              # label -> ghost info dict
@@ -279,8 +280,16 @@ class SeptaTunnelDetector:
             # Ghosts are NEVER removed for being idle: once a vehicle enters
             # the tunnel it must reemerge at some point, so we keep the ghost
             # alive until it reappears in the live feed.
+            #
+            # FIFO violation: if a same-direction ghost emerges while older
+            # ghosts are still pending, the older ones are marked "dormant"
+            # — kept around so the trip-counting stats survive their later
+            # westbound return, but no longer expected to emerge through the
+            # normal queue.
             for label in list(_ghosts):
                 ghost = _ghosts[label]
+                if ghost.get('dormant'):
+                    continue
 
                 # Check if this fleet number reappeared in live data
                 tv = trolley_by_label.get(label)
@@ -288,6 +297,15 @@ class SeptaTunnelDetector:
                     entry_moved = (abs(tv['lat'] - ghost['entryLat'])
                                    + abs(tv['lng'] - ghost['entryLng']))
                     if entry_moved > LINGER_RADIUS:
+                        # Mark older same-direction ghosts as dormant
+                        for other_label, other in _ghosts.items():
+                            if other_label == label or other.get('dormant'):
+                                continue
+                            if other['direction'] != ghost['direction']:
+                                continue
+                            if other['enterTs'] < ghost['enterTs']:
+                                other['dormant'] = True
+                                other['dormantSince'] = int(now * 1000)
                         # Record tunnel trip timing for monitoring
                         if self._monitor:
                             entry_ts = ghost['enterTs'] / 1000
@@ -306,6 +324,30 @@ class SeptaTunnelDetector:
                         _portal_linger.pop(label, None)
                         _ghost_cooldown.pop(label, None)
 
+            # -- Dormant ghost cleanup --
+            # If a dormant label later shows up in live data (e.g. coming
+            # back through the tunnel westbound), silently drop the dormant
+            # entry — no tunnel-time recorded, no trip flip — so the lost
+            # observation doesn't pollute monitoring stats.  Also expire any
+            # dormant ghost older than _DORMANT_MAX_S so a vehicle that's
+            # truly gone (e.g. taken out of service) doesn't accumulate.
+            for label in list(_ghosts):
+                ghost = _ghosts[label]
+                if not ghost.get('dormant'):
+                    continue
+                tv = trolley_by_label.get(label)
+                if tv:
+                    entry_moved = (abs(tv['lat'] - ghost['entryLat'])
+                                   + abs(tv['lng'] - ghost['entryLng']))
+                    if entry_moved > LINGER_RADIUS:
+                        del _ghosts[label]
+                        _ghost_cooldown.pop(label, None)
+                        continue
+                dormant_since = ghost.get('dormantSince', 0) / 1000
+                if dormant_since and (now - dormant_since) > _DORMANT_MAX_S:
+                    del _ghosts[label]
+                    _ghost_cooldown.pop(label, None)
+
             # Clean stale prev positions
             for label in list(_prev_positions):
                 if now - _prev_positions[label]['ts'] > 600:
@@ -323,12 +365,33 @@ class SeptaTunnelDetector:
             return result
 
     def get_ghosts(self) -> list[dict]:
-        """Return current ghosts as a list of dicts.
+        """Return current active ghosts as a list of dicts.
 
-        The 'vid' field is the fleet label (stable vehicle identifier).
+        Excludes dormant ghosts (ones whose FIFO position was overtaken
+        by a younger same-direction emergence — see process()).  The
+        'vid' field is the fleet label (stable vehicle identifier).
         """
         with _ghost_lock:
-            return [{**g, 'vid': label} for label, g in _ghosts.items()]
+            return [{**g, 'vid': label}
+                    for label, g in _ghosts.items()
+                    if not g.get('dormant')]
+
+    def get_dormant(self) -> list[dict]:
+        """Return ghosts that were overtaken by a younger same-direction
+        emergence.  Their trips are kept alive for stats counting in case
+        the vehicle reappears later, but they're no longer expected in the
+        active tunnel queue.
+        """
+        with _ghost_lock:
+            return [{**g, 'vid': label}
+                    for label, g in _ghosts.items()
+                    if g.get('dormant')]
+
+    def get_all_ghost_labels(self) -> set[str]:
+        """All ghost labels (active + dormant) — used to protect their
+        Trip objects from stale-pruning in TripManager."""
+        with _ghost_lock:
+            return set(_ghosts.keys())
 
     def get_lingering(self) -> dict:
         """Return labels currently lingering near a portal."""
