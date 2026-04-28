@@ -169,10 +169,12 @@ const SHAPE_TERMINI = {
 // ── Route spur definitions ──────────────────────────────────────────────
 // Non-revenue shape prefixes.  Drawn as thin dashed lines; stripped from
 // the projection path used for next-to-arrive calculations.
-// cutoffIndex must stay in sync with _SHAPE_TRIM in shapes.py.
+// cutoffIndex must stay in sync with SHAPE_TRIM in pkg/provider/septa/constants.py.
 const ROUTE_SPURS = {
   // T2: Elmwood Loop spur (0-103) + backtrack to 61st terminus (103-174).
   T2: { end: 'start', cutoffIndex: 174 },
+  // T4: 1.4 km Eastwick yard prefix to Woodland Av & Island Av (0-60).
+  T4: { end: 'start', cutoffIndex: 60 },
 };
 
 // ── Tunnel closure detection ──────────────────────────────────────────────

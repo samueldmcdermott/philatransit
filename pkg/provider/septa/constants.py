@@ -40,6 +40,9 @@ def rail_line_key(line, dest, src):
 SHAPE_TRIM = {
     # T2 GTFS shape: Elmwood Loop spur (0-103) + backtrack to 61st (103-174).
     'T2': 174,
+    # T4 GTFS shape: 1.4 km non-revenue prefix from the Eastwick yard
+    # area to the actual outer terminus at Woodland Av & Island Av (idx 60).
+    'T4': 60,
 }
 
 # ── Tunnel geometry ──────────────────────────────────────────────────
