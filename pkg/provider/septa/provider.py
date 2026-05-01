@@ -37,7 +37,15 @@ class SeptaProvider(Provider):
     # ── Transit polling ──────────────────────────────────────────
 
     def poll_transit(self) -> dict[str, list[dict]]:
-        """Fetch all transit vehicles from TransitViewAll."""
+        """Fetch all transit vehicles from TransitViewAll.
+
+        SEPTA occasionally lists the same fleet number twice within a
+        single route's vehicle list (the trolley fleet 9xxx and many
+        bus routes both exhibit this).  We dedupe by vehicle_id per
+        route, keeping the last occurrence — both copies describe the
+        same physical vehicle at the same instant, but the later entry
+        tends to carry the more up-to-date headsign/late values.
+        """
         r = req.get(
             f"{SEPTA_API}/TransitViewAll/index.php",
             headers=HEADERS, timeout=15,
@@ -45,13 +53,13 @@ class SeptaProvider(Provider):
         by_route = {}
         for group in r.json().get("routes", []):
             for route_id, vehicles in group.items():
-                normalized = []
+                by_vid = {}
                 for v in vehicles:
                     nv = self._normalize_transit(v, route_id)
                     if nv:
-                        normalized.append(nv)
-                if normalized:
-                    by_route[route_id] = normalized
+                        by_vid[nv['vehicle_id']] = nv
+                if by_vid:
+                    by_route[route_id] = list(by_vid.values())
         return by_route
 
     def _normalize_transit(self, v: dict, route_id: str) -> dict | None:

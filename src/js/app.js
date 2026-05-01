@@ -867,6 +867,8 @@ function renderTrips(trips) {
     else if (isTunneled) tags.push(`<span class="tag tag-tunnel">Underground</span>`);
     if (!isGhost && (t.lingering || lingeringVids[t.label]))
                          tags.push(`<span class="tag tag-tunnel">Entering tunnel</span>`);
+    if (t.dormant === true)
+                         tags.push(`<span class="tag tag-tunnel">Not yet departed</span>`);
     if (onDetour)        tags.push(`<span class="tag" style="background:#e74c3c;color:#fff;">Detour</span>`);
     if (dir)             tags.push(`<span class="tag">→ ${dir}</span>`);
 

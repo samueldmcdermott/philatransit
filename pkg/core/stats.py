@@ -37,6 +37,12 @@ CUTOFF_DATE = "2026-03-17"
 # debugging but excluded from CDF stats and from the daily_cdfs harvest.
 MIN_VALID_STOP_FRACTION = 0.95
 
+# Completed trips below this fraction are treated as ghosts (vehicle flagged
+# active near the yard but never made a real trip).  Always dropped, even when
+# the UI's "include invalid" toggle is on — the toggle distinguishes
+# 0.1 ≤ frac < 0.95 (partial trips, debuggable) from frac ≥ 0.95 (clean).
+GHOST_STOP_FRACTION = 0.1
+
 _file_lock = threading.Lock()
 
 
@@ -55,8 +61,23 @@ def _entry_minute(entry):
     return round(float(entry), 2)
 
 
+def _is_ghost(entry):
+    """True if the entry is a completed trip that barely moved (frac<0.1).
+
+    Ghosts are always dropped from the CDF, even with "include invalid" on.
+    """
+    if not isinstance(entry, dict):
+        return False
+    if entry.get('elapsed_seconds') is None:
+        return False
+    f = entry.get('fraction_stops_passed')
+    if f is None:
+        return False
+    return f < GHOST_STOP_FRACTION
+
+
 def _is_valid_for_stats(entry):
-    """True if the entry should count toward CDFs.
+    """True if the entry should count toward the strict ("filter invalid") CDF.
 
     In-flight entries (no elapsed_seconds yet) and entries without a
     fraction (e.g. rail trips, which aren't Trip-managed) are kept.
@@ -75,10 +96,13 @@ def _is_valid_for_stats(entry):
 def _as_mins(val, *, valid_only=False):
     """Flatten any bucket form to a sorted, deduped list of minute floats.
 
-    If valid_only is True, completed-but-anomalous trips are dropped.
+    Ghost trips (frac<0.1) are always dropped.  If valid_only is True,
+    completed-but-anomalous trips (0.1 ≤ frac < 0.95) are also dropped.
     """
     out = set()
     for x in val:
+        if _is_ghost(x):
+            continue
         if valid_only and not _is_valid_for_stats(x):
             continue
         m = _entry_minute(x)

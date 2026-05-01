@@ -527,6 +527,11 @@ function updateVehiclesOnMap(vehicles) {
     // Determine marker icon based on vehicle state
     const isLingering = !isGhost && (v.lingering || lingeringVids[v._id]);
     const isPortalLinger = isGhost && v._lingersAtPortal;
+    // Born-dormant: SEPTA marked the trip live but the trolley hasn't
+    // left the origin terminus yet.  Render with the same dashed/pulsing
+    // style as a portal-lingering ghost, so it's clearly "scheduled but
+    // not moving" rather than a live in-motion vehicle.
+    const isBornDormant = !isGhost && v.dormant === true;
     // Use bearing from Trip (which comes from RouteInfo, flipped with toward_destination).
     // Fall back to position.heading (shape-based), then API bearing from meta.
     const posHeading = v.position?.heading;
@@ -544,13 +549,17 @@ function updateVehiclesOnMap(vehicles) {
     // Trip bearing is stable and matches the arrow's pre-linger heading.
 
     function pickIcon() {
+      if (isBornDormant) return lingerDashedIcon(color, hdg);
       if (isLingering) return lingerSolidIcon(color, hdg);
       if (isPortalLinger) return lingerDashedIcon(color, hdg);
       if (isGhost) return ghostIcon(color, hdg);
       return realIcon(color, hdg);
     }
 
-    const markerState = isPortalLinger ? 'portal-linger' : isLingering ? 'linger' : isGhost ? 'ghost' : 'real';
+    const markerState = isBornDormant ? 'born-dormant'
+                      : isPortalLinger ? 'portal-linger'
+                      : isLingering ? 'linger'
+                      : isGhost ? 'ghost' : 'real';
 
     if (vehicleMarkers[v._id]) {
       vehicleMarkers[v._id].setLatLng([lat, lng]).setPopupContent(popupHtml);
@@ -841,6 +850,12 @@ function computeStopArrivals(stop, vehicles, now) {
       // Match vehicle to route
       if (selectedRoute.multi && v._rkey !== rk) continue;
       if (!selectedRoute.multi && v._rkey !== (selectedRoute?.id || rk)) continue;
+
+      // Born-dormant trips sit at the origin terminus and haven't departed.
+      // Don't predict downstream-stop arrivals for them — once they actually
+      // start moving, the server clears the dormant flag and they show up
+      // here on the next poll.
+      if (v.dormant === true) continue;
 
       const lat = tripLat(v), lng = tripLng(v);
       if (isNaN(lat) || isNaN(lng)) continue;

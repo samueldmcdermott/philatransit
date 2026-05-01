@@ -60,6 +60,25 @@ _BORN_DORMANT_STEPS = 3
 # and surface that field on the API.
 _TUNNEL_ROUTES = frozenset({'T1', 'T2', 'T3', 'T4', 'T5'})
 
+# Route-misassignment correction (SEPTA frequently reports a trolley under
+# the wrong T-route; the wrong assignment shows up clearly as a large
+# off-shape projection distance).  Override only when:
+#   * the reported route's projection is far from the vehicle GPS, AND
+#   * a sibling route's projection is close, AND
+#   * the gap between them is large enough that shared-track ambiguity
+#     can't explain it.
+# All thresholds in meters.
+_MISASSIGN_REPORTED_FAR_M = 200
+_MISASSIGN_BEST_CLOSE_M = 50
+_MISASSIGN_GAP_M = 200
+
+# Window after a tunnel exit during which a route change for the same
+# vehicle is interpreted as a cross-route reassignment (e.g. T2 emerged at
+# 13th and is now running back as T3).  Within this window, the new trip
+# starts mid-route — we still track it, but skip record_start so it doesn't
+# pollute the start-time CDF for the new route.
+_TUNNEL_REASSIGN_WINDOW_S = 60
+
 
 # ── Trip dataclass ────────────────────────────────────────────────────
 
@@ -102,6 +121,7 @@ class Trip:
 
     # Tunnel timing (T routes only — accumulated across emergences)
     tunnel_seconds: float = 0.0
+    last_tunnel_exit: float = 0.0  # epoch seconds; used to detect cross-route reassignment
 
     # Lifecycle
     passed_destination: bool = False
@@ -275,6 +295,141 @@ class TripManager:
         with self._lock:
             return self._trips.get(vid)
 
+    def _correct_route_misassignment(self, transit_routes):
+        """Move a vehicle to a sibling route when SEPTA's assignment is
+        clearly wrong by GPS — e.g. a trolley reported as T3 whose GPS is
+        squarely on T4's track.
+
+        Only operates within the trolley-tunnel route family (T1–T5),
+        which all share track segments and where SEPTA's mode-of-service
+        confusion shows up most often.  Other routes (buses, G1) are
+        left untouched: their shapes are sparser and a "wrong" projection
+        is more likely to be GPS noise than a real misassignment.
+
+        Override only fires when the gap between the reported route and
+        the best-fit sibling is decisive (see _MISASSIGN_* constants).
+
+        Modifies transit_routes in place: removes the vehicle from the
+        reported route and appends it under the corrected route.
+        """
+        if not self._shapes:
+            return
+
+        candidates = [r for r in _TUNNEL_ROUTES if r in transit_routes
+                      and self._shapes.get(r) is not None]
+        if len(candidates) < 2:
+            return
+
+        # Build a worklist before mutating, so reassignments don't
+        # affect the iteration order or get re-evaluated.
+        moves = []  # (vid, src_route, dst_route, vehicle_dict)
+        for src_route in candidates:
+            for v in transit_routes[src_route]:
+                vid = v.get('vehicle_id')
+                if not vid:
+                    continue
+                try:
+                    lat = float(v.get('lat', 0))
+                    lng = float(v.get('lng', 0))
+                except (TypeError, ValueError):
+                    continue
+                if lat == 0 or lng == 0:
+                    continue
+
+                # Score the vehicle against every candidate route.
+                best_route = None
+                best_off = float('inf')
+                src_off = None
+                for cand in candidates:
+                    shape = self._shapes.get(cand)
+                    _, perp = geo.project_with_perp(
+                        shape.pts, shape.cum_dist, lat, lng)
+                    if cand == src_route:
+                        src_off = perp
+                    if perp < best_off:
+                        best_off = perp
+                        best_route = cand
+                if best_route is None or src_off is None:
+                    continue
+                if best_route == src_route:
+                    continue
+                if src_off < _MISASSIGN_REPORTED_FAR_M:
+                    continue
+                if best_off > _MISASSIGN_BEST_CLOSE_M:
+                    continue
+                if (src_off - best_off) < _MISASSIGN_GAP_M:
+                    continue
+                moves.append((vid, src_route, best_route, v))
+
+        for vid, src_route, dst_route, v in moves:
+            transit_routes[src_route] = [
+                x for x in transit_routes[src_route] if x is not v]
+            v['route_id'] = dst_route
+            transit_routes.setdefault(dst_route, []).append(v)
+
+    def _resolve_cross_route_duplicates(self, transit_routes):
+        """Drop a vehicle from every route except the one its GPS best fits.
+
+        SEPTA occasionally lists the same fleet number under more than one
+        route in a single poll (e.g. trolley 9000 appearing under both T3
+        and T4 during reassignment).  Without intervention, the per-route
+        loop in enrich_vehicles would treat each appearance as a separate
+        trip on a different route, thrashing the underlying Trip every
+        poll.  Resolve the conflict here by picking, for each duplicated
+        vid, the route whose shape the vehicle is physically closest to
+        and removing the vehicle from the other routes' lists.
+
+        Modifies transit_routes in place.  Vehicles unique to one route
+        are left untouched.
+        """
+        if not self._shapes:
+            return
+
+        # vid -> [(route_id, vehicle_dict), ...]
+        appearances: dict[str, list[tuple[str, dict]]] = {}
+        for route_id, vehicles in transit_routes.items():
+            for v in vehicles:
+                vid = v.get('vehicle_id')
+                if vid:
+                    appearances.setdefault(vid, []).append((route_id, v))
+
+        for vid, occs in appearances.items():
+            if len(occs) <= 1:
+                continue
+            # Score each occurrence by straight-line distance from the
+            # reported GPS to its projected point on the route's shape.
+            # Lower = better fit; the route the vehicle is actually on.
+            best_route = None
+            best_off = float('inf')
+            scored = []
+            for route_id, v in occs:
+                shape = self._shapes.get(route_id)
+                if not shape or shape.total_len == 0:
+                    scored.append((route_id, v, float('inf')))
+                    continue
+                try:
+                    lat = float(v.get('lat', 0))
+                    lng = float(v.get('lng', 0))
+                except (TypeError, ValueError):
+                    scored.append((route_id, v, float('inf')))
+                    continue
+                _, off = geo.project_with_perp(shape.pts, shape.cum_dist, lat, lng)
+                scored.append((route_id, v, off))
+                if off < best_off:
+                    best_off = off
+                    best_route = route_id
+            # Remove this vid from every route except best_route.
+            for route_id, v, _ in scored:
+                if route_id == best_route:
+                    continue
+                bucket = transit_routes.get(route_id)
+                if not bucket:
+                    continue
+                # Identity comparison — there can be multiple dicts for
+                # the same vid in one route only if the provider failed
+                # to dedupe; here we drop the specific occurrence we saw.
+                transit_routes[route_id] = [x for x in bucket if x is not v]
+
     def enrich_vehicles(self, transit_routes: dict[str, list[dict]]):
         """Add computed Trip fields to vehicle dicts in-place.
 
@@ -285,11 +440,21 @@ class TripManager:
         if not self._shapes:
             return
 
+        # Resolve same-vehicle-on-multiple-routes by GPS-vs-shape distance
+        # before the per-route loop runs.  Otherwise the loop would create
+        # and immediately retire a Trip on each conflicting route, every
+        # poll, thrashing stats.
+        self._resolve_cross_route_duplicates(transit_routes)
+
+        # Correct SEPTA route misassignments within the trolley family
+        # (T1–T5): a vehicle reported as T3 whose GPS is squarely on T4
+        # gets moved to T4.  Conservative thresholds keep shared-track
+        # ambiguity from triggering false moves.
+        self._correct_route_misassignment(transit_routes)
+
         now = time.time()
 
         with self._lock:
-            seen = set()
-
             for route_id, vehicles in transit_routes.items():
                 shape = self._shapes.get(route_id)
                 if not shape or shape.total_len == 0:
@@ -309,7 +474,6 @@ class TripManager:
                     if lat == 0 or lng == 0:
                         continue
 
-                    seen.add(vid)
                     da = geo.project(shape.pts, shape.cum_dist, lat, lng)
 
                     trip = self._trips.get(vid)
@@ -317,9 +481,28 @@ class TripManager:
                     if trip and trip.route == route_id:
                         self._update_trip(trip, da, lat, lng, shape, now)
                     else:
+                        # vid collision (same vehicle, different route, or a
+                        # leftover trip overwritten without retirement).
+                        # Retire the old trip first so its stats are
+                        # recorded — _record_retirement applies the ghost
+                        # filter at read time, so anything frac<0.1 just
+                        # won't surface on the CDF.
+                        skip_record_start = False
+                        if trip is not None:
+                            # If the previous trip recently emerged from the
+                            # tunnel, this is a cross-route reassignment.
+                            # The new trip starts mid-route, so suppress
+                            # record_start to keep the new route's CDF clean.
+                            if (trip.route != route_id
+                                    and trip.last_tunnel_exit > 0
+                                    and now - trip.last_tunnel_exit
+                                        < _TUNNEL_REASSIGN_WINDOW_S):
+                                skip_record_start = True
+                            self._record_retirement(trip)
                         trip = self._create_trip(
                             vid, route_id, lat, lng, da, shape, now,
-                            label=str(v.get('label', '')))
+                            label=str(v.get('label', '')),
+                            skip_record_start=skip_record_start)
                         self._trips[vid] = trip
 
                     if trip.retired:
@@ -327,13 +510,20 @@ class TripManager:
                         del self._trips[vid]
                         continue
 
-                    # Dormant trips remain alive on the backend but are
-                    # excluded from /api/vehicles output entirely.
-                    if trip.dormant:
+                    # Dormant trips:
+                    #   * Born-dormant (SEPTA-marked-live, sitting at origin):
+                    #     surface them so the map can render a dashed/pulsing
+                    #     marker at the origin terminus.  They carry
+                    #     dormant=True so the client can opt them out of
+                    #     downstream-stop arrival predictions.
+                    #   * Other dormant (30-min stationary, tunnel FIFO):
+                    #     hidden from API output entirely.
+                    if trip.dormant and not trip._born_dormant:
                         continue
 
-                    # Detour detection (provider-specific)
-                    if self._detour_detector:
+                    # Detour detection (provider-specific) — skip for
+                    # born-dormant trips since they haven't moved yet.
+                    if self._detour_detector and not trip._born_dormant:
                         trip.on_detour = self._detour_detector.check_detour(
                             vid, route_id, lat, lng)
                         # Snapshot stops on first transition into detour:
@@ -375,8 +565,14 @@ class TripManager:
                     del self._trips[vid]
 
     def _create_trip(self, vid, route_id, lat, lng, da, shape, now,
-                     label=''):
-        """Create a new Trip for a first-seen vehicle."""
+                     label='', skip_record_start=False):
+        """Create a new Trip for a first-seen vehicle.
+
+        skip_record_start: don't append a start entry to today.json — used
+        when the vehicle just emerged from the tunnel onto a different
+        route, so the trip already started mid-route and shouldn't show up
+        in the new route's start-time CDF.
+        """
         # Look up route info for origin/destination/bearing
         route_info = self._route_config.get(route_id, {})
         origin = route_info.get('origin', '')
@@ -431,7 +627,8 @@ class TripManager:
             trip._last_stop_da = _stop_da(shape.stops, trip.current_stop)
             trip._prev_stop_da = da
 
-        record_start(trip.route, int(trip.nominal_start * 1000))
+        if not skip_record_start:
+            record_start(trip.route, int(trip.nominal_start * 1000))
         return trip
 
     def _update_trip(self, trip, new_da, lat, lng, shape, now):
@@ -470,6 +667,22 @@ class TripManager:
                 trip.dormant = False
                 trip._born_dormant = False
                 trip._last_move_ts = now
+                # The wake moment IS the travel-start: SEPTA marked the
+                # trip live while the vehicle sat at the terminus, and
+                # the wake condition is what proved it actually moved.
+                # Reassign start_time and persist the idle period so the
+                # popup, /api/vehicles, and the start-time CDF all use
+                # the real departure time instead of the nominal one.
+                trip.start_time = now
+                trip.idle_seconds = round(now - trip.nominal_start, 1)
+                trip._travel_detected = True
+                if trip.idle_seconds > 0:
+                    record_travel_start(
+                        trip.route,
+                        int(trip.nominal_start * 1000),
+                        int(now * 1000),
+                        trip.idle_seconds,
+                    )
             return
 
         moved = abs(new_da - prev_da) > _DORMANT_MOVE_M
@@ -519,9 +732,24 @@ class TripManager:
         if trip.toward_destination and new_da >= shape.total_len - _TERMINUS_RADIUS:
             self._flip(trip, to_return=True)
 
-        # Retirement: back at origin after having flipped
-        if trip.passed_destination and new_da <= _TERMINUS_RADIUS:
+        # Retirement: back at origin after having flipped.  Use straight-line
+        # distance to the origin coord (not dist_along) so trips retire even
+        # when projection is unreliable near the terminus (e.g. trimmed
+        # shapes, vehicles ducking into tunnel just before origin).
+        if trip.passed_destination and (
+                new_da <= _TERMINUS_RADIUS or _near_origin(shape, lat, lng)):
             trip.retired = True
+            return
+
+        # Defensive cap: a clean out-and-back crosses up to ~2× stops_total.
+        # Anything beyond ~2.5× means the trip looped a second time without
+        # being retired — usually because the vehicle re-entered the tunnel
+        # before reaching origin.  Retire so the next observation creates a
+        # fresh trip rather than letting total_stops_crossed run away.
+        if (trip.stops_total > 0
+                and trip.total_stops_crossed > trip.stops_total * 2 + trip.stops_total // 2):
+            trip.retired = True
+            return
 
         # Stop info
         _update_stop_info(trip, shape.stops)
@@ -608,6 +836,8 @@ class TripManager:
                 exit_ = info.get('exit_time')
                 if entry and exit_ and exit_ > entry:
                     trip.tunnel_seconds = round(trip.tunnel_seconds + (exit_ - entry), 1)
+                if exit_:
+                    trip.last_tunnel_exit = exit_
                 # Flip to return if still heading toward destination
                 if trip.toward_destination:
                     self._flip(trip, to_return=True)
@@ -660,6 +890,11 @@ class TripManager:
         v['idle_seconds'] = round(trip.idle_seconds, 1)
         v['vehicle_type'] = trip.vehicle_type
         v['on_detour'] = trip.on_detour
+        # Born-dormant: at origin, SEPTA-marked-live, hasn't moved.  Exposed
+        # so the client can render a dashed/pulsing marker and exclude the
+        # vehicle from downstream-stop arrival predictions.
+        if trip._born_dormant:
+            v['dormant'] = True
 
         v['position'] = {
             'lat': trip.current_location[0],
