@@ -126,10 +126,12 @@ class Trip:
     # Lifecycle
     passed_destination: bool = False
     retired: bool = False
-    # Dormant trips are kept alive on the backend (so the next time the
+    # Dormant trips are kept alive on the backend so the next time the
     # vehicle reappears we can decide between continuation and a fresh
-    # trip) but excluded from API output entirely — the client never sees
-    # them.  Causes: 30+ min stationary, or tunnel-FIFO violation.
+    # trip.  Born-dormant trips (waiting at the origin terminus) are
+    # surfaced on the API tagged with dormant=True so the client can
+    # render them as "scheduled but not yet moving"; other dormant
+    # trips (30+ min stationary, tunnel-FIFO violation) are hidden.
     dormant: bool = False
 
     # Internal direction-correction state (not exposed in API)
@@ -238,12 +240,6 @@ class TripManager:
         self._route_avg_speed: dict[str, float] = {}
         self._ghost_labels: set[str] = set()  # labels currently underground
 
-    def set_shapes(self, shape_registry):
-        self._shapes = shape_registry
-
-    def set_route_config(self, route_config):
-        self._route_config = route_config
-
     def set_detour_detector(self, detector):
         self._detour_detector = detector
 
@@ -291,9 +287,16 @@ class TripManager:
                 return trip.toward_destination
         return None
 
-    def get_trip(self, vid) -> Trip | None:
-        with self._lock:
-            return self._trips.get(vid)
+    def _off_shape(self, route_id, lat, lng):
+        """Perpendicular distance from (lat, lng) to a route's shape.
+
+        Returns None if the route or its shape is unknown / empty.
+        """
+        shape = self._shapes.get(route_id)
+        if not shape or shape.total_len == 0:
+            return None
+        _, perp = geo.project_with_perp(shape.pts, shape.cum_dist, lat, lng)
+        return perp
 
     def _correct_route_misassignment(self, transit_routes):
         """Move a vehicle to a sibling route when SEPTA's assignment is
@@ -341,9 +344,9 @@ class TripManager:
                 best_off = float('inf')
                 src_off = None
                 for cand in candidates:
-                    shape = self._shapes.get(cand)
-                    _, perp = geo.project_with_perp(
-                        shape.pts, shape.cum_dist, lat, lng)
+                    perp = self._off_shape(cand, lat, lng)
+                    if perp is None:
+                        continue
                     if cand == src_route:
                         src_off = perp
                     if perp < best_off:
@@ -396,39 +399,34 @@ class TripManager:
         for vid, occs in appearances.items():
             if len(occs) <= 1:
                 continue
-            # Score each occurrence by straight-line distance from the
-            # reported GPS to its projected point on the route's shape.
-            # Lower = better fit; the route the vehicle is actually on.
+            # Score each occurrence by perpendicular distance to the route
+            # shape; the route the vehicle is actually on wins.
             best_route = None
             best_off = float('inf')
-            scored = []
             for route_id, v in occs:
-                shape = self._shapes.get(route_id)
-                if not shape or shape.total_len == 0:
-                    scored.append((route_id, v, float('inf')))
-                    continue
                 try:
                     lat = float(v.get('lat', 0))
                     lng = float(v.get('lng', 0))
                 except (TypeError, ValueError):
-                    scored.append((route_id, v, float('inf')))
                     continue
-                _, off = geo.project_with_perp(shape.pts, shape.cum_dist, lat, lng)
-                scored.append((route_id, v, off))
+                off = self._off_shape(route_id, lat, lng)
+                if off is None:
+                    continue
                 if off < best_off:
                     best_off = off
                     best_route = route_id
-            # Remove this vid from every route except best_route.
-            for route_id, v, _ in scored:
+            if best_route is None:
+                continue
+            # Remove this vid from every route except best_route.  Identity
+            # comparison: there can be multiple dicts for the same vid in
+            # one route only if the provider failed to dedupe; we drop the
+            # specific occurrence we saw.
+            for route_id, v in occs:
                 if route_id == best_route:
                     continue
                 bucket = transit_routes.get(route_id)
-                if not bucket:
-                    continue
-                # Identity comparison — there can be multiple dicts for
-                # the same vid in one route only if the provider failed
-                # to dedupe; here we drop the specific occurrence we saw.
-                transit_routes[route_id] = [x for x in bucket if x is not v]
+                if bucket:
+                    transit_routes[route_id] = [x for x in bucket if x is not v]
 
     def enrich_vehicles(self, transit_routes: dict[str, list[dict]]):
         """Add computed Trip fields to vehicle dicts in-place.
@@ -700,10 +698,13 @@ class TripManager:
               and now - trip._last_move_ts > _DORMANT_AFTER_S):
             trip.dormant = True
 
-        # Travel-start detection: SEPTA can mark a trip live while the vehicle
-        # sits at the terminus.  If the trip stays within _TRAVEL_MIN_MOVE of
-        # its first observed position for _TRAVEL_IDLE_POLLS or more polls,
-        # the first subsequent movement is treated as the real start time.
+        # Travel-start detection for trips born away from origin: SEPTA may
+        # mark a trip live while the vehicle is parked mid-route (layovers,
+        # short turns).  If the trip stays within _TRAVEL_MIN_MOVE of its
+        # first observed position for _TRAVEL_IDLE_POLLS or more polls and
+        # then moves, the move is treated as the real start time.  Trips
+        # born at the origin go through the _born_dormant path above
+        # instead, which bypasses this block.
         if not trip._travel_detected:
             if abs(new_da - trip.first_dist_along) > _TRAVEL_MIN_MOVE:
                 if trip._stationary_polls >= _TRAVEL_IDLE_POLLS:
