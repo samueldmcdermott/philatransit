@@ -33,6 +33,22 @@ _LINGER_STOP_B = '37th & Spruce'
 _ON_ROUTE_THRESH_M = 20   # must be within 20m of route shape
 _LINGER_TIME_S = 20       # seconds of frozen GPS before flagging
 
+# FIFO tolerance: the tunnel is a single physical track, so emergence is
+# truly first-in-first-out.  The only apparent violations come from OUR
+# tracking errors — a mistaken entry order between near-simultaneous
+# entries, or a T1<->T2-5 mix-up (T1 uses a separate west portal).  We
+# therefore allow any of the _FIFO_TOLERANCE oldest pending ghosts to
+# emerge without disturbing the queue; only when a ghost ranked deeper
+# than that emerges do we treat it as a genuine tracking failure and
+# clear the now-provably-stale head of the queue.
+_FIFO_TOLERANCE = 3
+
+# Staleness backstop: a ghost stuck underground far longer than any plausible
+# transit AND well beyond the next-longest pending ghost is almost certainly a
+# tracking artifact (a missed emergence).  Retire it.
+_STALE_ABS_S = 45 * 60      # absolute floor: >45 min underground
+_STALE_REL_S = 15 * 60      # AND >15 min longer than the 2nd-longest ghost
+
 _ghost_lock = threading.Lock()
 _ghosts = {}              # label -> ghost info dict
 _portal_linger = {}       # label -> {first_ts, route, direction, lat, lng}
@@ -322,14 +338,25 @@ class SeptaTunnelDetector:
             # the tunnel it must reemerge at some point, so we keep the ghost
             # alive until it reappears in the live feed.
             #
-            # FIFO violation: if a same-direction ghost emerges while older
-            # ghosts are still pending, the older ones are dropped from the
-            # active queue and their fleet labels pushed into _newly_dormant
-            # — the poller forwards these to TripManager so the underlying
-            # Trip is marked dormant (kept alive so a later return doesn't
-            # corrupt counting stats, but invisible to the API).
+            # FIFO violation: the tunnel is single-track FIFO, so an
+            # emergence that is "out of order" reflects a tracking error,
+            # not a real overtake.  We tolerate small ordering errors —
+            # any of the _FIFO_TOLERANCE oldest same-direction ghosts may
+            # emerge with the queue left intact (those near-ties and
+            # T1<->T2-5 mix-ups are the only realistic mis-orderings).
+            # But if a ghost ranked DEEPER than that emerges, the older
+            # entries ahead of it could only still be "pending" because we
+            # missed their emergence — so we clear that stale head of the
+            # queue.  Dropped labels are pushed into _newly_dormant; the
+            # poller forwards them to TripManager so the underlying Trip is
+            # marked dormant (kept alive so a later return doesn't corrupt
+            # counting stats, but invisible to the API).
             for label in list(_ghosts):
-                ghost = _ghosts[label]
+                ghost = _ghosts.get(label)
+                if ghost is None:
+                    # Already cleared this cycle by an out-of-order emergence
+                    # that swept the stale head of the queue.
+                    continue
                 tv = trolley_by_label.get(label)
                 if not tv:
                     continue
@@ -337,14 +364,16 @@ class SeptaTunnelDetector:
                                + abs(tv['lng'] - ghost['entryLng']))
                 if entry_moved <= LINGER_RADIUS:
                     continue
-                # Drop older same-direction ghosts (FIFO violation)
-                for other_label in list(_ghosts):
-                    if other_label == label:
-                        continue
-                    other = _ghosts[other_label]
-                    if other['direction'] != ghost['direction']:
-                        continue
-                    if other['enterTs'] < ghost['enterTs']:
+                # Older same-direction ghosts ahead of this one in the queue.
+                older = [lbl for lbl, g in _ghosts.items()
+                         if lbl != label
+                         and g['direction'] == ghost['direction']
+                         and g['enterTs'] < ghost['enterTs']]
+                # Rank in the same-direction queue (1 = oldest pending).
+                # Only a deep-rank emergence (beyond the tolerance window)
+                # proves the head is stale; clear everything ahead of it.
+                if len(older) >= _FIFO_TOLERANCE:
+                    for other_label in older:
                         self._newly_dormant.add(other_label)
                         del _ghosts[other_label]
                         _ghost_cooldown.pop(other_label, None)
@@ -364,6 +393,25 @@ class SeptaTunnelDetector:
                 del _ghosts[label]
                 _portal_linger.pop(label, None)
                 _ghost_cooldown.pop(label, None)
+
+            # -- Staleness backstop --
+            # A ghost stuck underground longer than any plausible transit
+            # AND well beyond the next-longest pending ghost is almost
+            # certainly a missed emergence rather than a real trip.  Retire
+            # the single worst offender per cycle (re-evaluated each poll):
+            # underground > _STALE_ABS_S, and > _STALE_REL_S longer than the
+            # second-longest ghost.  Compared by enterTs (older = longer).
+            if len(_ghosts) >= 2:
+                by_age = sorted(_ghosts.items(), key=lambda kv: kv[1]['enterTs'])
+                oldest_label, oldest = by_age[0]
+                second_enter = by_age[1][1]['enterTs'] / 1000
+                oldest_enter = oldest['enterTs'] / 1000
+                if ((now - oldest_enter) > _STALE_ABS_S
+                        and (second_enter - oldest_enter) > _STALE_REL_S):
+                    self._newly_dormant.add(oldest_label)
+                    del _ghosts[oldest_label]
+                    _ghost_cooldown.pop(oldest_label, None)
+                    _portal_linger.pop(oldest_label, None)
 
             # Clean stale prev positions
             for label in list(_prev_positions):

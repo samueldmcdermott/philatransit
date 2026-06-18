@@ -12,6 +12,7 @@ venv/
 data/today.json
 data/scheduled.json
 data/daily_cdfs.json
+data/*snip*
 
 # IDE
 .idea/

@@ -222,7 +222,11 @@ function detectTunnelClosureFromAlerts() {
   const affectedRoutes = new Set();
 
   for (const a of alertsData) {
-    if (a.type !== 'ALERT' && a.type !== 'DETOUR' && a.type !== 'ADVISORY') continue;
+    // ADVISORY items are informational (elevator outages, future-dated
+    // closures, FIFA service notes) and routinely mention tunnel/13th-St/
+    // diversion keywords without representing a current diversion — they
+    // must not drive the "Detour active" banner.  Only ALERT/DETOUR can.
+    if (a.type !== 'ALERT' && a.type !== 'DETOUR') continue;
     if (!alertIsActive(a)) continue;
     if (!a.routes) continue;
     const matchedRoutes = a.routes.filter(r => TUNNEL_MOUTH[r]);
