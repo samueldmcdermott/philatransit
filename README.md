@@ -23,15 +23,27 @@ Real-time transit tracker for the Philadelphia area. Track SEPTA buses, trolleys
 ```bash
 pip install -r requirements.txt
 
-# Build static GTFS data (route shapes, stops, schedules, tunnel timing)
-python3 scripts/build_gtfs.py
-python3 scripts/tunnel_timing.py
-
-# Start the server
+# Start the server (static GTFS data is committed, so this works immediately)
 python3 server.py
 ```
 
 Open [http://localhost:5000](http://localhost:5000) in your browser.
+
+The files in `static/` are checked in, so no GTFS download is needed to run the
+app. Regenerate them only when SEPTA publishes a new feed:
+
+```bash
+python3 scripts/build_gtfs.py      # route shapes, stops, schedules
+python3 scripts/tunnel_timing.py   # historical tunnel transit times
+```
+
+### Tests and linting
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+python3 -m pytest
+```
 
 ### Docker (production)
 
@@ -76,10 +88,12 @@ philatransit/
 ├── scripts/
 │   ├── build_gtfs.py           # Downloads GTFS and builds the static data files
 │   └── tunnel_timing.py        # Extracts tunnel transit times from GTFS
-├── data/                       # Runtime data (today.json, daily_cdfs.json — Docker volume)
+├── tests/                      # pytest suite (geo, stats, tunnel monitor, Trip lifecycle)
+├── data/                       # Runtime data (today.json, daily_cdfs.json — Docker volume, untracked)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── nginx.conf                  # Sample nginx config (HTTPS, caching, reverse proxy)
+├── pyproject.toml              # ruff + pytest configuration
 └── requirements.txt
 ```
 
@@ -95,13 +109,32 @@ Each observed vehicle becomes a `Trip` owned by `TripManager` ([`pkg/core/trip.p
 
 When a Trip is created, its start time is persisted via [`pkg/core/stats.py`](pkg/core/stats.py) — one Trip, one recorded start. Regional rail isn't Trip-managed; the poller records the first sighting of each train number per day through the same `record_start` path.
 
-Storage schema (shared by `today.json` and `daily_cdfs.json`):
+Both stats files are keyed `{route: {"YYYY-MM-DD": [...]}}`, sorted by start
+minute, but the buckets differ. `today.json` holds rich per-trip entries:
 
-```
-{route: {"YYYY-MM-DD": [sorted minutes-since-midnight, ...]}}
+```json
+{"start": 544.0, "nominal_start": 540.0, "idle_seconds": 240,
+ "elapsed_seconds": 1500, "stops_passed": 42,
+ "fraction_stops_passed": 0.98, "tunnel_seconds": 310.5}
 ```
 
-A daemon thread runs `rollover()` shortly after each midnight, moving finished-day buckets from `today.json` into `daily_cdfs.json`.
+`daily_cdfs.json` holds flat minute lists, with anomalous trips already
+filtered out:
+
+```json
+[480.0, 494.5, 511.2]
+```
+
+A daemon thread runs `rollover()` shortly after each midnight, draining
+finished-day buckets from `today.json` into `daily_cdfs.json` and flattening
+them on the way. Completed trips that covered under 95% of their effective
+route are excluded from the harvest; those under 10% are treated as yard
+ghosts and dropped everywhere.
+
+`today.json` is kept in memory and flushed on a 5-second debounce rather than
+rewritten on every record — a busy day is ~9k trips across ~20k record calls.
+All JSON writes are atomic (temp file + `fsync` + `os.replace`), so an
+interrupted write cannot truncate accumulated statistics.
 
 ### Tunnel ghost tracking
 
@@ -113,6 +146,26 @@ SEPTA trolley lines T1–T5 share an underground tunnel between their western po
 4. Removes the ghost when the real vehicle reappears at the far end.
 
 `pkg/core/tunnel_monitor.py` keeps a 20-minute rolling average of observed tunnel transit times (T2–T5 pooled, T1 separate). When fewer than 5 samples exist in the window, it falls back to the historical average from `static/tunnel_times.json`.
+
+### API
+
+The HTTP API is entirely read-only — there are no endpoints that mutate server
+state.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/version` | Contents of `VERSION` |
+| `GET /api/config` | Route/mode configuration for the frontend |
+| `GET /api/vehicles?route=<id>` | Live trips for one transit route |
+| `GET /api/vehicles/rail[?route=<id>]` | Live regional rail trains |
+| `GET /api/stops?route=<id>` | Stops for a route |
+| `GET /api/stop-predictions?stops=<ids>&routes=<ids>` | Arrival predictions per stop |
+| `GET /api/alerts` | SEPTA service alerts (cached 60s) |
+| `GET /api/ghosts` | Estimated tunnel positions and portal lingerers |
+| `GET /api/monitoring[?route=<id>]` | Rolling tunnel transit averages |
+| `GET /api/stats` | Today's raw trip entries |
+| `GET /api/stats/cdfs[?include_invalid=1]` | Merged history + today, as minute lists |
+| `GET /api/stats/export?format=csv[&route=<id>]` | CSV export |
 
 ### Data sources
 

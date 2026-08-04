@@ -344,7 +344,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text);
   .status-txt { font-size: 10px; max-width: none; flex: 1; }
 
   /* Hide low-priority toolbar items on mobile */
-  #trackerBtn { display: none; }
   #bandOpacity { display: none !important; }
 
   /* Vehicle cards: single column, full width */

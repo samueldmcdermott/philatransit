@@ -1,13 +1,12 @@
 """Flask blueprint with provider-agnostic API routes."""
 
 import time
-from datetime import datetime
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from .helpers import TODAY, SCHED, DAILY_CDFS, load, dump, date_str
+from .helpers import DAILY_CDFS, load, date_str
 from .poller import transit_lock, transit_cache, rail_lock, rail_cache
-from .core.stats import CUTOFF_DATE, record_start, today_minutes
+from .core.stats import CUTOFF_DATE, today_minutes, today_snapshot
 from .version import get_version
 
 api = Blueprint("api", __name__)
@@ -17,9 +16,6 @@ api = Blueprint("api", __name__)
 
 def _provider():
     return current_app.config['provider']
-
-def _trip_manager():
-    return current_app.config['trip_manager']
 
 def _tunnel_monitor():
     return current_app.config['tunnel_monitor']
@@ -77,7 +73,7 @@ def stops():
 
 @api.route("/api/stop-predictions")
 def stop_predictions():
-    stop_ids = set(s.strip() for s in request.args.get("stops", "").split(",") if s.strip())
+    stop_ids = {s.strip() for s in request.args.get("stops", "").split(",") if s.strip()}
     route_ids = [s.strip() for s in request.args.get("routes", "").split(",") if s.strip()]
 
     if not stop_ids or not route_ids:
@@ -124,7 +120,7 @@ def monitoring():
 
 @api.route("/api/stats")
 def get_stats():
-    return jsonify(load(TODAY))
+    return jsonify(today_snapshot())
 
 
 @api.route("/api/stats/cdfs")
@@ -149,30 +145,13 @@ def get_cdfs():
     return jsonify(cdfs)
 
 
-@api.route("/api/stats/record", methods=["POST"])
-def record_trip():
-    body  = request.get_json(force=True, silent=True) or {}
-    route = str(body.get("route", "")).strip()
-    start = int(body.get("start", body.get("timestamp", datetime.now().timestamp() * 1000)))
-    if not route:
-        return jsonify(error="missing route"), 400
-    record_start(route, start)
-    return jsonify(ok=True, route=route, day=date_str(start))
-
-
-@api.route("/api/stats/clear", methods=["POST"])
-def clear_stats():
-    dump(TODAY, {})
-    return jsonify(ok=True)
-
-
 @api.route("/api/stats/export")
 def export_stats():
     fmt = request.args.get("format", "json").lower()
-    trips = load(TODAY)
+    trips = today_snapshot()
 
     if fmt == "csv":
-        route_filters = set(r for r in request.args.getlist("route") if r.strip()) or None
+        route_filters = {r for r in request.args.getlist("route") if r.strip()} or None
         flat = today_minutes(trips)
         rows = ["route,date,time_of_day,minutes"]
         for route in sorted(flat):
@@ -191,33 +170,3 @@ def export_stats():
         )
 
     return jsonify(trips)
-
-
-# ── Scheduled config ─────────────────────────────────────────
-
-@api.route("/api/scheduled")
-def get_scheduled():
-    return jsonify(load(SCHED))
-
-
-@api.route("/api/scheduled", methods=["POST"])
-def set_scheduled():
-    body  = request.get_json(force=True, silent=True) or {}
-    route = str(body.get("route", "")).strip()
-    count = int(body.get("count", 0))
-
-    if not route:
-        return jsonify(error="missing route"), 400
-
-    sched = load(SCHED)
-    sched[route] = count
-    dump(SCHED, sched)
-    return jsonify(ok=True)
-
-
-# ── Tracker status (server-side tracking is always on) ──────
-
-@api.route("/api/tracker/status")
-def tracker_status():
-    tm = _trip_manager()
-    return jsonify(running=True, tracked=len(tm._trips))

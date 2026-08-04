@@ -54,8 +54,12 @@ class RouteShapeRegistry:
 _SAMPLE_SPACING_M = 350
 
 
-def _sample_stops(pts, cum_dist, spacing=_SAMPLE_SPACING_M):
-    """Generate evenly-spaced synthetic stops along a shape polyline."""
+def _sample_stops(cum_dist, spacing=_SAMPLE_SPACING_M):
+    """Generate evenly-spaced synthetic stops along a shape polyline.
+
+    Works entirely off the cumulative-distance array; the point list isn't
+    needed because stops are identified by dist-along, not coordinates.
+    """
     if not cum_dist:
         return []
     total = cum_dist[-1]
@@ -176,7 +180,7 @@ def load_shapes(base_dir: Path, shape_trims: dict | None = None,
 
         # Auto-generate synthetic stops if none defined
         if not stop_dists:
-            stop_dists = _sample_stops(pts, cum)
+            stop_dists = _sample_stops(cum)
 
         registry._routes[route_id] = RouteShape(
             route_id=route_id,

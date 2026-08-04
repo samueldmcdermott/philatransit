@@ -207,6 +207,23 @@ def _update_previous_stops(trip):
         trip.total_stops_crossed += 1
 
 
+def _reseed_direction_state(trip, shape):
+    """Re-anchor direction-correction state to the trip's current position.
+
+    Both correctors in ``_update_trip`` reason about change since the previous
+    poll: the stop tracker compares the current stop against ``_last_stop_da``,
+    and the movement tracker looks at the last ``_DA_HISTORY_LEN`` dist_along
+    samples.  After a flip, that history describes the leg the vehicle just
+    finished, so it argues for undoing the flip.  Discard it and re-seed from
+    where the trip now is.
+    """
+    trip._da_history.clear()
+    trip._prev_stop_da = None
+    trip._last_stop_name = trip.current_stop
+    trip._last_stop_da = (_stop_da(shape.stops, trip.current_stop)
+                          if trip.current_stop else None)
+
+
 def _near_origin(shape, lat, lng) -> bool:
     """True if (lat, lng) is within _TERMINUS_RADIUS straight-line meters
     of the start-terminus coord.  Used in preference to a `dist_along`
@@ -364,7 +381,7 @@ class TripManager:
                     continue
                 moves.append((vid, src_route, best_route, v))
 
-        for vid, src_route, dst_route, v in moves:
+        for _vid, src_route, dst_route, v in moves:
             transit_routes[src_route] = [
                 x for x in transit_routes[src_route] if x is not v]
             v['route_id'] = dst_route
@@ -396,7 +413,7 @@ class TripManager:
                 if vid:
                     appearances.setdefault(vid, []).append((route_id, v))
 
-        for vid, occs in appearances.items():
+        for occs in appearances.values():
             if len(occs) <= 1:
                 continue
             # Score each occurrence by perpendicular distance to the route
@@ -536,7 +553,7 @@ class TripManager:
                             self._flip(trip, to_return=True)
 
                     # Write Trip fields onto the vehicle dict
-                    self._write_vehicle_fields(v, trip, shape, da, now)
+                    self._write_vehicle_fields(v, trip, shape, da)
                     visible.append(v)
                 transit_routes[route_id] = visible
 
@@ -729,9 +746,15 @@ class TripManager:
         if trip.on_detour:
             return
 
-        # toward_destination flips to False at destination terminus
-        if trip.toward_destination and new_da >= shape.total_len - _TERMINUS_RADIUS:
+        # toward_destination flips to False at destination terminus.
+        # `at_destination` also gates the forward-direction correctors below:
+        # inside the terminus radius the vehicle is *at* its destination, so
+        # continued forward motion says nothing about which way it is headed.
+        at_destination = new_da >= shape.total_len - _TERMINUS_RADIUS
+        terminus_flipped = False
+        if trip.toward_destination and at_destination:
             self._flip(trip, to_return=True)
+            terminus_flipped = True
 
         # Retirement: back at origin after having flipped.  Use straight-line
         # distance to the origin coord (not dist_along) so trips retire even
@@ -756,6 +779,17 @@ class TripManager:
         _update_stop_info(trip, shape.stops)
         _update_previous_stops(trip)
 
+        if terminus_flipped:
+            # Reaching the destination terminus is positional fact, not
+            # inference, so it outranks the two correctors below.  Both weigh
+            # "still advancing along the shape" as evidence of outbound
+            # travel — which is precisely what a vehicle completing its
+            # outbound leg looks like — so left to run they would undo the
+            # flip on this very poll and clear passed_destination with it.
+            # Re-anchor their state to the post-flip position and skip them.
+            _reseed_direction_state(trip, shape)
+            return
+
         # Track stop history; correct direction if stops contradict it.
         stop_flipped = False
         if trip.current_stop and trip.current_stop != trip._last_stop_name:
@@ -769,7 +803,9 @@ class TripManager:
                     if trip.toward_destination and cur_da < trip._prev_stop_da:
                         self._flip(trip, to_return=True)
                         stop_flipped = True
-                    elif not trip.toward_destination and cur_da > trip._prev_stop_da:
+                    elif (not trip.toward_destination
+                            and cur_da > trip._prev_stop_da
+                            and not at_destination):
                         self._flip(trip, to_return=False)
                         stop_flipped = True
 
@@ -794,7 +830,9 @@ class TripManager:
                 all_fwd = all(d > 0 for d in deltas)
                 all_rev = all(d < 0 for d in deltas)
                 net = trip._da_history[-1] - trip._da_history[0]
-                if all_fwd and net > _DA_FLIP_THRESH and not trip.toward_destination:
+                if (all_fwd and net > _DA_FLIP_THRESH
+                        and not trip.toward_destination
+                        and not at_destination):
                     self._flip(trip, to_return=False)
                     _update_stop_info(trip, shape.stops)
                     trip._da_history.clear()
@@ -859,10 +897,8 @@ class TripManager:
             denom = trip.stops_at_detour_start
         else:
             denom = trip.stops_total
-        if denom > 0:
-            fraction = round(min(trip.total_stops_crossed, denom) / denom, 3)
-        else:
-            fraction = None
+        fraction = (round(min(trip.total_stops_crossed, denom) / denom, 3)
+                    if denom > 0 else None)
         record_finish(
             trip.route,
             int(trip.start_time * 1000),
@@ -873,7 +909,7 @@ class TripManager:
             tunnel_seconds=round(trip.tunnel_seconds, 1) if is_tunnel_route else None,
         )
 
-    def _write_vehicle_fields(self, v, trip, shape, da, now):
+    def _write_vehicle_fields(self, v, trip, shape, da):
         """Write Trip fields onto a vehicle dict for the API response."""
         heading = geo.shape_heading(
             shape.pts, shape.cum_dist, shape.total_len, da, trip.toward_destination

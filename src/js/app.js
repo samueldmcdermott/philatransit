@@ -12,7 +12,6 @@ let stopsArr             = [];
 let scheduleData         = {};
 let shapesData           = {};
 let tunnelTimesData      = {};
-let serverTrackerRunning = false;
 let modelCardOpen        = true;
 let refreshTimer         = null;
 let refreshIntervalMs    = 7000;
@@ -41,7 +40,7 @@ let lingeringVids      = {};
 async function init() {
   await loadRouteConfig();
   buildRouteList();
-  await Promise.all([checkTrackerStatus(), loadStaticData(), fetchAlerts()]);
+  await Promise.all([loadStaticData(), fetchAlerts()]);
   startAutoRefresh();
   setInterval(fetchAlerts, 60000);
 }
@@ -445,30 +444,6 @@ async function goToVehicleOnMap(vid) {
   setTimeout(() => marker.openPopup(), 350);
 }
 
-// ── Tracker ─────────────────────────────────────────────────────────────────
-
-async function checkTrackerStatus() {
-  try {
-    const d = await apiFetch('/api/tracker/status');
-    setTrackerUI(d.running, d.tracked);
-  } catch (_) {}
-}
-
-function setTrackerUI(running, tracked) {
-  serverTrackerRunning = running;
-  const btn = document.getElementById('trackerBtn');
-  btn.textContent = running ? `Tracker: On (${tracked})` : 'Tracker: Off';
-  btn.className   = 'btn' + (running ? ' btn-on' : '');
-}
-
-async function toggleTracker() {
-  const action = serverTrackerRunning ? 'stop' : 'start';
-  try {
-    await apiFetch(`/api/tracker/${action}`, { method: 'POST' });
-    setTrackerUI(action === 'start', 0);
-  } catch (e) { setStatus('Tracker error: ' + e.message); }
-}
-
 // ── Auto-refresh ────────────────────────────────────────────────────────────
 
 let ghostTickTimer = null;
@@ -795,15 +770,12 @@ function renderTrips(trips) {
     if (filterBar) filterBar.style.display = 'none';
     empty.innerHTML = `<div class="empty-icon">🚌</div><div class="empty-title">No live vehicles</div><div>No active vehicles for this route right now.</div>`;
     setStatus(`No vehicles · ${fmtTime(now)}`);
-    detectCompletions(new Set(), now);
     return;
   }
 
   // Show filter bar
   if (filterBar) filterBar.style.display = '';
 
-  const curIds = new Set(trips.map(t => t._id));
-  detectCompletions(curIds, now);
   const newReg = {};
   for (const t of trips) {
     const ex = liveRegistry[t._id];
@@ -1145,28 +1117,6 @@ function updateTunnelClosureBanner() {
     alertsBanner.innerHTML = content;
     alertsBanner.style.display = '';
   }
-}
-
-// ── Completion detection ────────────────────────────────────────────────────
-
-function detectCompletions(curIds, now) {
-  if (serverTrackerRunning) return;
-  const MIN_DWELL = 60000;
-  for (const [vid, entry] of Object.entries(liveRegistry)) {
-    if (!curIds.has(vid) && (now - entry.firstSeen) >= MIN_DWELL) {
-      recordCompletion(entry.route, entry.firstSeen, now);
-    }
-  }
-}
-
-async function recordCompletion(routeKey, startTs, endTs) {
-  try {
-    await fetch('/api/stats/record', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ route: routeKey, start: startTs, end: endTs }),
-    });
-  } catch (_) {}
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────────

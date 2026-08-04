@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 BASE = Path(__file__).parent.parent
 DATA = BASE / "data"
 TODAY = DATA / "today.json"
-SCHED = DATA / "scheduled.json"
 DAILY_CDFS = DATA / "daily_cdfs.json"
 
 DATA.mkdir(exist_ok=True)
@@ -26,7 +26,25 @@ def load(path, default=None):
 
 
 def dump(path, obj):
-    path.write_text(json.dumps(obj, indent=2))
+    """Write JSON atomically.
+
+    Serialize to a sibling temp file, fsync, then os.replace() onto the
+    target.  os.replace is atomic within a filesystem, so a crash or
+    container restart mid-write leaves the previous file intact rather
+    than a truncated one.  The temp file is a sibling (not /tmp) so it
+    lands on the same filesystem as the target, including under the
+    Docker ./data volume mount.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(obj, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def date_str(ts_ms: int | None = None) -> str:

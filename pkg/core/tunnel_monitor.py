@@ -110,10 +110,8 @@ class TunnelMonitor:
                 'using_fallback': False,
             }
         # Fallback
-        if key == _SHARED_TUNNEL_KEY:
-            fb = self._shared_fallback()
-        else:
-            fb = self._fallback_times.get(key)
+        fb = (self._shared_fallback() if key == _SHARED_TUNNEL_KEY
+              else self._fallback_times.get(key))
         if fb:
             return {
                 'avg_seconds': round(fb * 2, 1),

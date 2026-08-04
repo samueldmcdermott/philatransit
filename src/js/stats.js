@@ -993,12 +993,6 @@ function dayType(d) {
   const day = d.getDay(); return day === 0 ? 'sunday' : day === 6 ? 'saturday' : 'weekday';
 }
 
-function percentile(sorted, p) {
-  const idx = (p / 100) * (sorted.length - 1);
-  const lo  = Math.floor(idx), hi = Math.ceil(idx);
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
 function csvTimestamp() {
   const d = new Date();
   return d.getFullYear()
@@ -1071,10 +1065,4 @@ function exportCsvAll() {
     '/api/stats/export?format=csv',
     `septa_trips_all_${csvTimestamp()}.csv`
   );
-}
-
-async function clearStats() {
-  if (!confirm('Clear all recorded trip data?')) return;
-  try { await fetch('/api/stats/clear', { method: 'POST' }); if (selectedRoute) loadStats(); }
-  catch (e) { alert('Error: ' + e.message); }
 }

@@ -10,7 +10,7 @@ from .poller import start_poller
 from .core.shapes import load_shapes
 from .core.trip import TripManager
 from .core.route import build_route_config
-from .core.stats import rollover, start_midnight_scheduler
+from .core.stats import rollover, start_midnight_scheduler, start_stats_writer
 from .core.tunnel_monitor import TunnelMonitor
 
 
@@ -63,6 +63,7 @@ def create_app(provider_name="septa"):
 
     # -- Background services --
     rollover()
+    start_stats_writer()
     start_midnight_scheduler(trip_manager.retire_dormant_trips)
     start_poller(provider, trip_manager)
 
@@ -79,7 +80,7 @@ def create_app(provider_name="septa"):
     @app.after_request
     def add_cors(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         return response
 

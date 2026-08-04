@@ -88,32 +88,6 @@ async function loadRouteConfig() {
   }
 }
 
-// ── Rail line key (maps TrainView fields to stable route key) ──────────────
-const RAIL_ALIASES = {
-  'Airport':            ['airport','phl'],
-  'Chestnut Hill East': ['chestnut hill east','che'],
-  'Chestnut Hill West': ['chestnut hill west','chw'],
-  'Cynwyd':             ['cynwyd'],
-  'Fox Chase':          ['fox chase'],
-  'Lansdale':           ['lansdale','doylestown'],
-  'Media':              ['media','wawa'],
-  'Manayunk':           ['manayunk','norristown'],
-  'Paoli':              ['paoli','thorndale','malvern'],
-  'Trenton':            ['trenton'],
-  'Warminster':         ['warminster'],
-  'West Trenton':       ['west trenton'],
-  'Wilmington':         ['wilmington','newark'],
-};
-
-function railLineKey(line, dest, src) {
-  const lineLow = (line || '').toLowerCase();
-  const destLow = (dest || '').toLowerCase();
-  const srcLow  = (src  || '').toLowerCase();
-  for (const [id, keys] of Object.entries(RAIL_ALIASES))
-    if (keys.some(k => lineLow.includes(k))) return id;
-  for (const [id, keys] of Object.entries(RAIL_ALIASES))
-    if (keys.some(k => destLow.includes(k))) return id;
-  for (const [id, keys] of Object.entries(RAIL_ALIASES))
-    if (keys.some(k => srcLow.includes(k))) return id;
-  return line || 'unknown';
-}
+// Rail route keying lives server-side — see rail_line_key() in
+// pkg/provider/septa/constants.py.  /api/vehicles/rail returns route_id
+// already resolved, so the client never needs to map TrainView fields.

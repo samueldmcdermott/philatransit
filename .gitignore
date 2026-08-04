@@ -7,16 +7,23 @@ __pycache__/
 *.pyo
 venv/
 .venv/
+.pytest_cache/
+.ruff_cache/
 
-# Runtime data (generated per-instance)
+# Runtime data (generated per-instance, persisted via the ./data volume)
 data/today.json
-data/scheduled.json
+data/today.json.tmp
 data/daily_cdfs.json
+data/daily_cdfs.json.tmp
+data/trips.json
+data/scheduled.json
 data/*snip*
+
+# Local agent config
+.claude/settings.local.json
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-index.html

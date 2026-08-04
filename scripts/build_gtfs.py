@@ -14,6 +14,7 @@ Usage:
     python3 scripts/build_gtfs.py
 """
 
+import contextlib
 import csv
 import io
 import json
@@ -103,10 +104,8 @@ def main():
             lng = row.get("stop_lon", "").strip()
             name = row.get("stop_name", "").strip()
             if sid and lat and lng:
-                try:
+                with contextlib.suppress(ValueError):
                     stops[sid] = {"name": name, "lat": float(lat), "lng": float(lng)}
-                except ValueError:
-                    pass
         print(f"  {len(stops)} stops")
 
         # ── routes → short name ─────────────────────────────────────────
@@ -166,9 +165,12 @@ def main():
                 continue
             w = d.weekday()
             bucket = svc_dow_counts[sid]
-            if w == 5:   bucket[1] += 1
-            elif w == 6: bucket[2] += 1
-            else:        bucket[0] += 1
+            if w == 5:
+                bucket[1] += 1
+            elif w == 6:
+                bucket[2] += 1
+            else:
+                bucket[0] += 1
 
         # Classify services missing from calendar.txt or with all-zero rows.
         # Tie-breaking favors Sunday, then Saturday, then weekday — this keeps
@@ -272,10 +274,8 @@ def main():
                 lat = row.get("shape_pt_lat", "").strip()
                 lng = row.get("shape_pt_lon", "").strip()
                 if sid and lat and lng:
-                    try:
+                    with contextlib.suppress(ValueError):
                         raw_shapes[sid].append((int(seq), float(lat), float(lng)))
-                    except ValueError:
-                        pass
 
             # Map shape_id → route_short_name (via trips.txt)
             shape_to_routes = defaultdict(set)
@@ -288,7 +288,6 @@ def main():
 
             # Build route_short_name → [[lat, lng], ...] using longest shape per route
             route_shapes = {}
-            shape_lengths = {sid: len(pts) for sid, pts in raw_shapes.items()}
             for sid, route_set in shape_to_routes.items():
                 pts = sorted(raw_shapes[sid], key=lambda x: x[0])
                 coords = [[p[1], p[2]] for p in pts]

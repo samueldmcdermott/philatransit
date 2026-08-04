@@ -10,6 +10,7 @@ Usage:
     python3 scripts/tunnel_timing.py
 """
 
+import contextlib
 import csv
 import io
 import json
@@ -127,10 +128,8 @@ def main():
             lng = row.get("stop_lon", "").strip()
             name = row.get("stop_name", "").strip()
             if sid and lat and lng:
-                try:
+                with contextlib.suppress(ValueError):
                     all_stops[sid] = {"name": name, "lat": float(lat), "lng": float(lng)}
-                except ValueError:
-                    pass
 
         # Load stop_times for trolley trips
         print("Loading stop_times.txt (this takes a moment) …")
@@ -149,10 +148,8 @@ def main():
             arr_s = parse_time_seconds(arr)
             dep_s = parse_time_seconds(dep)
             if arr_s is not None:
-                try:
+                with contextlib.suppress(ValueError):
                     trip_stops[tid].append((int(seq), sid, arr_s, dep_s or arr_s))
-                except ValueError:
-                    pass
 
         print(f"  {len(trip_stops)} trips with stop times")
 
@@ -172,7 +169,7 @@ def main():
                 portal_stop = None
                 thirteenth_stop = None
 
-                for seq, sid, arr, dep in stops_list:
+                for seq, sid, arr, _dep in stops_list:
                     s = all_stops.get(sid)
                     if not s:
                         continue
@@ -180,13 +177,14 @@ def main():
                     d_portal = dist_sq(s["lat"], s["lng"], portal_lat, portal_lng)
                     d_13th = dist_sq(s["lat"], s["lng"], THIRTEENTH_ST[0], THIRTEENTH_ST[1])
 
-                    if d_portal < 0.0001:  # ~30m threshold
-                        if portal_stop is None or d_portal < portal_stop[1]:
-                            portal_stop = (arr, d_portal, s["name"], seq)
+                    # ~30 m threshold on squared degree distance
+                    if d_portal < 0.0001 and (portal_stop is None
+                                              or d_portal < portal_stop[1]):
+                        portal_stop = (arr, d_portal, s["name"], seq)
 
-                    if d_13th < 0.0001:
-                        if thirteenth_stop is None or d_13th < thirteenth_stop[1]:
-                            thirteenth_stop = (arr, d_13th, s["name"], seq)
+                    if d_13th < 0.0001 and (thirteenth_stop is None
+                                            or d_13th < thirteenth_stop[1]):
+                        thirteenth_stop = (arr, d_13th, s["name"], seq)
 
                 if portal_stop and thirteenth_stop:
                     dt = abs(thirteenth_stop[0] - portal_stop[0])

@@ -16,10 +16,19 @@ only get a start record.
 
 ``rollover`` runs once at startup and then nightly; it drains finished
 days into daily_cdfs.json, flattening rich entries to minute lists.
+
+today.json is held in memory and written back on a short debounce rather
+than re-read and re-serialized on every record.  A busy day produces ~9k
+entries / ~1.4 MB across ~20k record calls; re-parsing and re-dumping the
+whole file per call cost the poller thread time quadratic in the day's
+length.  The in-memory dict guarded by ``_file_lock`` is the source of
+truth while the process runs; ``flush`` persists it.
 """
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import threading
 import time
 from datetime import datetime, timedelta
@@ -31,6 +40,10 @@ from ..helpers import (
 
 
 CUTOFF_DATE = "2026-03-17"
+
+# Seconds between writer-thread flushes of today.json.  Bounds how much
+# recording is lost if the process is killed without unwinding.
+FLUSH_INTERVAL_S = 5
 
 # Completed trips that traversed less than this fraction of their effective
 # route are treated as anomalies: they're left in today.json for same-day
@@ -44,6 +57,76 @@ MIN_VALID_STOP_FRACTION = 0.95
 GHOST_STOP_FRACTION = 0.1
 
 _file_lock = threading.Lock()
+
+# In-memory today.json.  None until first access; loaded lazily so that
+# importing this module never touches disk (tests repoint TODAY freely).
+_today: dict | None = None
+_today_dirty = False
+
+
+def _load_today():
+    """Return the in-memory today.json, loading it on first use.
+
+    Caller must hold _file_lock.
+    """
+    global _today
+    if _today is None:
+        _today = load(TODAY)
+    return _today
+
+
+def _mark_dirty():
+    """Flag today.json as having unpersisted changes.  Caller holds the lock."""
+    global _today_dirty
+    _today_dirty = True
+
+
+def flush():
+    """Persist today.json if it has unpersisted changes."""
+    global _today_dirty
+    with _file_lock:
+        if not _today_dirty or _today is None:
+            return
+        dump(TODAY, _today)
+        _today_dirty = False
+
+
+def reset_cache():
+    """Drop the in-memory copy so the next access re-reads TODAY.
+
+    Used by tests after repointing the TODAY path.
+    """
+    global _today, _today_dirty
+    with _file_lock:
+        _today = None
+        _today_dirty = False
+
+
+def today_snapshot() -> dict:
+    """Return the current today.json contents (in-memory source of truth)."""
+    with _file_lock:
+        return _load_today()
+
+
+def start_stats_writer():
+    """Launch the daemon thread that flushes today.json on a debounce."""
+    def _loop():
+        while True:
+            time.sleep(FLUSH_INTERVAL_S)
+            try:
+                flush()
+            except Exception as e:
+                print(f"  [stats] flush error: {e}")
+
+    t = threading.Thread(target=_loop, daemon=True, name="StatsWriter")
+    t.start()
+    atexit.register(_flush_quietly)
+    print(f"  [stats] writer started (flush every {FLUSH_INTERVAL_S}s)")
+
+
+def _flush_quietly():
+    with contextlib.suppress(Exception):
+        flush()
 
 
 def _entry_minute(entry):
@@ -136,18 +219,18 @@ def record_start(route, start_ms):
         'stops_passed': None,
     }
     with _file_lock:
-        data = load(TODAY)
+        data = _load_today()
         bucket = data.setdefault(route, {}).setdefault(day, [])
         _insort_entry(bucket, entry)
-        dump(TODAY, data)
+        _mark_dirty()
 
 
 def record_starts(entries):
-    """Batch-insert (route, start_ms) pairs with one file write."""
+    """Batch-insert (route, start_ms) pairs."""
     if not entries:
         return
     with _file_lock:
-        data = load(TODAY)
+        data = _load_today()
         for route, start_ms in entries:
             if not route:
                 continue
@@ -159,7 +242,7 @@ def record_starts(entries):
             }
             bucket = data.setdefault(route, {}).setdefault(day, [])
             _insort_entry(bucket, entry)
-        dump(TODAY, data)
+        _mark_dirty()
 
 
 def record_travel_start(route, nominal_start_ms, travel_start_ms, idle_seconds):
@@ -179,7 +262,7 @@ def record_travel_start(route, nominal_start_ms, travel_start_ms, idle_seconds):
     nominal_min = round(minutes_since_midnight(nominal_start_ms), 2)
     travel_min = round(minutes_since_midnight(travel_start_ms), 2)
     with _file_lock:
-        data = load(TODAY)
+        data = _load_today()
         bucket = data.get(route, {}).get(day)
         if not bucket:
             return
@@ -194,7 +277,7 @@ def record_travel_start(route, nominal_start_ms, travel_start_ms, idle_seconds):
             e['idle_seconds'] = round(idle_seconds, 1)
             bucket.pop(i)
             _insort_entry(bucket, e)
-            dump(TODAY, data)
+            _mark_dirty()
             return
 
 
@@ -212,7 +295,7 @@ def record_finish(route, start_ms, elapsed_seconds=None,
     day = date_str(start_ms)
     target = round(minutes_since_midnight(start_ms), 2)
     with _file_lock:
-        data = load(TODAY)
+        data = _load_today()
         bucket = data.get(route, {}).get(day)
         if not bucket:
             return
@@ -230,7 +313,7 @@ def record_finish(route, start_ms, elapsed_seconds=None,
             if tunnel_seconds is not None:
                 e['tunnel_seconds'] = tunnel_seconds
             bucket[i] = e
-            dump(TODAY, data)
+            _mark_dirty()
             return
 
 
@@ -242,7 +325,7 @@ def rollover():
     """
     today = date_str()
     with _file_lock:
-        trips = load(TODAY)
+        trips = _load_today()
         cdfs = load(DAILY_CDFS)
         dirty_t = dirty_c = False
 
@@ -260,7 +343,7 @@ def rollover():
                 del trips[route]
                 dirty_t = True
 
-        for route, days in cdfs.items():
+        for days in cdfs.values():
             for day, val in list(days.items()):
                 mins = _as_mins(val)
                 if mins != val:
@@ -268,9 +351,13 @@ def rollover():
                     dirty_c = True
 
         if dirty_t:
-            dump(TODAY, trips)
+            _mark_dirty()
         if dirty_c:
             dump(DAILY_CDFS, cdfs)
+
+    # Persist the drained today.json immediately rather than waiting for the
+    # writer thread — rollover is rare and the write is the whole point.
+    flush()
 
 
 def today_minutes(data=None, *, valid_only=True):
@@ -280,7 +367,7 @@ def today_minutes(data=None, *, valid_only=True):
     valid_only=False to include them (e.g. for raw export).
     """
     if data is None:
-        data = load(TODAY)
+        data = today_snapshot()
     return {r: {d: _as_mins(v, valid_only=valid_only) for d, v in days.items()}
             for r, days in data.items()}
 
