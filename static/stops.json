@@ -280,7 +280,7 @@
     "lng": -75.150221
   },
   "82": {
-    "name": "Olney Transit Center",
+    "name": "Olney Transit Center - B2 & B3",
     "lat": 40.039066,
     "lng": -75.144749
   },
@@ -1734,6 +1734,11 @@
     "lat": 40.038111,
     "lng": -75.222632
   },
+  "605": {
+    "name": "Island Av & Suffolk Av - MBNS",
+    "lat": 39.899471,
+    "lng": -75.23927
+  },
   "610": {
     "name": "Elmwood Av & 73rd St",
     "lat": 39.914335,
@@ -1744,6 +1749,11 @@
     "lat": 39.914015,
     "lng": -75.242642
   },
+  "612": {
+    "name": "80th St/Eastwick",
+    "lat": 39.898748,
+    "lng": -75.23926
+  },
   "613": {
     "name": "Snyder Av & Broad St",
     "lat": 39.924406,
@@ -1753,6 +1763,11 @@
     "name": "Lindbergh Blvd & Island Av",
     "lat": 39.904247,
     "lng": -75.239965
+  },
+  "617": {
+    "name": "PNC Center",
+    "lat": 39.886318,
+    "lng": -75.245959
   },
   "618": {
     "name": "International Plaza",
@@ -2021,8 +2036,8 @@
   },
   "703": {
     "name": "City Av & Presidential Blv - FS",
-    "lat": 40.008185,
-    "lng": -75.211716
+    "lat": 40.008212,
+    "lng": -75.211728
   },
   "705": {
     "name": "Montgomery Av & Haverford Av",
@@ -2068,11 +2083,6 @@
     "name": "60th St & Callowhill St",
     "lat": 39.967996,
     "lng": -75.23943
-  },
-  "721": {
-    "name": "Luzerne St & 2nd St - FS",
-    "lat": 40.011365,
-    "lng": -75.130665
   },
   "722": {
     "name": "Godfrey Loop - FS",
@@ -2553,11 +2563,6 @@
     "name": "Castor Av & Cottman Av",
     "lat": 40.051019,
     "lng": -75.066158
-  },
-  "888": {
-    "name": "Alma Loop",
-    "lat": 40.052724,
-    "lng": -75.066256
   },
   "890": {
     "name": "Castor Av & Elgin Av",
@@ -3374,6 +3379,11 @@
     "lat": 39.937036,
     "lng": -75.161436
   },
+  "1184": {
+    "name": "11th St & Market St - FS",
+    "lat": 39.952362,
+    "lng": -75.158025
+  },
   "1185": {
     "name": "11th St & Girard Av",
     "lat": 39.970613,
@@ -3444,11 +3454,6 @@
     "lat": 40.013099,
     "lng": -75.070357
   },
-  "1249": {
-    "name": "Lycoming St & 10th St",
-    "lat": 40.013492,
-    "lng": -75.143362
-  },
   "1250": {
     "name": "Richmond St & Venango St",
     "lat": 39.987883,
@@ -3500,7 +3505,7 @@
     "lng": -75.162601
   },
   "1281": {
-    "name": "15th St/City Hall",
+    "name": "15th St/City Hall - B2",
     "lat": 39.952473,
     "lng": -75.164129
   },
@@ -3639,11 +3644,6 @@
     "lat": 39.934687,
     "lng": -75.227158
   },
-  "1461": {
-    "name": "Welsh Rd & Bridle Rd",
-    "lat": 40.100324,
-    "lng": -75.048205
-  },
   "1465": {
     "name": "Rhawn St & Verree Rd - FS",
     "lat": 40.073178,
@@ -3683,11 +3683,6 @@
     "name": "Verree Rd & Marchman Rd - MBFS",
     "lat": 40.091088,
     "lng": -75.054951
-  },
-  "1508": {
-    "name": "Byberry Rd & Academy Rd",
-    "lat": 40.096134,
-    "lng": -74.976958
   },
   "1520": {
     "name": "Byberry Rd  & Thornton Rd - FS",
@@ -7199,11 +7194,6 @@
     "lat": 40.053162,
     "lng": -75.069612
   },
-  "6447": {
-    "name": "Cottman Av & Hanford St - FS",
-    "lat": 40.046514,
-    "lng": -75.057762
-  },
   "6454": {
     "name": "Cottman Av & Horrocks St",
     "lat": 40.049134,
@@ -7419,20 +7409,10 @@
     "lat": 40.049076,
     "lng": -75.219904
   },
-  "8521": {
-    "name": "Henry Av & Crease Ln",
-    "lat": 40.047154,
-    "lng": -75.217912
-  },
   "8523": {
     "name": "Henry Av & Gates St",
     "lat": 40.04023,
     "lng": -75.213936
-  },
-  "8524": {
-    "name": "Henry Av & Gates St - MBNS",
-    "lat": 40.041528,
-    "lng": -75.216249
   },
   "8525": {
     "name": "Henry Av & Valley Green Ct - FS",
@@ -7689,11 +7669,6 @@
     "lat": 39.992983,
     "lng": -75.147685
   },
-  "9380": {
-    "name": "Lehigh Av & Lawrence St",
-    "lat": 39.991947,
-    "lng": -75.139383
-  },
   "9382": {
     "name": "Lehigh Av & Mascher St",
     "lat": 39.991208,
@@ -7753,11 +7728,6 @@
     "name": "Malvern Av & Wynnewood Rd",
     "lat": 39.982834,
     "lng": -75.248476
-  },
-  "10200": {
-    "name": "Manayunk Av & Hermit St",
-    "lat": 40.021493,
-    "lng": -75.212042
   },
   "10201": {
     "name": "Manayunk Av & Kingsley St",
@@ -8169,11 +8139,6 @@
     "lat": 40.023422,
     "lng": -75.207816
   },
-  "12288": {
-    "name": "Ridge Av & Domino Ln - MBFS",
-    "lat": 40.044487,
-    "lng": -75.230134
-  },
   "12293": {
     "name": "Ridge Av & Jefferson St",
     "lat": 39.977367,
@@ -8193,11 +8158,6 @@
     "name": "Ridge Av & Leverington St",
     "lat": 40.035568,
     "lng": -75.217284
-  },
-  "12301": {
-    "name": "Ridge Av & Livezey St - FS",
-    "lat": 40.043117,
-    "lng": -75.227418
   },
   "12302": {
     "name": "Ridge Av & Lyceum Av",
@@ -8294,11 +8254,6 @@
     "lat": 40.094387,
     "lng": -75.288293
   },
-  "12389": {
-    "name": "Ridge Av & Grakyn Ln",
-    "lat": 40.065066,
-    "lng": -75.239763
-  },
   "12391": {
     "name": "Ridge Pk & Ash Ln - MBNS",
     "lat": 40.091964,
@@ -8331,8 +8286,8 @@
   },
   "12410": {
     "name": "Ridge Pk & Manor Rd",
-    "lat": 40.07652,
-    "lng": -75.247647
+    "lat": 40.0761,
+    "lng": -75.247033
   },
   "12413": {
     "name": "Ridge Pk & Mulberry Ln",
@@ -9168,11 +9123,6 @@
     "name": "27th St & Brown St",
     "lat": 39.970456,
     "lng": -75.181167
-  },
-  "14940": {
-    "name": "Poplar St & 27th St",
-    "lat": 39.972874,
-    "lng": -75.180993
   },
   "14941": {
     "name": "Poplar St & 29th St",
@@ -12454,16 +12404,6 @@
     "lat": 40.012782,
     "lng": -75.183384
   },
-  "16007": {
-    "name": "Henry Av & Bowman St",
-    "lat": 40.013918,
-    "lng": -75.184715
-  },
-  "16008": {
-    "name": "Henry Av & Ainslie St",
-    "lat": 40.014849,
-    "lng": -75.185788
-  },
   "16009": {
     "name": "Henry Av & Queen Ln",
     "lat": 40.015842,
@@ -12493,11 +12433,6 @@
     "name": "Henry Av & Wendover",
     "lat": 40.02922,
     "lng": -75.205848
-  },
-  "16015": {
-    "name": "Henry Av & Jamestown St",
-    "lat": 40.029845,
-    "lng": -75.20633
   },
   "16016": {
     "name": "Henry Av & Rector St",
@@ -12643,11 +12578,6 @@
     "name": "Ridge Av & Hermitage St",
     "lat": 40.03665,
     "lng": -75.218617
-  },
-  "16065": {
-    "name": "Ridge Av & Acorn St",
-    "lat": 40.037547,
-    "lng": -75.221168
   },
   "16066": {
     "name": "Ridge Av & Cinnaminson St",
@@ -14499,11 +14429,6 @@
     "lat": 40.030579,
     "lng": -75.20712
   },
-  "16526": {
-    "name": "Henry Av & Jamestown St",
-    "lat": 40.029631,
-    "lng": -75.206437
-  },
   "16527": {
     "name": "Henry Av & Walnut Ln",
     "lat": 40.02889,
@@ -14538,16 +14463,6 @@
     "name": "Henry Av & Queen Ln",
     "lat": 40.015878,
     "lng": -75.187191
-  },
-  "16534": {
-    "name": "Henry Av & Ainslie St",
-    "lat": 40.014912,
-    "lng": -75.186071
-  },
-  "16535": {
-    "name": "Henry Av &  Bowman St",
-    "lat": 40.013928,
-    "lng": -75.18494
   },
   "16536": {
     "name": "Henry Av & Abbottsford Av - FS",
@@ -18029,11 +17944,6 @@
     "lat": 40.049117,
     "lng": -75.062561
   },
-  "17510": {
-    "name": "Cottman Av & Hanford St",
-    "lat": 40.046416,
-    "lng": -75.05788
-  },
   "17513": {
     "name": "Cottman Av & Revere St",
     "lat": 40.043877,
@@ -18723,11 +18633,6 @@
     "name": "Crescentville Rd & Walnut Park Dr - FS",
     "lat": 40.046521,
     "lng": -75.112474
-  },
-  "17679": {
-    "name": "Cottman Av & Revere St",
-    "lat": 40.043778,
-    "lng": -75.052999
   },
   "17680": {
     "name": "Cheltenham Av & Rowland Av",
@@ -23665,9 +23570,9 @@
     "lng": -75.289494
   },
   "18977": {
-    "name": "State Rd & Township Line Rd - MBNS",
-    "lat": 39.946319,
-    "lng": -75.324033
+    "name": "State Rd & Drexeline Dr",
+    "lat": 39.946532,
+    "lng": -75.3231
   },
   "18981": {
     "name": "Evergreen Dr & Baltimore Pk - MBFS",
@@ -23690,7 +23595,7 @@
     "lng": -75.336025
   },
   "18986": {
-    "name": "State Rd & Township Line Rd - MBFS",
+    "name": "State Rd & Drexeline Dr",
     "lat": 39.946336,
     "lng": -75.323419
   },
@@ -23858,11 +23763,6 @@
     "name": "Manayunk Av & Rector St",
     "lat": 40.026801,
     "lng": -75.215951
-  },
-  "19038": {
-    "name": "Henry Av & Gates St - MBFS",
-    "lat": 40.041375,
-    "lng": -75.215623
   },
   "19040": {
     "name": "Henry Av & Livezey Ln",
@@ -24929,11 +24829,6 @@
     "lat": 40.007833,
     "lng": -75.290816
   },
-  "19321": {
-    "name": "Lancaster Av & Ardmore Av - FS",
-    "lat": 40.009085,
-    "lng": -75.293295
-  },
   "19323": {
     "name": "Lancaster Av & Wyoming Av",
     "lat": 40.011062,
@@ -25443,11 +25338,6 @@
     "name": "75th St & Lansdowne Av",
     "lat": 39.972301,
     "lng": -75.260327
-  },
-  "19477": {
-    "name": "Fountain St & Ridge Av - MBNS",
-    "lat": 40.037898,
-    "lng": -75.223153
   },
   "19488": {
     "name": "Media Line Rd & West Chester Pk - FS",
@@ -26328,11 +26218,6 @@
     "name": "Pennsylvania Av & 26th St",
     "lat": 39.967874,
     "lng": -75.180065
-  },
-  "19700": {
-    "name": "Poplar St & Poplar Dr",
-    "lat": 39.973608,
-    "lng": -75.186861
   },
   "19701": {
     "name": "Lehigh Av & Napa St - MBNS",
@@ -28254,11 +28139,6 @@
     "lat": 40.123872,
     "lng": -75.001913
   },
-  "20381": {
-    "name": "Hunting Park Av & G St",
-    "lat": 40.012113,
-    "lng": -75.111976
-  },
   "20382": {
     "name": "Hawthorne St & Magee Av",
     "lat": 40.032367,
@@ -28669,11 +28549,6 @@
     "lat": 39.992198,
     "lng": -75.140056
   },
-  "20517": {
-    "name": "Lehigh Av & Lawrence St",
-    "lat": 39.99208,
-    "lng": -75.139146
-  },
   "20518": {
     "name": "Lehigh Av & 9th St",
     "lat": 39.992952,
@@ -28851,8 +28726,8 @@
   },
   "20558": {
     "name": "City Av & Monument Rd - FS",
-    "lat": 40.007029,
-    "lng": -75.214237
+    "lat": 40.007056,
+    "lng": -75.214249
   },
   "20559": {
     "name": "City Av & Conshohocken State Rd",
@@ -30393,6 +30268,26 @@
     "name": "Elmwood Av & Island Av",
     "lat": 39.913284,
     "lng": -75.243092
+  },
+  "20921": {
+    "name": "Island Av & Tanager St",
+    "lat": 39.909132,
+    "lng": -75.2421
+  },
+  "20923": {
+    "name": "Island Av & Lindbergh Blvd - FS",
+    "lat": 39.903855,
+    "lng": -75.240403
+  },
+  "20927": {
+    "name": "Island Av & Lindbergh Blvd - FS",
+    "lat": 39.904257,
+    "lng": -75.240461
+  },
+  "20929": {
+    "name": "Island Av & Tanager St - FS",
+    "lat": 39.90915,
+    "lng": -75.242029
   },
   "20931": {
     "name": "Elmwood Av & Island Av - MBFS",
@@ -33944,11 +33839,6 @@
     "lat": 40.057161,
     "lng": -75.0012
   },
-  "21862": {
-    "name": "Frankford Av & Aubrey Av",
-    "lat": 40.057585,
-    "lng": -74.999896
-  },
   "21863": {
     "name": "60th St & Thompson St",
     "lat": 39.971423,
@@ -33968,11 +33858,6 @@
     "name": "Frankford Av & Convent Ln",
     "lat": 40.058017,
     "lng": -74.998309
-  },
-  "21867": {
-    "name": "Frankford Av & Barry Rd",
-    "lat": 40.058369,
-    "lng": -74.996994
   },
   "21868": {
     "name": "Frankford Av & Eden St",
@@ -34159,30 +34044,15 @@
     "lat": 40.058846,
     "lng": -74.995572
   },
-  "21913": {
-    "name": "Frankford Av & Barry Rd",
-    "lat": 40.058494,
-    "lng": -74.996899
-  },
   "21914": {
     "name": "Frankford Av & Convent Ln",
     "lat": 40.058168,
     "lng": -74.998202
   },
-  "21915": {
-    "name": "Frankford Av & Aubrey Av",
-    "lat": 40.057824,
-    "lng": -74.99941
-  },
   "21916": {
     "name": "Frankford Av & Pearson Av - FS",
     "lat": 40.057117,
     "lng": -75.001484
-  },
-  "21917": {
-    "name": "Frankford Av & Arendell Av",
-    "lat": 40.056069,
-    "lng": -75.002992
   },
   "21918": {
     "name": "Frankford Av & Linden Av",
@@ -36394,11 +36264,6 @@
     "lat": 40.107499,
     "lng": -75.053883
   },
-  "22415": {
-    "name": "Welsh Rd & Laramie Rd",
-    "lat": 40.10597,
-    "lng": -75.052979
-  },
   "22416": {
     "name": "Darlington Rd & Strafford Rd",
     "lat": 40.102842,
@@ -37054,20 +36919,10 @@
     "lat": 40.067728,
     "lng": -74.988303
   },
-  "22565": {
-    "name": "Morrell Av & Morrell Cir",
-    "lat": 40.069931,
-    "lng": -74.987793
-  },
   "22566": {
     "name": "Morrell Av & Crown Av",
     "lat": 40.071546,
     "lng": -74.987605
-  },
-  "22567": {
-    "name": "Morrell Av & Ashfield Ln",
-    "lat": 40.073341,
-    "lng": -74.987997
   },
   "22568": {
     "name": "Morrell Av & Keswick Rd",
@@ -37449,11 +37304,6 @@
     "lat": 40.11379,
     "lng": -74.987498
   },
-  "22649": {
-    "name": "Southampton Rd & Hank Salvatore Rd",
-    "lat": 40.112298,
-    "lng": -74.987022
-  },
   "22650": {
     "name": "McNulty Rd & Southampton Rd - FS",
     "lat": 40.109592,
@@ -37604,20 +37454,10 @@
     "lat": 40.075315,
     "lng": -74.988434
   },
-  "22681": {
-    "name": "Morrell Av & Ashfield Ln",
-    "lat": 40.073396,
-    "lng": -74.988209
-  },
   "22682": {
     "name": "Morrell Av & Crown Av",
     "lat": 40.071663,
     "lng": -74.987758
-  },
-  "22683": {
-    "name": "Morrell Av & Prince Cir",
-    "lat": 40.070253,
-    "lng": -74.987885
   },
   "22684": {
     "name": "Morrell Av & W Crown - FS",
@@ -40449,11 +40289,6 @@
     "lat": 40.027513,
     "lng": -75.110064
   },
-  "23315": {
-    "name": "Roosevelt Blvd & Smylie Rd",
-    "lat": 40.028275,
-    "lng": -75.107708
-  },
   "23316": {
     "name": "Roosevelt Blvd & Whitaker Av",
     "lat": 40.028779,
@@ -42809,11 +42644,6 @@
     "lat": 40.059932,
     "lng": -75.018486
   },
-  "23841": {
-    "name": "Willits Rd & Fairfield St - FS",
-    "lat": 40.058146,
-    "lng": -75.015658
-  },
   "23842": {
     "name": "Willits Rd & Holme Av",
     "lat": 40.05672,
@@ -42868,11 +42698,6 @@
     "name": "Grant Av & Leon St",
     "lat": 40.062073,
     "lng": -74.994405
-  },
-  "23855": {
-    "name": "Willits Rd & Fairfield St",
-    "lat": 40.058146,
-    "lng": -75.015445
   },
   "23856": {
     "name": "Willits Rd & Convent Av",
@@ -43354,11 +43179,6 @@
     "lat": 40.003616,
     "lng": -75.094418
   },
-  "23958": {
-    "name": "Frankford Av & Jasper St",
-    "lat": 40.004924,
-    "lng": -75.092958
-  },
   "23959": {
     "name": "Frankford Av & Adams St",
     "lat": 40.00748,
@@ -43709,11 +43529,6 @@
     "lat": 39.974872,
     "lng": -75.131278
   },
-  "24034": {
-    "name": "Palmer St & Frankford Av",
-    "lat": 39.975321,
-    "lng": -75.132575
-  },
   "24035": {
     "name": "Frankford Av & Jefferson St",
     "lat": 39.972933,
@@ -43888,31 +43703,6 @@
     "name": "Frankford Av & Adams Av",
     "lat": 40.007631,
     "lng": -75.090889
-  },
-  "24133": {
-    "name": "Frankford Av & Jasper St",
-    "lat": 40.005013,
-    "lng": -75.093052
-  },
-  "24134": {
-    "name": "Frankford Av & Pike St",
-    "lat": 40.003821,
-    "lng": -75.094346
-  },
-  "24135": {
-    "name": "Frankford Av & Buckius St - FS",
-    "lat": 40.002975,
-    "lng": -75.095283
-  },
-  "24136": {
-    "name": "Frankford Av & Valetta St",
-    "lat": 40.002486,
-    "lng": -75.095829
-  },
-  "24137": {
-    "name": "Frankford Av & Glenwood Av",
-    "lat": 40.00076,
-    "lng": -75.097752
   },
   "24138": {
     "name": "Frankford Av & Castor Av",
@@ -44449,11 +44239,6 @@
     "lat": 39.924944,
     "lng": -75.174596
   },
-  "24250": {
-    "name": "Snyder Av & Mole St",
-    "lat": 39.92469,
-    "lng": -75.172578
-  },
   "24251": {
     "name": "Snyder Av & 15th St",
     "lat": 39.924554,
@@ -44631,8 +44416,8 @@
   },
   "24290": {
     "name": "Snyder Av & 16th St",
-    "lat": 39.924842,
-    "lng": -75.172932
+    "lat": 39.924787,
+    "lng": -75.172436
   },
   "24291": {
     "name": "Snyder Av & 17th St",
@@ -45781,8 +45566,8 @@
   },
   "24574": {
     "name": "Arrott St & Adams Av",
-    "lat": 40.023261,
-    "lng": -75.094799
+    "lat": 40.023145,
+    "lng": -75.094835
   },
   "24575": {
     "name": "Adams Av & Ramona Av",
@@ -45863,11 +45648,6 @@
     "name": "Lindley Av & 11th St",
     "lat": 40.029971,
     "lng": -75.141109
-  },
-  "24591": {
-    "name": "Ogontz Av & Olney Av - FS",
-    "lat": 40.03855,
-    "lng": -75.149717
   },
   "24592": {
     "name": "Lindley Av & 12th St",
@@ -46284,6 +46064,11 @@
     "lat": 40.053369,
     "lng": -75.139229
   },
+  "24708": {
+    "name": "Old York Rd & 66th Av - FS",
+    "lat": 40.053269,
+    "lng": -75.142079
+  },
   "24710": {
     "name": "Chelten Av 16th St",
     "lat": 40.051036,
@@ -46398,6 +46183,11 @@
     "name": "Columbus Blvd & Reed St - MBFS",
     "lat": 39.929243,
     "lng": -75.14469
+  },
+  "24738": {
+    "name": "Island Av & Suffolk Av - MBFS",
+    "lat": 39.899525,
+    "lng": -75.239352
   },
   "24742": {
     "name": "Front St & Wharton St",
@@ -46708,6 +46498,11 @@
     "name": "Adams Av & Hill Creek Dr",
     "lat": 40.0374,
     "lng": -75.109157
+  },
+  "24825": {
+    "name": "Adams Av & Bingham St",
+    "lat": 40.03548,
+    "lng": -75.108669
   },
   "24826": {
     "name": "Adams Av & Tabor Rd",
@@ -47058,11 +46853,6 @@
     "name": "Passyunk Av & 17th St",
     "lat": 39.92448,
     "lng": -75.174739
-  },
-  "24918": {
-    "name": "Passyunk Av & 16th St",
-    "lat": 39.92478,
-    "lng": -75.173109
   },
   "24919": {
     "name": "Passyunk Av & 15th St",
@@ -49729,6 +49519,11 @@
     "lat": 39.860807,
     "lng": -75.370427
   },
+  "25750": {
+    "name": "Upland Av & 15th St",
+    "lat": 39.857236,
+    "lng": -75.367883
+  },
   "25751": {
     "name": "15th St & Shaw Terrace",
     "lat": 39.858012,
@@ -49843,6 +49638,11 @@
     "name": "Roberts Av & Henry Av",
     "lat": 40.009724,
     "lng": -75.180286
+  },
+  "25820": {
+    "name": "Queen Ln & McMichael St",
+    "lat": 40.017275,
+    "lng": -75.184905
   },
   "25821": {
     "name": "Fox St & Midvale Av",
@@ -50748,11 +50548,6 @@
     "name": "Bustleton Av & Red Lion Rd",
     "lat": 40.102254,
     "lng": -75.028763
-  },
-  "26139": {
-    "name": "Bustleton Av & Northeast Av - MBNS",
-    "lat": 40.10114,
-    "lng": -75.02929
   },
   "26140": {
     "name": "Tomlinson Rd & Audubon Av",
@@ -55284,11 +55079,6 @@
     "lat": 40.096422,
     "lng": -74.853136
   },
-  "28165": {
-    "name": "Henry Av & Abbottsford Av - MBFS",
-    "lat": 40.010788,
-    "lng": -75.181488
-  },
   "28166": {
     "name": "Weccacoe Av & Vandalia St",
     "lat": 39.920292,
@@ -55633,11 +55423,6 @@
     "name": "Lincoln Hwy & Woodbourne Rd - FS",
     "lat": 40.177059,
     "lng": -74.883654
-  },
-  "28394": {
-    "name": "Ridge Av & Port Royal Av - MBNS",
-    "lat": 40.058573,
-    "lng": -75.237191
   },
   "28395": {
     "name": "Easton Rd & Castlewood Rd",
@@ -56019,11 +55804,6 @@
     "lat": 40.136757,
     "lng": -74.881215
   },
-  "28545": {
-    "name": "Roosevelt Blvd & Bristol St",
-    "lat": 40.018305,
-    "lng": -75.148496
-  },
   "28546": {
     "name": "Old York Rd & Luzerne St",
     "lat": 40.013519,
@@ -56113,11 +55893,6 @@
     "name": "Washington Ln & Fayette St - MBNS",
     "lat": 40.068315,
     "lng": -75.157218
-  },
-  "28581": {
-    "name": "Walnut Ln & Morton St - MBFS",
-    "lat": 40.043318,
-    "lng": -75.175569
   },
   "28582": {
     "name": "Wissahickon Av & Clapier St",
@@ -56433,11 +56208,6 @@
     "name": "Manheim St & McKean Av - MBNS",
     "lat": 40.022667,
     "lng": -75.172309
-  },
-  "28683": {
-    "name": "Walnut Ln & Baynton St - MBFS",
-    "lat": 40.043157,
-    "lng": -75.175523
   },
   "28685": {
     "name": "Richlieu Rd & Debra Dr - MBNS",
@@ -58199,11 +57969,6 @@
     "lat": 40.082067,
     "lng": -75.402445
   },
-  "29612": {
-    "name": "Mast Charter School",
-    "lat": 40.113665,
-    "lng": -75.005561
-  },
   "29613": {
     "name": "Lincoln Hwy & I-95 - MBNS",
     "lat": 40.160818,
@@ -59324,11 +59089,6 @@
     "lat": 40.009368,
     "lng": -75.151261
   },
-  "29965": {
-    "name": "Jamison Av & Foster St - FS",
-    "lat": 40.104187,
-    "lng": -75.016611
-  },
   "29966": {
     "name": "Henderson Dr & Henderson Ct",
     "lat": 39.905501,
@@ -59994,11 +59754,6 @@
     "lat": 39.954434,
     "lng": -75.189595
   },
-  "30200": {
-    "name": "Red Lion Rd & Roosevelt Blvd",
-    "lat": 40.094973,
-    "lng": -75.015658
-  },
   "30201": {
     "name": "Haldeman Av & Plaza Shopping Ctr - FS",
     "lat": 40.100717,
@@ -60614,11 +60369,6 @@
     "lat": 39.9514,
     "lng": -75.28214
   },
-  "30387": {
-    "name": "Langdon St & Sanger St school",
-    "lat": 40.035029,
-    "lng": -75.093207
-  },
   "30388": {
     "name": "Frankford Av & Bridge St - FS",
     "lat": 40.023434,
@@ -60978,11 +60728,6 @@
     "name": "West Chester Pk & Westwood Park - 2 FS",
     "lat": 39.970515,
     "lng": -75.305795
-  },
-  "30481": {
-    "name": "FrankllinTowne Charter School",
-    "lat": 40.008986,
-    "lng": -75.064504
   },
   "30484": {
     "name": "Lancaster Av & Penn St",
@@ -61744,11 +61489,6 @@
     "lat": 40.066387,
     "lng": -75.23989
   },
-  "30729": {
-    "name": "Ridge Av & Ayrdale Rd",
-    "lat": 40.072246,
-    "lng": -75.242205
-  },
   "30730": {
     "name": "Ridge Av & Northwestern Av - MBFS",
     "lat": 40.074614,
@@ -61818,21 +61558,6 @@
     "name": "Manayunk Av & Burnside St",
     "lat": 40.024755,
     "lng": -75.21455
-  },
-  "30746": {
-    "name": "Manayunk Av & Hermit St - FS",
-    "lat": 40.021492,
-    "lng": -75.2119
-  },
-  "30748": {
-    "name": "Henry Av & Leverington Av",
-    "lat": 40.038512,
-    "lng": -75.211375
-  },
-  "30749": {
-    "name": "Henry Av & Hermitage St",
-    "lat": 40.039487,
-    "lng": -75.212827
   },
   "30750": {
     "name": "Marshall St & Swede St",
@@ -62559,11 +62284,6 @@
     "lat": 40.002319,
     "lng": -75.210422
   },
-  "30941": {
-    "name": "46th St & Ludlow St",
-    "lat": 39.95769,
-    "lng": -75.213192
-  },
   "30942": {
     "name": "Island Av & Elmwood Av",
     "lat": 39.913159,
@@ -62759,11 +62479,6 @@
     "lat": 39.882308,
     "lng": -75.540435
   },
-  "30995": {
-    "name": "Glendale Av & Cottman Av",
-    "lat": 40.054604,
-    "lng": -75.071142
-  },
   "30996": {
     "name": "Olney Av & Rising Sun Av",
     "lat": 40.034443,
@@ -62798,11 +62513,6 @@
     "name": "Westbrook Dr & Westpark Ln",
     "lat": 39.931302,
     "lng": -75.308354
-  },
-  "31003": {
-    "name": "Cardinal O'Hara High School",
-    "lat": 39.94788,
-    "lng": -75.347033
   },
   "31005": {
     "name": "Pennell Rd & Glen Riddle Rd - FS",
@@ -62890,27 +62600,107 @@
     "lng": -75.207001
   },
   "31033": {
-    "name": "Frankford Transportation Center",
+    "name": "Frankford Transit Center",
     "lat": 40.023303,
     "lng": -75.077078
   },
+  "31033_entrance_main_hall_east": {
+    "name": "Main Hall East Entrance",
+    "lat": 40.02285,
+    "lng": -75.077855
+  },
+  "31033_entrance_main_hall_north": {
+    "name": "Main Hall North Entrance",
+    "lat": 40.02317,
+    "lng": -75.07759
+  },
+  "31033_entrance_main_hall_south_entrance": {
+    "name": "Main Hall South Entrance",
+    "lat": 40.02287,
+    "lng": -75.07801
+  },
+  "31033_entrance_main_hall_southeast_entrance": {
+    "name": "Main Hall Southeast Entrance",
+    "lat": 40.022798,
+    "lng": -75.07795
+  },
+  "31033_entrance_main_hall_west_entrance": {
+    "name": "Main Hall West Entrance",
+    "lat": 40.02312,
+    "lng": -75.07796
+  },
+  "31033_entrance_near_stair_g_exit": {
+    "name": "Near Stair G Exit",
+    "lat": 40.02235,
+    "lng": -75.07845
+  },
+  "31033_entrance_north_headhouse": {
+    "name": "North Headhouse Entrance",
+    "lat": 40.02332,
+    "lng": -75.07753
+  },
+  "31033_entrance_satellite_headhouse": {
+    "name": "Satellite Headhouse Entrance",
+    "lat": 40.023572,
+    "lng": -75.07714
+  },
+  "31033_entrance_stair_e_exit": {
+    "name": "Stair E Exit",
+    "lat": 40.02278,
+    "lng": -75.07817
+  },
   "31034": {
-    "name": "69th Street Transportation Center",
+    "name": "69th Street Transit Center",
     "lat": 39.962267,
     "lng": -75.258756
   },
+  "31034_entrance_69th_st_transit_center_shopping_concourse": {
+    "name": "69th St Transit Center - Shopping Concourse Entrance",
+    "lat": 39.962,
+    "lng": -75.259
+  },
+  "31034_entrance_north_access_pick_up_entrance_bus_terminal": {
+    "name": "North Access Pick Up Entrance - Bus Terminal",
+    "lat": 39.962974,
+    "lng": -75.2594967
+  },
+  "31034_entrance_west_terminal_copley_st": {
+    "name": "69th St Transit Center - West Terminal Copley St Entrance",
+    "lat": 39.962001,
+    "lng": -75.260604
+  },
+  "31034_entrance_west_terminal_island": {
+    "name": "69th St Transit Center - West Terminal Island Entrance",
+    "lat": 39.962,
+    "lng": -75.26
+  },
+  "31034_entrance_west_terminal_peninsula": {
+    "name": "69th St Transit Center - West Terminal Peninsula Entrance",
+    "lat": 39.962,
+    "lng": -75.26
+  },
+  "entrance_69th_st_transit_center_main_hall": {
+    "name": "69th St Transit Center - Main Hall Entrance",
+    "lat": 39.962,
+    "lng": -75.259
+  },
+  "entrance_69th_st_transit_center_north_terminal": {
+    "name": "69th St Transit Center - North Terminal Entrance",
+    "lat": 39.963,
+    "lng": -75.259
+  },
   "31035": {
-    "name": "Darby Transportation Center",
+    "name": "Darby Transit Center",
     "lat": 39.919015,
     "lng": -75.263344
   },
   "31036": {
-    "name": "Chester Transportation Center",
+    "name": "Chester Transit Center",
     "lat": 39.849521,
     "lng": -75.360012
   },
   "31038": {
-    "name": "Norristown Transportation Center",
+    "name": "Norristown Transit Center",
     "lat": 40.113566,
     "lng": -75.344971
   },
@@ -64119,11 +63909,6 @@
     "lat": 40.091746,
     "lng": -75.053906
   },
-  "31363": {
-    "name": "Northeast Av & Gorman St",
-    "lat": 40.103723,
-    "lng": -75.025039
-  },
   "31364": {
     "name": "Red Lion Rd & Sandmeyer Ln",
     "lat": 40.106953,
@@ -64345,9 +64130,9 @@
     "lng": -75.001873
   },
   "31442": {
-    "name": "2nd St & Market St - MBNS",
-    "lat": 39.950322,
-    "lng": -75.14372
+    "name": "2nd St & Church St",
+    "lat": 39.950589,
+    "lng": -75.143684
   },
   "31443": {
     "name": "Girard Av & 62nd St",
@@ -64523,11 +64308,6 @@
     "name": "Bethlehem Pk & Camp Hill Rd",
     "lat": 40.122081,
     "lng": -75.217086
-  },
-  "31486": {
-    "name": "Erie Av & Front St - MBFS",
-    "lat": 40.007574,
-    "lng": -75.12801
   },
   "31487": {
     "name": "Broad St & Pattison Av - 3 FS",
@@ -64944,15 +64724,10 @@
     "lat": 40.153926,
     "lng": -74.89668
   },
-  "31610": {
-    "name": "Cardinal Av & City Av",
-    "lat": 39.994024,
-    "lng": -75.241441
-  },
   "31611": {
     "name": "Broad St & Langley Av",
-    "lat": 39.896093,
-    "lng": -75.175808
+    "lat": 39.896066,
+    "lng": -75.175772
   },
   "31612": {
     "name": "Germantown Av & Evergreen Av",
@@ -65055,7 +64830,7 @@
     "lng": -75.072099
   },
   "31664": {
-    "name": "Germantown Av & Mill St",
+    "name": "Germantown Av & Mill RD",
     "lat": 40.143586,
     "lng": -75.315595
   },
@@ -65339,11 +65114,6 @@
     "lat": 40.104157,
     "lng": -75.404236
   },
-  "31761": {
-    "name": "59th St & Baltimore Av - FS school trip",
-    "lat": 39.945098,
-    "lng": -75.241723
-  },
   "31762": {
     "name": "Main St & Barbadoes St",
     "lat": 40.115692,
@@ -65384,11 +65154,6 @@
     "lat": 40.054835,
     "lng": -75.010202
   },
-  "31774": {
-    "name": "Kingsessinging Av & 58th St",
-    "lat": 39.934848,
-    "lng": -75.227181
-  },
   "31775": {
     "name": "Island Av & Buist Av - 2 bus",
     "lat": 39.911293,
@@ -65408,11 +65173,6 @@
     "name": "Pennsylvania Av & Fort Washington Av",
     "lat": 40.137433,
     "lng": -75.211606
-  },
-  "31786": {
-    "name": "Godfrey Av & 21st St - school",
-    "lat": 40.048979,
-    "lng": -75.155482
   },
   "31788": {
     "name": "Northwestern Av & Stenton Av",
@@ -65969,6 +65729,11 @@
     "lat": 40.156748,
     "lng": -75.411476
   },
+  "31946": {
+    "name": "Prison Farm Rd & Eagleville Rd",
+    "lat": 40.156632,
+    "lng": -75.41137
+  },
   "31947": {
     "name": "Ridge Pk & Evansburg Rd - FS",
     "lat": 40.176368,
@@ -66454,56 +66219,6 @@
     "lat": 40.106843,
     "lng": -74.986583
   },
-  "32049": {
-    "name": "Trevose Rd & Edison Av",
-    "lat": 40.12884,
-    "lng": -75.008785
-  },
-  "32050": {
-    "name": "Trevose Rd & Southampton Rd",
-    "lat": 40.129975,
-    "lng": -75.006447
-  },
-  "32051": {
-    "name": "Southampton Rd & Kelvin Av",
-    "lat": 40.128497,
-    "lng": -75.005023
-  },
-  "32052": {
-    "name": "Southampton Rd & Edison Av",
-    "lat": 40.12509,
-    "lng": -75.002948
-  },
-  "32053": {
-    "name": "Southampton Rd & Edison Av",
-    "lat": 40.125009,
-    "lng": -75.002712
-  },
-  "32054": {
-    "name": "Southampton Rd & Kelvin Av",
-    "lat": 40.128255,
-    "lng": -75.004657
-  },
-  "32055": {
-    "name": "Southampton Rd & Trevose Rd",
-    "lat": 40.129885,
-    "lng": -75.006104
-  },
-  "32056": {
-    "name": "Trevose Rd & Edison Av",
-    "lat": 40.129028,
-    "lng": -75.008725
-  },
-  "32057": {
-    "name": "Southampton Rd & Worthington Rd",
-    "lat": 40.124024,
-    "lng": -75.001853
-  },
-  "32058": {
-    "name": "Southampton Rd & Worthington Rd",
-    "lat": 40.123879,
-    "lng": -75.001333
-  },
   "32059": {
     "name": "Rising Sun Av & Princeton Av",
     "lat": 40.058183,
@@ -66585,9 +66300,384 @@
     "lng": -75.120069
   },
   "32095": {
-    "name": "Olney Transportation Center",
+    "name": "Olney Transit Center",
     "lat": 40.038747,
     "lng": -75.144114
+  },
+  "32095_boarding_northbound_express_platform_01": {
+    "name": "Northbound Express Platform 1",
+    "lat": 40.03936,
+    "lng": -75.144615
+  },
+  "32095_boarding_northbound_express_platform_level_02": {
+    "name": "Northbound Express Platform 2",
+    "lat": 40.03866,
+    "lng": -75.144729
+  },
+  "32095_boarding_northbound_express_platform_level_03": {
+    "name": "Northbound Express Platform 3",
+    "lat": 40.03803,
+    "lng": -75.144836
+  },
+  "32095_boarding_northbound_express_platform_level_04": {
+    "name": "Northbound Express Platform 4",
+    "lat": 40.03894,
+    "lng": -75.144682
+  },
+  "32095_boarding_northbound_local_platform_level_01": {
+    "name": "Northbound Local Platform 1",
+    "lat": 40.03882,
+    "lng": -75.144645
+  },
+  "32095_boarding_northbound_local_platform_level_02": {
+    "name": "Northbound Local Platform 2",
+    "lat": 40.03935,
+    "lng": -75.144563
+  },
+  "32095_boarding_northbound_local_platform_level_03": {
+    "name": "Northbound Local Platform 3",
+    "lat": 40.03802,
+    "lng": -75.144791
+  },
+  "32095_boarding_northbound_local_platform_level_04": {
+    "name": "Northbound Local Platform 4",
+    "lat": 40.0386,
+    "lng": -75.144685
+  },
+  "32095_boarding_southbound_express_platform_level_01": {
+    "name": "Southbound Express Platform 1",
+    "lat": 40.03858,
+    "lng": -75.144833
+  },
+  "32095_boarding_southbound_express_platform_level_02": {
+    "name": "Southbound Express Platform 2",
+    "lat": 40.03803,
+    "lng": -75.144934
+  },
+  "32095_boarding_southbound_express_platform_level_03": {
+    "name": "Southbound Express Platform 3",
+    "lat": 40.03949,
+    "lng": -75.144685
+  },
+  "32095_boarding_southbound_express_platform_level_04": {
+    "name": "Southbound Express Platform 4",
+    "lat": 40.03898,
+    "lng": -75.144764
+  },
+  "32095_boarding_southbound_local_platform_level_01": {
+    "name": "Southbound Local Platform 1",
+    "lat": 40.03949,
+    "lng": -75.144729
+  },
+  "32095_boarding_southbound_local_platform_level_02": {
+    "name": "Southbound Local Platform 2",
+    "lat": 40.03804,
+    "lng": -75.144978
+  },
+  "32095_boarding_southbound_local_platform_level_03": {
+    "name": "Southbound Local Platform 3",
+    "lat": 40.03899,
+    "lng": -75.144824
+  },
+  "32095_boarding_southbound_local_platform_level_04": {
+    "name": "Southbound Local Platform 4",
+    "lat": 40.03864,
+    "lng": -75.144871
+  },
+  "32095_entrance_a_busway_01": {
+    "name": "Olney Transit Center Entrance A",
+    "lat": 40.038938,
+    "lng": -75.144465
+  },
+  "32095_entrance_stairs_d_busway_01": {
+    "name": "Olney Transit Center Entrance D",
+    "lat": 40.038509,
+    "lng": -75.144555
+  },
+  "32095_entrance_stairs_e_busway_01": {
+    "name": "Olney Transit Center Entrance E - Olney Av",
+    "lat": 40.038984,
+    "lng": -75.145111
+  },
+  "32095_entrance_stairs_e_busway_02": {
+    "name": "Olney Transit Center Entrance E - Broad St",
+    "lat": 40.03884,
+    "lng": -75.144966
+  },
+  "32095_entrance_stairs_f_busway_01": {
+    "name": "Olney Transit Center Entrance F",
+    "lat": 40.039343,
+    "lng": -75.14479
+  },
+  "32095_entrance_stairs_g_busway_01": {
+    "name": "Olney Transit Center Entrance G - Olney Av",
+    "lat": 40.03908,
+    "lng": -75.144286
+  },
+  "32095_entrance_stairs_g_busway_02": {
+    "name": "Olney Transit Center Entrance G - Broad St",
+    "lat": 40.039219,
+    "lng": -75.144444
+  },
+  "32095_node_a_stairs_mezzanine_01": {
+    "name": "Stair A - Mezzanine",
+    "lat": 40.03888,
+    "lng": -75.144532
+  },
+  "32095_node_b_stairs_mezzanine_01": {
+    "name": "Stair B - Mezzanine",
+    "lat": 40.03879,
+    "lng": -75.144285
+  },
+  "32095_node_busway_entrance_busway_01": {
+    "name": "Busway Entrance",
+    "lat": 40.03885,
+    "lng": -75.144331
+  },
+  "32095_node_c_stairs_mezzanine_01": {
+    "name": "Stair C - Mezzanine",
+    "lat": 40.03874,
+    "lng": -75.144423
+  },
+  "32095_node_central_boarding_busway_01": {
+    "name": "Busway Central",
+    "lat": 40.03877,
+    "lng": -75.144282
+  },
+  "32095_node_d_stairs_mezzanine_01": {
+    "name": "Stair D - Mezzanine",
+    "lat": 40.03861,
+    "lng": -75.14458
+  },
+  "32095_node_e_stairs_mezzanine_01": {
+    "name": "Stair E Landing - Mezzanine",
+    "lat": 40.03894,
+    "lng": -75.145044
+  },
+  "32095_node_e_stairs_mezzanine_02": {
+    "name": "Stair E - Mezzanine",
+    "lat": 40.03895,
+    "lng": -75.144943
+  },
+  "32095_node_east_mezzanine_01": {
+    "name": "Mezzanine East - Unpaid Area",
+    "lat": 40.03884,
+    "lng": -75.144597
+  },
+  "32095_node_elevator_a_busway_01": {
+    "name": "Elevator A - Street Level",
+    "lat": 40.03886,
+    "lng": -75.144368
+  },
+  "32095_node_elevator_to_street_mezzanine_01": {
+    "name": "Elevator Near Exit - Mezzanine",
+    "lat": 40.03887,
+    "lng": -75.144467
+  },
+  "32095_node_escalator_a_busway_01": {
+    "name": "Escalator - Street Level",
+    "lat": 40.03888,
+    "lng": -75.144372
+  },
+  "32095_node_escalator_to_street_mezzanine_01": {
+    "name": "Escalator A - Mezzanine",
+    "lat": 40.03886,
+    "lng": -75.144532
+  },
+  "32095_node_exit_a_mezzanine_01": {
+    "name": "Exit Stairs A",
+    "lat": 40.03886,
+    "lng": -75.14455
+  },
+  "32095_node_exit_gate_mezzanine_01": {
+    "name": "Exit Gate Northeast - Paid Area",
+    "lat": 40.03906,
+    "lng": -75.144631
+  },
+  "32095_node_exit_gate_mezzanine_02": {
+    "name": "Exit Gate Southeast - Paid Area",
+    "lat": 40.0387,
+    "lng": -75.144659
+  },
+  "32095_node_exit_gate_mezzanine_03": {
+    "name": "Exit Gate Northwest - Paid Area",
+    "lat": 40.03904,
+    "lng": -75.144821
+  },
+  "32095_node_exit_gate_mezzanine_04": {
+    "name": "Exit Gate Northeast - Unpaid Area",
+    "lat": 40.03906,
+    "lng": -75.144591
+  },
+  "32095_node_exit_gate_mezzanine_05": {
+    "name": "Exit Gate Northwest - Unpaid Area",
+    "lat": 40.03905,
+    "lng": -75.144848
+  },
+  "32095_node_exit_gate_mezzanine_06": {
+    "name": "Exit Gate Southeast - Unpaid Area",
+    "lat": 40.0387,
+    "lng": -75.144634
+  },
+  "32095_node_f_stairs_mezzanine_01": {
+    "name": "Stair F - Mezzanine",
+    "lat": 40.03918,
+    "lng": -75.144827
+  },
+  "32095_node_fare_gate_mezzanine_01": {
+    "name": "Fare Gates - Unpaid Area",
+    "lat": 40.03886,
+    "lng": -75.144769
+  },
+  "32095_node_fare_gate_mezzanine_02": {
+    "name": "Fare Gate South - Paid Area",
+    "lat": 40.03878,
+    "lng": -75.144781
+  },
+  "32095_node_fare_gate_mezzanine_03": {
+    "name": "Fare Gate North - Paid Area",
+    "lat": 40.03895,
+    "lng": -75.144742
+  },
+  "32095_node_g_stairs_mezzanine_01": {
+    "name": "Stair G - Mezzanine",
+    "lat": 40.03913,
+    "lng": -75.144424
+  },
+  "32095_node_g_stairs_mezzanine_02": {
+    "name": "Stair G Landing - Mezzanine",
+    "lat": 40.03916,
+    "lng": -75.144383
+  },
+  "32095_node_north_mezzanine_01": {
+    "name": "Mezzanine North - Paid Area",
+    "lat": 40.03907,
+    "lng": -75.144731
+  },
+  "32095_node_northbound_elevator_mezzanine_02": {
+    "name": "Elevator Northbound - Mezzanine",
+    "lat": 40.0387,
+    "lng": -75.144699
+  },
+  "32095_node_northbound_elevator_platform_level_01": {
+    "name": "Elevator Northbound - Platform",
+    "lat": 40.0387,
+    "lng": -75.144698
+  },
+  "32095_node_northbound_escalator_platform_level_01": {
+    "name": "Escalator - Platform",
+    "lat": 40.03857,
+    "lng": -75.144716
+  },
+  "32095_node_northbound_stairs_mezzanine_01": {
+    "name": "Entrance Northbound Stair Landing 1 - Mezzanine",
+    "lat": 40.03855,
+    "lng": -75.144725
+  },
+  "32095_node_northbound_stairs_mezzanine_02": {
+    "name": "Entrance Northbound Stair Landing 3 - Mezzanine",
+    "lat": 40.03916,
+    "lng": -75.144624
+  },
+  "32095_node_northbound_stairs_mezzanine_03": {
+    "name": "Entrance Northbound Stair Landing 2 - Mezzanine",
+    "lat": 40.03894,
+    "lng": -75.14469
+  },
+  "32095_node_northbound_stairs_platform_01": {
+    "name": "Exit Northbound Stair Landing 1 - Platform",
+    "lat": 40.03846,
+    "lng": -75.144738
+  },
+  "32095_node_northwest_boarding_busway_01": {
+    "name": "Busway Northwest",
+    "lat": 40.03888,
+    "lng": -75.144296
+  },
+  "32095_node_south_boarding_busway_01": {
+    "name": "Busway South",
+    "lat": 40.03865,
+    "lng": -75.144154
+  },
+  "32095_node_south_mezzanine_01": {
+    "name": "Mezzanine South - Paid Area",
+    "lat": 40.03867,
+    "lng": -75.144785
+  },
+  "32095_node_southbound_elevator_mezzanine_01": {
+    "name": "Elevator Southbound - Mezzanine",
+    "lat": 40.03871,
+    "lng": -75.14485
+  },
+  "32095_node_southbound_elevator_platform_01": {
+    "name": "Elevator Southbound - Platform",
+    "lat": 40.03871,
+    "lng": -75.144844
+  },
+  "32095_node_southbound_escalator_mezzanine_01": {
+    "name": "Escalator - Mezzanine",
+    "lat": 40.03865,
+    "lng": -75.144708
+  },
+  "32095_node_southbound_stairs_mezzanine_01": {
+    "name": "Entrance Southbound Stair Landing 2 - Mezzanine",
+    "lat": 40.03895,
+    "lng": -75.144785
+  },
+  "32095_node_southbound_stairs_mezzanine_02": {
+    "name": "Entrance Southbound Stair Landing 3 - Mezzanine",
+    "lat": 40.03919,
+    "lng": -75.144772
+  },
+  "32095_node_southbound_stairs_mezzanine_03": {
+    "name": "Entrance Southbound Stair Landing 1 - Mezzanine",
+    "lat": 40.03856,
+    "lng": -75.144873
+  },
+  "32095_node_southbound_stairs_platform_01": {
+    "name": "Exit Southbound Stair Landing 2 - Platform",
+    "lat": 40.039,
+    "lng": -75.144793
+  },
+  "32095_node_stairs_a_busway_01": {
+    "name": "Stair A - Street Level",
+    "lat": 40.03889,
+    "lng": -75.144398
+  },
+  "32095_node_stairs_b_busway_01": {
+    "name": "Stair B - Street Level",
+    "lat": 40.03874,
+    "lng": -75.144113
+  },
+  "32095_node_stairs_c_busway_01": {
+    "name": "Stair C - Street Level",
+    "lat": 40.03867,
+    "lng": -75.144218
+  },
+  "32095_node_stairs_platform_level_02": {
+    "name": "Exit Northbound Stair Landing 3 - Platform",
+    "lat": 40.03925,
+    "lng": -75.1446
+  },
+  "32095_node_stairs_platform_level_03": {
+    "name": "Exit Northbound Stair Landing 2 - Platform",
+    "lat": 40.03887,
+    "lng": -75.14467
+  },
+  "32095_node_stairs_platform_level_05": {
+    "name": "Exit Southbound Stair Landing 1 - Platform",
+    "lat": 40.03847,
+    "lng": -75.144882
+  },
+  "32095_node_stairs_platform_level_06": {
+    "name": "Exit Southbound Stair Landing 3 - Platform",
+    "lat": 40.03927,
+    "lng": -75.144745
+  },
+  "32095_node_west_mezzanine_01": {
+    "name": "Mezzanine West - Unpaid Area",
+    "lat": 40.03891,
+    "lng": -75.144895
   },
   "32100": {
     "name": "Verree Rd & Greymont St",
@@ -66653,6 +66743,26 @@
     "name": "Holstein Av & Bartram Av - MBNS",
     "lat": 39.896357,
     "lng": -75.233732
+  },
+  "32114": {
+    "name": "Tinicum Blvd & 86th St - MBNS",
+    "lat": 39.888833,
+    "lng": -75.245138
+  },
+  "32115": {
+    "name": "Tinicum Blvd & 88th St",
+    "lat": 39.887184,
+    "lng": -75.246605
+  },
+  "32119": {
+    "name": "Tinicum Blvd & 88th St - FS",
+    "lat": 39.886996,
+    "lng": -75.246417
+  },
+  "32120": {
+    "name": "Tinicum Blvd & 86th St - MBFS",
+    "lat": 39.888717,
+    "lng": -75.244879
   },
   "32121": {
     "name": "Holstein Av & 78th St",
@@ -66755,7 +66865,7 @@
     "lng": -75.164368
   },
   "32141": {
-    "name": "15th St/City Hall",
+    "name": "15th St/City Hall - B2",
     "lat": 39.952464,
     "lng": -75.164059
   },
@@ -66830,7 +66940,7 @@
     "lng": -75.146485
   },
   "32156": {
-    "name": "Olney Transit Center",
+    "name": "Olney Transit Center - B2 & B3",
     "lat": 40.039039,
     "lng": -75.144678
   },
@@ -67469,11 +67579,6 @@
     "lat": 40.014991,
     "lng": -75.13533
   },
-  "32316": {
-    "name": "Hunting Park Av & 3rd St",
-    "lat": 40.014618,
-    "lng": -75.132424
-  },
   "32317": {
     "name": "Hunting Park Av & American St",
     "lat": 40.014472,
@@ -67513,11 +67618,6 @@
     "name": "Hunting Park Av & American St",
     "lat": 40.014552,
     "lng": -75.130959
-  },
-  "32325": {
-    "name": "Hunting Park Av & 3rd St - FS",
-    "lat": 40.014788,
-    "lng": -75.132849
   },
   "32326": {
     "name": "Hunting Park Av & 5th St",
@@ -67723,16 +67823,6 @@
     "name": "Hadley Rd & Crozer Rd",
     "lat": 39.913341,
     "lng": -75.411209
-  },
-  "32402": {
-    "name": "George Washington HS & Northeast Av",
-    "lat": 40.104136,
-    "lng": -75.025546
-  },
-  "32403": {
-    "name": "Northeast Av & Gorman St - school stop",
-    "lat": 40.104045,
-    "lng": -75.02525
   },
   "32414": {
     "name": "Witmer Rd & Blair Mill Rd - MBNS",
@@ -68110,9 +68200,9 @@
     "lng": -75.43001
   },
   "32521": {
-    "name": "Riddle Hospital",
-    "lat": 39.91378,
-    "lng": -75.433823
+    "name": "Baltimore Pk & Riddle Hospital",
+    "lat": 39.914038,
+    "lng": -75.431639
   },
   "32522": {
     "name": "Baltimore Pk & Pennell Rd - FS",
@@ -68574,16 +68664,6 @@
     "lat": 39.901656,
     "lng": -75.460055
   },
-  "32633": {
-    "name": "Ryan Av & Rowland Av - MBFS",
-    "lat": 40.041403,
-    "lng": -75.04399
-  },
-  "32634": {
-    "name": "Lincoln High School - onsite",
-    "lat": 40.043378,
-    "lng": -75.041934
-  },
   "32635": {
     "name": "Ridge Pk & Germantown Av",
     "lat": 40.18383,
@@ -68619,55 +68699,10 @@
     "lat": 40.163706,
     "lng": -74.904661
   },
-  "32643": {
-    "name": "Island Av & Lindbergh Blvd",
-    "lat": 39.90456,
-    "lng": -75.240094
-  },
-  "32644": {
-    "name": "Island Av & Tanager Pl",
-    "lat": 39.909042,
-    "lng": -75.241841
-  },
-  "32645": {
-    "name": "Island Av & Buist Av - FS",
-    "lat": 39.911141,
-    "lng": -75.242838
-  },
-  "32646": {
-    "name": "Island Av & 76th St",
-    "lat": 39.907373,
-    "lng": -75.241692
-  },
-  "32647": {
-    "name": "Island Av & Lindbergh Blvd - FS",
-    "lat": 39.903703,
-    "lng": -75.240509
-  },
-  "32648": {
-    "name": "Island Av & Eastwick Loop - On Street",
-    "lat": 39.899275,
-    "lng": -75.239435
-  },
-  "32649": {
-    "name": "73rd St & Elmwood Av",
-    "lat": 39.91429,
-    "lng": -75.241921
-  },
-  "32652": {
-    "name": "Mast Charter School 3",
-    "lat": 40.109282,
-    "lng": -74.992485
-  },
-  "32656": {
-    "name": "Upper Darby High School",
-    "lat": 39.957187,
-    "lng": -75.285494
-  },
-  "32657": {
-    "name": "Bonner & Prendergast High School",
-    "lat": 39.955265,
-    "lng": -75.282994
+  "32654": {
+    "name": "Mann Center",
+    "lat": 39.982811,
+    "lng": -75.222178
   },
   "32666": {
     "name": "38th & Cuthbert St",
@@ -68684,30 +68719,15 @@
     "lat": 39.959774,
     "lng": -75.19612
   },
-  "32724": {
-    "name": "Lawndale Rail Shuttle Inbound",
-    "lat": 40.0507,
-    "lng": -75.102522
-  },
-  "32725": {
-    "name": "Lawndale Rail Shuttle Outbound",
-    "lat": 40.050701,
-    "lng": -75.102901
-  },
-  "32726": {
-    "name": "Cheltenham Rail Shuttle Inbound",
-    "lat": 40.057433,
-    "lng": -75.09374
-  },
-  "32728": {
-    "name": "Cheltenham Rail Shuttle Outbound",
-    "lat": 40.057379,
-    "lng": -75.093516
-  },
   "32980": {
     "name": "Wissahickon Transit Center Boarding Area 1",
     "lat": 40.014432,
     "lng": -75.208182
+  },
+  "32984": {
+    "name": "Wissahickon Transit Center Boarding Area 4",
+    "lat": 40.014441,
+    "lng": -75.208546
   },
   "32988": {
     "name": "Wissahickon Transit Center Boarding Area 8",
@@ -68764,31 +68784,6 @@
     "lat": 40.027717,
     "lng": -75.176098
   },
-  "33015": {
-    "name": "Ryers Rail Shuttle Inbound",
-    "lat": 40.063538,
-    "lng": -75.087254
-  },
-  "33016": {
-    "name": "Olney Rail Shuttle Inbound & Outbound",
-    "lat": 40.032921,
-    "lng": -75.124026
-  },
-  "33017": {
-    "name": "Fox Chase Rail Shuttle Inbound & Outbound",
-    "lat": 40.07672,
-    "lng": -75.083488
-  },
-  "33018": {
-    "name": "Ryers Rail Shuttle Outbound",
-    "lat": 40.063575,
-    "lng": -75.087537
-  },
-  "33019": {
-    "name": "Wayne Junct Rail Shuttle Inbound & Outbound",
-    "lat": 40.021802,
-    "lng": -75.160007
-  },
   "33020": {
     "name": "Front & Oregon - FS",
     "lat": 39.913486,
@@ -68825,24 +68820,29 @@
     "lng": -75.348613
   },
   "33027": {
-    "name": "Olney Transit Center",
+    "name": "Olney Transit Center - B1",
     "lat": 40.039075,
     "lng": -75.144808
   },
   "33028": {
-    "name": "Olney Transit Center",
+    "name": "Olney Transit Center - B1",
     "lat": 40.039039,
     "lng": -75.144655
   },
   "33029": {
-    "name": "15th St/City Hall",
+    "name": "15th St/City Hall - B1",
     "lat": 39.952473,
     "lng": -75.164132
   },
   "33030": {
-    "name": "15th St/City Hall",
+    "name": "15th St/City Hall - B1",
     "lat": 39.952464,
     "lng": -75.164053
+  },
+  "33031": {
+    "name": "Merion St at 8th (Bridgeport Shuttle Stop)",
+    "lat": 40.103259,
+    "lng": -75.349126
   },
   "33032": {
     "name": "Main St Station Rail Shuttle Outbound",
@@ -68853,6 +68853,236 @@
     "name": "State Rd & Wildell Rd",
     "lat": 39.948358,
     "lng": -75.318303
+  },
+  "33034": {
+    "name": "15th St/City Hall Station",
+    "lat": 39.952555,
+    "lng": -75.164819
+  },
+  "33034_entrance_16th_market_ne": {
+    "name": "15th St/City Hall Station Entrance at 16th & Market NE",
+    "lat": 39.95283630405095,
+    "lng": -75.16616305703171
+  },
+  "33034_entrance_16th_market_se": {
+    "name": "15th St/City Hall Station Entrance at 16th & Market SE",
+    "lat": 39.95249651826615,
+    "lng": -75.16621646046573
+  },
+  "33034_entrance_clothespin": {
+    "name": "15th St/City Hall Station Entrance at Clothespin",
+    "lat": 39.952486850287,
+    "lng": -75.16562472294693
+  },
+  "33034_entrance_courtyard_ne": {
+    "name": "15th St/City Hall Station Entrance at City Hall Courtyard NE",
+    "lat": 39.95249287046062,
+    "lng": -75.16337228747615
+  },
+  "33034_entrance_courtyard_sw": {
+    "name": "15th St/City Hall Station Entrance at City Hall Courtyard SW",
+    "lat": 39.95230713828174,
+    "lng": -75.1638108130966
+  },
+  "33034_entrance_dilworth_cafe": {
+    "name": "15th St/City Hall Station Entrance at Dilworth Park Cafe",
+    "lat": 39.953213649524194,
+    "lng": -75.16460463328723
+  },
+  "33034_entrance_dilworth_plaza": {
+    "name": "15th St/City Hall Station Entrance at Dilworth Plaza",
+    "lat": 39.95247310314007,
+    "lng": -75.16499269309503
+  },
+  "33034_entrance_juniper_st": {
+    "name": "15th St/City Hall Station Entrance at Juniper Street",
+    "lat": 39.95230560485688,
+    "lng": -75.16265980356287
+  },
+  "33034_entrance_nw": {
+    "name": "15th St/City Hall Station Entrance at JFK Plaza NW",
+    "lat": 39.95274159842612,
+    "lng": -75.16534584092537
+  },
+  "33034_entrance_south_penn_square": {
+    "name": "15th St/City Hall Station Entrance at South Penn Square",
+    "lat": 39.9515490770623,
+    "lng": -75.16396382607965
+  },
+  "33034_node_16th_market_ne_street_stair": {
+    "name": "Stair - 16th & Market NE - Street",
+    "lat": 39.95286482542858,
+    "lng": -75.16615673191693
+  },
+  "33034_node_16th_market_se_street_stair": {
+    "name": "Stair - 16th & Market SE - Street",
+    "lat": 39.95251958374728,
+    "lng": -75.1661627750522
+  },
+  "33034_node_clothespin_street_elevator": {
+    "name": "Elevator - Clothespin - Street",
+    "lat": 39.95249272257772,
+    "lng": -75.1656903462644
+  },
+  "33034_node_clothespin_street_stair": {
+    "name": "Stair - Clothespin - Street",
+    "lat": 39.95244128570548,
+    "lng": -75.16567841636683
+  },
+  "33034_node_courtyard_street_stair": {
+    "name": "Stair - Courtyard - Street",
+    "lat": 39.95250242796536,
+    "lng": -75.16343572077263
+  },
+  "33034_node_courtyard_sw_street_stair": {
+    "name": "Stair SW - Courtyard - Street",
+    "lat": 39.952331999954566,
+    "lng": -75.1637971337847
+  },
+  "33034_node_dilworth_cafe_street_elevator": {
+    "name": "Elevator - Dilworth Cafe - Street",
+    "lat": 39.95329926467551,
+    "lng": -75.16456656950669
+  },
+  "33034_node_dilworth_cafe_street_stair": {
+    "name": "Stair - Dilworth Cafe - Street",
+    "lat": 39.9532450396304,
+    "lng": -75.16450602254409
+  },
+  "33034_node_dilworth_plaza_street_elevator": {
+    "name": "Elevator - Dilworth Plaza - Street",
+    "lat": 39.95217787461194,
+    "lng": -75.16491041655931
+  },
+  "33034_node_dilworth_plaza_street_ne_stair": {
+    "name": "Stair NE - Dilworth Plaza - Street",
+    "lat": 39.95279483935549,
+    "lng": -75.16477772625989
+  },
+  "33034_node_dilworth_plaza_street_se_stair": {
+    "name": "Stair SE - Dilworth Plaza - Street",
+    "lat": 39.95234289486663,
+    "lng": -75.16486339028147
+  },
+  "33034_node_jfk_plaza_nw_street_elevator_southwest": {
+    "name": "Southwest Elevator - JFK Plaza NW - Street",
+    "lat": 39.95277816497756,
+    "lng": -75.16566814231011
+  },
+  "33034_node_jfk_plaza_nw_street_escalator_north": {
+    "name": "North Escalator - JFK Plaza NW - Street",
+    "lat": 39.953004992835226,
+    "lng": -75.16537638912993
+  },
+  "33034_node_jfk_plaza_nw_street_stair_south": {
+    "name": "South Stair - JFK Plaza NW - Street",
+    "lat": 39.95279690118624,
+    "lng": -75.16543039154894
+  },
+  "33034_node_juniper_st_north_street": {
+    "name": "North Stair - Juniper Street - Street",
+    "lat": 39.95254647772512,
+    "lng": -75.16271457910919
+  },
+  "33034_node_juniper_st_south_street": {
+    "name": "South Stair - Juniper Street - Street",
+    "lat": 39.95208551257501,
+    "lng": -75.16280494668433
+  },
+  "33034_node_s_penn_square_street_stair_s_broad_st": {
+    "name": "South Broad St Stair - South Penn Square - Street",
+    "lat": 39.951499920097405,
+    "lng": -75.16393750729628
+  },
+  "33035": {
+    "name": "Drexel Station at 30th St",
+    "lat": 39.954981,
+    "lng": -75.183384
+  },
+  "33035_entrance_30th_street_northwest": {
+    "name": "Drexel Station Entrance at 30th Street NW",
+    "lat": 39.955039,
+    "lng": -75.18347
+  },
+  "33035_entrance_30th_street_southwest": {
+    "name": "Drexel Station Entrance at 30th Street SW",
+    "lat": 39.954737,
+    "lng": -75.183589
+  },
+  "33035_entrance_31st_street_northeast": {
+    "name": "Drexel Station Entrance at 31st Street NE",
+    "lat": 39.955188,
+    "lng": -75.185055
+  },
+  "33035_entrance_31st_street_southeast": {
+    "name": "Drexel Station Entrance at 31st Street SE",
+    "lat": 39.954948,
+    "lng": -75.185321
+  },
+  "33035_entrance_market_central_northeast": {
+    "name": "Drexel Station Entrance at Market Street NE",
+    "lat": 39.955151,
+    "lng": -75.18416
+  },
+  "33035_node_30th_street_northwest_elevator": {
+    "name": "Elevator 30th Street NW - Street Level",
+    "lat": 39.955028,
+    "lng": -75.183365
+  },
+  "33035_node_30th_street_northwest_escalator_north": {
+    "name": "North Escalator 30th Street NW - Street Level",
+    "lat": 39.955082,
+    "lng": -75.183681
+  },
+  "33035_node_30th_street_northwest_stair": {
+    "name": "Stair 30th Street NW - Street Level",
+    "lat": 39.955058,
+    "lng": -75.183365
+  },
+  "33035_node_south_escalator_30th_street_nw_street_level": {
+    "name": "South Escalator 30th Street NW - Street Level",
+    "lat": 39.95507,
+    "lng": -75.183681
+  },
+  "33036": {
+    "name": "NRG Station",
+    "lat": 39.905144,
+    "lng": -75.173232
+  },
+  "33036_entrance_central_east": {
+    "name": "NRG Station Central East Entrance",
+    "lat": 39.905073,
+    "lng": -75.173148
+  },
+  "33036_entrance_central_west": {
+    "name": "NRG Station Central West Entrance",
+    "lat": 39.9051,
+    "lng": -75.173382
+  },
+  "33036_entrance_north_east": {
+    "name": "NRG Station North East Entrance",
+    "lat": 39.905631,
+    "lng": -75.173061
+  },
+  "33036_entrance_north_west": {
+    "name": "NRG Station North West Entrance",
+    "lat": 39.90567,
+    "lng": -75.173246
+  },
+  "33037": {
+    "name": "Frankford Transit Center - Drop-off Only",
+    "lat": 40.024247,
+    "lng": -75.076873
+  },
+  "33100": {
+    "name": "West Trenton Rail Shuttle Inbound & Outbound",
+    "lat": 40.258642,
+    "lng": -74.815228
+  },
+  "33101": {
+    "name": "Yardley Rail Shuttle Inbound & Outbound",
+    "lat": 40.235198,
+    "lng": -74.83108
   },
   "90004": {
     "name": "Gray 30th St Station",
@@ -68885,12 +69115,12 @@
     "lng": -75.24139
   },
   "90402": {
-    "name": "Airport Terminal C & D",
+    "name": "Airport Terminals C & D",
     "lat": 39.87806,
     "lng": -75.24
   },
   "90401": {
-    "name": "Airport Terminal E & F",
+    "name": "Airport Terminals E & F",
     "lat": 39.87944,
     "lng": -75.23972
   },
@@ -68900,7 +69130,7 @@
     "lng": -75.16472
   },
   "90804": {
-    "name": "Richard Allen Lane",
+    "name": "Richard Allen Ln",
     "lat": 40.0575,
     "lng": -75.19473
   },
@@ -68975,7 +69205,7 @@
     "lng": -75.6725
   },
   "90808": {
-    "name": "Chelten Avenue",
+    "name": "Chelten Av",
     "lat": 40.03,
     "lng": -75.18083
   },
@@ -68985,12 +69215,12 @@
     "lng": -75.09278
   },
   "90207": {
-    "name": "Chester T.C.",
+    "name": "Chester Transit Center",
     "lat": 39.84972,
     "lng": -75.36
   },
   "90204": {
-    "name": "Claymont",
+    "name": "Claymont Transit Center",
     "lat": 39.79778,
     "lng": -75.45222
   },
@@ -69001,8 +69231,8 @@
   },
   "90225": {
     "name": "Conshohocken",
-    "lat": 40.07222,
-    "lng": -75.30861
+    "lat": 40.07328,
+    "lng": -75.310944
   },
   "90706": {
     "name": "Cornwells Heights",
@@ -69185,7 +69415,7 @@
     "lng": -75.29972
   },
   "90206": {
-    "name": "Highland Avenue",
+    "name": "Highland Av",
     "lat": 39.83361,
     "lng": -75.39333
   },
@@ -69280,12 +69510,12 @@
     "lng": -75.12917
   },
   "90227": {
-    "name": "Main Street",
+    "name": "Main St",
     "lat": 40.11722,
     "lng": -75.34861
   },
   "90306": {
-    "name": "Morton-Rutledge",
+    "name": "Morton",
     "lat": 39.90778,
     "lng": -75.32889
   },
@@ -69405,12 +69635,12 @@
     "lng": -75.29833
   },
   "90211": {
-    "name": "Prospect Park - Moore",
+    "name": "Prospect Park",
     "lat": 39.88833,
     "lng": -75.30889
   },
   "90809": {
-    "name": "Queen Lane",
+    "name": "Queen Ln",
     "lat": 40.02333,
     "lng": -75.17805
   },
@@ -69515,7 +69745,7 @@
     "lng": -74.98444
   },
   "90701": {
-    "name": "Trenton",
+    "name": "Trenton Transit Center",
     "lat": 40.21851,
     "lng": -74.75393
   },
@@ -69550,7 +69780,7 @@
     "lng": -75.34167
   },
   "90714": {
-    "name": "Washington Lane",
+    "name": "Washington Ln",
     "lat": 40.05083,
     "lng": -75.17139
   },
@@ -69620,7 +69850,7 @@
     "lng": -75.19666
   },
   "90003": {
-    "name": "Wynnefield Avenue",
+    "name": "Wynnefield Av",
     "lat": 39.99,
     "lng": -75.22556
   },

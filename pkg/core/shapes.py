@@ -99,6 +99,37 @@ def _load_raw_stops(path: Path) -> dict:
     return {k: [(s[0], s[1], s[2]) for s in v] for k, v in raw.items()}
 
 
+def _merge_rail_stations(path: Path, raw_stops: dict, termini: dict):
+    """Add real rail stations to the stop/terminus tables.
+
+    Rail lines appear in shapes.json but have never had entries in
+    route_stops.json or termini.json, so they fell through to
+    _sample_stops — a marker every 350 m named "Stop 1", "Stop 2", … —
+    and to termini synthesized from the shape's endpoints ("Paoli End").
+    rail_lines.json now carries the actual station list per line.
+    Existing entries win, so a hand-tuned route is never overwritten.
+    """
+    if not path.exists():
+        return
+    try:
+        with open(path) as f:
+            lines = json.load(f)
+    except Exception as e:
+        print(f"  [shapes] rail_lines.json unreadable: {e}")
+        return
+    for route_id, info in lines.items():
+        stations = info.get("stations") or []
+        if len(stations) < 2:
+            continue
+        raw_stops.setdefault(
+            route_id, [(s["name"], s["lat"], s["lng"]) for s in stations])
+        first, last = stations[0], stations[-1]
+        termini.setdefault(route_id, (
+            first["name"], first["lat"], first["lng"],
+            last["name"], last["lat"], last["lng"],
+        ))
+
+
 def load_shapes(base_dir: Path, shape_trims: dict | None = None,
                 termini: dict | None = None) -> RouteShapeRegistry:
     """Load GTFS shapes, orient them, project stops, and return a registry.
@@ -121,6 +152,8 @@ def load_shapes(base_dir: Path, shape_trims: dict | None = None,
     if not termini:
         termini = _load_termini(base_dir / "static" / "termini.json")
     raw_stops = _load_raw_stops(base_dir / "static" / "route_stops.json")
+    _merge_rail_stations(base_dir / "static" / "rail_lines.json",
+                         raw_stops, termini)
     registry._termini = termini
 
     with open(shapes_path) as f:

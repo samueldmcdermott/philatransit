@@ -120,9 +120,24 @@ class SeptaProvider(Provider):
         return result
 
     def _normalize_rail(self, t: dict) -> dict | None:
-        """Normalize a raw SEPTA TrainView dict."""
-        train_no = str(t.get('trainno', ''))
+        """Normalize a raw SEPTA TrainView dict.
+
+        TrainView names the train's current and next station outright,
+        which is the most reliable position signal rail has — the GPS is
+        coarse and stations on a line can sit within a few hundred metres
+        of each other.  Both are carried through for pkg.core.rail to
+        resolve against the scheduled run.
+        """
+        # SEPTA occasionally emits a train number with a trailing period
+        # ("3537."), which otherwise fails to match the GTFS run.
+        train_no = ''.join(c for c in str(t.get('trainno', '')) if c.isdigit())
         if not train_no:
+            return None
+
+        # Schedule-based entries carry no GPS; the transit path drops
+        # these too (see _normalize_transit).
+        late = t.get('late')
+        if late == 998:
             return None
 
         route_id = rail_line_key(
@@ -134,8 +149,10 @@ class SeptaProvider(Provider):
             lng = float(t.get('lon', 0))
         except (TypeError, ValueError):
             return None
+        # A zero coordinate is SEPTA saying "no fix", not null island.
+        if lat == 0 or lng == 0:
+            return None
 
-        late = t.get('late')
         return {
             'vehicle_id': train_no,
             'route_id': route_id,
@@ -148,6 +165,12 @@ class SeptaProvider(Provider):
                 'api_bearing': t.get('heading'),
                 'source': t.get('SOURCE', ''),
                 'service': t.get('service', ''),
+                'line': t.get('line', ''),
+                'current_stop': t.get('currentstop', ''),
+                'next_stop': t.get('nextstop', ''),
+                'track': t.get('TRACK', ''),
+                'track_change': t.get('TRACK_CHANGE', ''),
+                'consist': t.get('consist', ''),
             },
         }
 

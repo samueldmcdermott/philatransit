@@ -11,8 +11,15 @@ Storage schema:
 
 ``record_start`` is called when a Trip is created; ``record_finish`` is
 called when the same Trip retires (filling in the elapsed/stops/tunnel
-fields by matching on start time).  Rail trips, which aren't Trip-managed,
-only get a start record.
+fields by matching on start time).  Rail runs aren't Trip-managed but go
+through the same two calls from pkg.core.rail, keyed on departure from
+the origin station and arrival at the destination.
+
+Rail entries written before 2026-08 are start-only, with a null
+elapsed_seconds, and their start is the first time the poller *saw* the
+train rather than when it left — after a restart every train in the
+first poll shares one timestamp.  They are left in place but are not
+comparable with entries recorded since.
 
 ``rollover`` runs once at startup and then nightly; it drains finished
 days into daily_cdfs.json, flattening rich entries to minute lists.
@@ -163,8 +170,9 @@ def _is_valid_for_stats(entry):
     """True if the entry should count toward the strict ("filter invalid") CDF.
 
     In-flight entries (no elapsed_seconds yet) and entries without a
-    fraction (e.g. rail trips, which aren't Trip-managed) are kept.
-    Only completed entries with an explicit low fraction are excluded.
+    fraction (legacy rail entries, and any trip that finished without a
+    measurable stop count) are kept.  Only completed entries with an
+    explicit low fraction are excluded.
     """
     if not isinstance(entry, dict):
         return True

@@ -9,6 +9,7 @@ from .routes import api
 from .poller import start_poller
 from .core.shapes import load_shapes
 from .core.trip import TripManager
+from .core.rail import RailManager, RailSchedule
 from .core.route import build_route_config
 from .core.stats import rollover, start_midnight_scheduler, start_stats_writer
 from .core.tunnel_monitor import TunnelMonitor
@@ -44,6 +45,9 @@ def create_app(provider_name="septa"):
     if detour_detector:
         trip_manager.set_detour_detector(detour_detector)
 
+    # -- Rail manager (trains are matched to their scheduled GTFS run) --
+    rail_manager = RailManager(RailSchedule.load(BASE))
+
     # -- Tunnel monitor (load fallback tunnel times) --
     tunnel_times_path = BASE / "static" / "tunnel_times.json"
     fallback_times = {}
@@ -65,7 +69,7 @@ def create_app(provider_name="septa"):
     rollover()
     start_stats_writer()
     start_midnight_scheduler(trip_manager.retire_dormant_trips)
-    start_poller(provider, trip_manager)
+    start_poller(provider, trip_manager, rail_manager)
 
     # -- Flask app --
     app = Flask(__name__, static_folder=None)
@@ -73,6 +77,7 @@ def create_app(provider_name="septa"):
     # Store dependencies for route handlers
     app.config['provider'] = provider
     app.config['trip_manager'] = trip_manager
+    app.config['rail_manager'] = rail_manager
     app.config['route_config'] = route_config
     app.config['tunnel_monitor'] = tunnel_monitor
 

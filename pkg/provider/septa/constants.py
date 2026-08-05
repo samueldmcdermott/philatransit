@@ -6,33 +6,84 @@ SEPTA_API = "https://www3.septa.org/api"
 SEPTA_V2 = "https://www3.septa.org/api/v2"
 HEADERS = {"User-Agent": "SEPTA-Live/1.0"}
 
-# ── Rail line aliases (for mapping TrainView fields to route keys) ───
+# ── Rail line keys ───────────────────────────────────────────────────
+# TrainView's "line" field carries the full SEPTA line name and is the
+# authoritative statement of which line a train is on *right now*.  Our
+# rail route IDs are those exact strings, so the mapping is an equality
+# check.  It used to be a substring scan over alias lists, which silently
+# filed Chestnut Hill West under Chestnut Hill East ("che" is a substring
+# of "chestnut hill west") and West Trenton under Trenton — both lines
+# were absent from the accumulated stats for the entire life of the bug.
+#
+# GTFS route code → route ID.  The codes come from google_rail's
+# routes.txt; the IDs match both TrainView's "line" and GTFS's
+# route_long_name minus the trailing " Line".
+RAIL_ROUTE_CODES = {
+    "AIR": "Airport",
+    "CHE": "Chestnut Hill East",
+    "CHW": "Chestnut Hill West",
+    "CYN": "Cynwyd",
+    "FOX": "Fox Chase",
+    "LAN": "Lansdale/Doylestown",
+    "MED": "Media/Wawa",
+    "NOR": "Manayunk/Norristown",
+    "PAO": "Paoli/Thorndale",
+    "TRE": "Trenton",
+    "WAR": "Warminster",
+    "WIL": "Wilmington/Newark",
+    "WTR": "West Trenton",
+}
 
-RAIL_ALIASES = {
-    "Airport":            ["airport", "phl"],
-    "Chestnut Hill East": ["chestnut hill east", "che"],
-    "Chestnut Hill West": ["chestnut hill west", "chw"],
-    "Cynwyd":             ["cynwyd"],
-    "Fox Chase":          ["fox chase"],
-    "Lansdale":           ["lansdale", "doylestown"],
-    "Media":              ["media", "wawa"],
-    "Manayunk":           ["manayunk", "norristown"],
-    "Paoli":              ["paoli", "thorndale", "malvern"],
-    "Trenton":            ["trenton"],
-    "Warminster":         ["warminster"],
-    "West Trenton":       ["west trenton"],
-    "Wilmington":         ["wilmington", "newark"],
+RAIL_ROUTE_IDS = set(RAIL_ROUTE_CODES.values())
+
+# Fallback only.  TrainView's "dest" is the *final* destination of the
+# run, which for a through-running train sits on a different line than
+# the one it is currently on, so it can never be trusted to name the
+# line.  These entries are used solely when "line" is missing or
+# unrecognized, and are keyed on the terminus each line actually owns.
+_RAIL_TERMINUS_HINTS = {
+    "airport":      "Airport",
+    "chestnut h east": "Chestnut Hill East",
+    "chestnut h west": "Chestnut Hill West",
+    "cynwyd":       "Cynwyd",
+    "fox chase":    "Fox Chase",
+    "doylestown":   "Lansdale/Doylestown",
+    "lansdale":     "Lansdale/Doylestown",
+    "wawa":         "Media/Wawa",
+    "media":        "Media/Wawa",
+    "norristown":   "Manayunk/Norristown",
+    "thorndale":    "Paoli/Thorndale",
+    "malvern":      "Paoli/Thorndale",
+    "paoli":        "Paoli/Thorndale",
+    "west trenton": "West Trenton",
+    "trenton":      "Trenton",
+    "warminster":   "Warminster",
+    "newark":       "Wilmington/Newark",
+    "wilmington":   "Wilmington/Newark",
+    "marcus hook":  "Wilmington/Newark",
 }
 
 
-def rail_line_key(line, dest, src):
-    """Map TrainView fields to a stable route key."""
-    for field_val in [line, dest, src]:
-        low = (field_val or "").lower()
-        for route_id, keys in RAIL_ALIASES.items():
-            if any(k in low for k in keys):
-                return route_id
-    return line or "unknown"
+def rail_line_key(line, dest=None, src=None):
+    """Map TrainView's line/dest/source fields to a rail route ID.
+
+    `line` is matched exactly; `dest`/`src` are consulted only when that
+    fails.  The hint table is ordered longest-terminus-first at lookup
+    time so "west trenton" cannot be shadowed by "trenton".
+    """
+    name = (line or "").strip()
+    if name in RAIL_ROUTE_IDS:
+        return name
+
+    for field_val in (line, dest, src):
+        low = (field_val or "").strip().lower()
+        if not low:
+            continue
+        for hint in sorted(_RAIL_TERMINUS_HINTS, key=len, reverse=True):
+            if hint in low:
+                return _RAIL_TERMINUS_HINTS[hint]
+
+    return name or "unknown"
 
 
 # ── Shape trimming (non-revenue spur removal) ────────────────────────
@@ -84,20 +135,21 @@ DETOUR_ROUTES = {'T1', 'T2', 'T3', 'T4', 'T5'}
 
 # ── Route definitions ────────────────────────────────────────────────
 
+# Route IDs are TrainView's exact "line" strings — see rail_line_key().
 RAIL_LINES = [
-    {"id": "Airport",            "label": "Airport",             "color": "#a855f7", "gtfs": "Airport",            "alert_ids": ["AIR"]},
-    {"id": "Chestnut Hill East", "label": "Chestnut Hill East",  "color": "#10b981", "gtfs": "Chestnut Hill East",  "alert_ids": ["CHE"]},
-    {"id": "Chestnut Hill West", "label": "Chestnut Hill West",  "color": "#059669", "gtfs": "Chestnut Hill West",  "alert_ids": ["CHW"]},
-    {"id": "Cynwyd",             "label": "Cynwyd",              "color": "#6366f1", "gtfs": "Cynwyd",              "alert_ids": ["CYN"]},
-    {"id": "Fox Chase",          "label": "Fox Chase",           "color": "#f97316", "gtfs": "Fox Chase",           "alert_ids": ["FOX"]},
-    {"id": "Lansdale",           "label": "Lansdale/Doylestown", "color": "#eab308", "gtfs": "Lansdale",            "alert_ids": ["LAN"]},
-    {"id": "Media",              "label": "Media/Wawa",          "color": "#ec4899", "gtfs": "Media",               "alert_ids": ["MED"]},
-    {"id": "Manayunk",           "label": "Manayunk/Norristown", "color": "#8b5cf6", "gtfs": "Manayunk",            "alert_ids": ["NOR"]},
-    {"id": "Paoli",              "label": "Paoli/Thorndale",     "color": "#0ea5e9", "gtfs": "Paoli",               "alert_ids": ["PAO"]},
-    {"id": "Trenton",            "label": "Trenton",             "color": "#ef4444", "gtfs": "Trenton",             "alert_ids": ["TRE"]},
-    {"id": "Warminster",         "label": "Warminster",          "color": "#84cc16", "gtfs": "Warminster",          "alert_ids": ["WAR"]},
-    {"id": "West Trenton",       "label": "West Trenton",        "color": "#06b6d4", "gtfs": "West Trenton",        "alert_ids": ["WTR"]},
-    {"id": "Wilmington",         "label": "Wilmington/Newark",   "color": "#f43f5e", "gtfs": "Wilmington",          "alert_ids": ["WIL"]},
+    {"id": "Airport",             "label": "Airport",             "color": "#a855f7", "gtfs": "Airport",             "alert_ids": ["AIR"]},
+    {"id": "Chestnut Hill East",  "label": "Chestnut Hill East",  "color": "#10b981", "gtfs": "Chestnut Hill East",  "alert_ids": ["CHE"]},
+    {"id": "Chestnut Hill West",  "label": "Chestnut Hill West",  "color": "#059669", "gtfs": "Chestnut Hill West",  "alert_ids": ["CHW"]},
+    {"id": "Cynwyd",              "label": "Cynwyd",              "color": "#6366f1", "gtfs": "Cynwyd",              "alert_ids": ["CYN"]},
+    {"id": "Fox Chase",           "label": "Fox Chase",           "color": "#f97316", "gtfs": "Fox Chase",           "alert_ids": ["FOX"]},
+    {"id": "Lansdale/Doylestown", "label": "Lansdale/Doylestown", "color": "#eab308", "gtfs": "Lansdale/Doylestown", "alert_ids": ["LAN"]},
+    {"id": "Media/Wawa",          "label": "Media/Wawa",          "color": "#ec4899", "gtfs": "Media/Wawa",          "alert_ids": ["MED"]},
+    {"id": "Manayunk/Norristown", "label": "Manayunk/Norristown", "color": "#8b5cf6", "gtfs": "Manayunk/Norristown", "alert_ids": ["NOR"]},
+    {"id": "Paoli/Thorndale",     "label": "Paoli/Thorndale",     "color": "#0ea5e9", "gtfs": "Paoli/Thorndale",     "alert_ids": ["PAO"]},
+    {"id": "Trenton",             "label": "Trenton",             "color": "#ef4444", "gtfs": "Trenton",             "alert_ids": ["TRE"]},
+    {"id": "Warminster",          "label": "Warminster",          "color": "#84cc16", "gtfs": "Warminster",          "alert_ids": ["WAR"]},
+    {"id": "West Trenton",        "label": "West Trenton",        "color": "#06b6d4", "gtfs": "West Trenton",        "alert_ids": ["WTR"]},
+    {"id": "Wilmington/Newark",   "label": "Wilmington/Newark",   "color": "#f43f5e", "gtfs": "Wilmington/Newark",   "alert_ids": ["WIL"]},
 ]
 
 SUBWAY_LINES = [

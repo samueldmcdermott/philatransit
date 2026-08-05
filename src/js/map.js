@@ -646,7 +646,14 @@ function getRoutePathIndex(routeKey) {
   // GTFS shapes run in the opposite direction from the server's convention.
   // IMPORTANT: orient BEFORE trimming — must match the order in shapes.py
   // load_shapes(), because cutoffIndex is defined relative to the oriented shape.
-  const term = SHAPE_TERMINI[routeKey];
+  let term = SHAPE_TERMINI[routeKey];
+  // Rail lines aren't in SHAPE_TERMINI; their station list is ordered from
+  // the Center City end outward, which is the same convention the server
+  // orients rail shapes to (see _merge_rail_stations in shapes.py).
+  if (!term && typeof railLinesData === 'object' && railLinesData?.[routeKey]) {
+    const st = railLinesData[routeKey].stations || [];
+    if (st.length >= 2) term = { startLat: st[0].lat, startLng: st[0].lng };
+  }
   if (term && path.length >= 2) {
     const d0 = distLatLng(path[0], { lat: term.startLat, lng: term.startLng });
     const dn = distLatLng(path[path.length - 1], { lat: term.startLat, lng: term.startLng });

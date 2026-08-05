@@ -26,9 +26,13 @@ python3 -m pytest                     # tests
 Rebuilding static GTFS data (only needed when SEPTA publishes a new feed):
 
 ```bash
-python3 scripts/build_gtfs.py      # → static/{stops,schedule,shapes,route_stops}.json
+python3 scripts/build_gtfs.py      # → static/{stops,schedule,shapes,rail_lines,rail_schedule}.json
 python3 scripts/tunnel_timing.py   # → static/tunnel_times.json
 ```
+
+`build_gtfs.py` picks the feed in effect *today*, not GitHub's newest release
+(SEPTA publishes ahead of the effective date, and rail train numbers must
+match the trains actually running). `--latest` forces the newest.
 
 Production is Docker + host nginx: `docker compose up -d`.
 
@@ -65,6 +69,36 @@ many months. **Do not "fix" direction, tunnel, or detour logic based on
 reasoning about the code alone** — a change that looks obviously right will
 regress edge cases that the constants at the top of `trip.py` and
 `septa/tunnel.py` exist to handle.
+
+### Regional Rail is a separate pipeline
+
+Rail does **not** go through `TripManager`, and shouldn't be made to. `Trip`
+infers direction and stop order from raw GPS and assumes one fixed stop
+sequence per route; rail needs neither. TrainView names the current and next
+station directly, and a line carries runs with different termini — a
+Paoli/Thorndale train may end at Thorndale, Malvern, Paoli or Wayne.
+
+`pkg/core/rail.py` joins each live train to its scheduled GTFS run. GTFS
+`trip_short_name` is the route code plus the train number (`PAO2591`), and
+that number is TrainView's `trainno`. Rules when touching it:
+
+- **`line` is where the train is now; `dest` is where the run ends.** They
+  disagree for through-running trains, and that is not an error — a
+  Wilmington/Newark train really can be bound for West Trenton. Never key a
+  train's line off `dest`.
+- A run has one leg per line it traverses. Legs are kept separate so a train
+  appears on the line it is currently on; `via` names the onward line.
+- Stop counts are relative to the train's **own run**, never the full line.
+  A short-turn that counted against the line would never reach its terminus.
+- Station names differ between TrainView and GTFS ("Norristown T.C." vs
+  "Norristown Transit Center"). Resolution is normalize → alias table →
+  operator-insensitive retry, always scoped to one line's stations.
+- The fallback path for trains missing from the timetable is load-bearing,
+  not theoretical: it runs whenever SEPTA publishes a feed ahead of its
+  effective date. It must not invent stop counts.
+- Rail route IDs are TrainView's exact `line` strings. `rail_line_key` is an
+  equality check — it used to be a substring scan, which filed Chestnut Hill
+  West under Chestnut Hill East and West Trenton under Trenton for months.
 
 ### Statistics persistence
 
@@ -108,6 +142,9 @@ worker would poll SEPTA twice, keep a divergent `TripManager`, and race on
 
 - **Subway (MFL/BSL) has no real-time GPS.** SEPTA returns placeholder entries.
   The empty map is correct, not a bug.
+- **A rail train changing `route_id` mid-run is correct.** It crossed Center
+  City onto its second leg, so it leaves one line's `/api/vehicles/rail`
+  listing and joins another's.
 - **SEPTA marks trolleys live before they leave the yard.** Hence the
   "born dormant" path — trips first seen at their origin are hidden until real
   movement is observed, and the wake moment becomes the recorded start time.

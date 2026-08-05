@@ -33,9 +33,14 @@ The files in `static/` are checked in, so no GTFS download is needed to run the
 app. Regenerate them only when SEPTA publishes a new feed:
 
 ```bash
-python3 scripts/build_gtfs.py      # route shapes, stops, schedules
+python3 scripts/build_gtfs.py      # route shapes, stops, schedules, rail runs
 python3 scripts/tunnel_timing.py   # historical tunnel transit times
 ```
+
+`build_gtfs.py` downloads the feed **in effect today**, not GitHub's newest
+release — SEPTA usually publishes one several days before it takes effect, and
+rail train numbers and times must describe the trains currently running. Pass
+`--latest` to build from the newest release anyway.
 
 ### Tests and linting
 
@@ -84,11 +89,13 @@ philatransit/
 │       ├── stations.js         # Hardcoded station coordinates
 │       ├── stats.js            # Statistics panel and chart rendering
 │       └── tunnel.js           # Tunnel constants, ghost interpolation
-├── static/                     # Generated GTFS data (shapes, stops, schedule, termini, tunnel_times)
+├── static/                     # Generated GTFS data (shapes, stops, schedule, termini,
+│                               #   rail_lines, rail_schedule, tunnel_times)
 ├── scripts/
 │   ├── build_gtfs.py           # Downloads GTFS and builds the static data files
+│   ├── migrate_rail_keys.py    # One-off: renames rail route keys in data/
 │   └── tunnel_timing.py        # Extracts tunnel transit times from GTFS
-├── tests/                      # pytest suite (geo, stats, tunnel monitor, Trip lifecycle)
+├── tests/                      # pytest suite (geo, stats, tunnel monitor, Trip lifecycle, rail)
 ├── data/                       # Runtime data (today.json, daily_cdfs.json — Docker volume, untracked)
 ├── Dockerfile
 ├── docker-compose.yml
@@ -107,7 +114,15 @@ A single background thread in `pkg/poller.py` polls SEPTA every 5 seconds (trans
 
 Each observed vehicle becomes a `Trip` owned by `TripManager` ([`pkg/core/trip.py`](pkg/core/trip.py)). A Trip is keyed by our own `trip_id` (`{vehicle_id}_{epoch}`) — SEPTA's trip identifiers are unstable and aren't trusted. The Trip tracks direction along the route shape, current/next stop, stops passed, speed, and origin/destination. Trips retire naturally on return-to-origin and are pruned after 10 minutes without an update.
 
-When a Trip is created, its start time is persisted via [`pkg/core/stats.py`](pkg/core/stats.py) — one Trip, one recorded start. Regional rail isn't Trip-managed; the poller records the first sighting of each train number per day through the same `record_start` path.
+When a Trip is created, its start time is persisted via [`pkg/core/stats.py`](pkg/core/stats.py) — one Trip, one recorded start.
+
+### Regional rail runs
+
+Rail is tracked by `RailManager` ([`pkg/core/rail.py`](pkg/core/rail.py)), not `TripManager`. A `Trip` infers direction and stop order from raw GPS and assumes one fixed stop sequence per route; rail needs neither, because TrainView names the current and next station outright, and a line carries runs with different termini (a Paoli/Thorndale train may end at Thorndale, Malvern, Paoli or Wayne).
+
+Each train is instead joined to its scheduled GTFS run: `trip_short_name` is the route code followed by the train number (`PAO2591`), and that number is TrainView's `trainno`. The run supplies that train's own stop list, origin, destination, direction, and scheduled times. A run has one leg per line it traverses — train 2591 runs Norristown TC → Suburban Station on Manayunk/Norristown, then Suburban Station → Malvern on Paoli/Thorndale — which is why TrainView's `line` (where the train is now) and `dest` (where the run ends) can name different lines. Trains that aren't in the timetable fall back to the line's own station list and report only what can be established from TrainView alone.
+
+Rail start times are recorded on observed departure from the origin and completed on arrival, through the same `record_start`/`record_finish` path as transit.
 
 Both stats files are keyed `{route: {"YYYY-MM-DD": [...]}}`, sorted by start
 minute, but the buckets differ. `today.json` holds rich per-trip entries:

@@ -97,8 +97,10 @@
           <span class="filter-label">Direction:</span>
           <select id="filterDirection" class="filter-select" onchange="applyLiveFilters()">
             <option value="all">All</option>
-            <option value="eastbound">Eastbound</option>
-            <option value="westbound">Westbound</option>
+            <option value="eastbound" data-modes="transit">Eastbound</option>
+            <option value="westbound" data-modes="transit">Westbound</option>
+            <option value="inbound"   data-modes="rail">Inbound</option>
+            <option value="outbound"  data-modes="rail">Outbound</option>
           </select>
         </div>
         <div class="filter-group">
@@ -132,8 +134,10 @@
           <span class="filter-label">Direction:</span>
           <select id="mapFilterDirection" class="filter-select" onchange="applyMapFilter()">
             <option value="all">All</option>
-            <option value="eastbound">Eastbound</option>
-            <option value="westbound">Westbound</option>
+            <option value="eastbound" data-modes="transit">Eastbound</option>
+            <option value="westbound" data-modes="transit">Westbound</option>
+            <option value="inbound"   data-modes="rail">Inbound</option>
+            <option value="outbound"  data-modes="rail">Outbound</option>
           </select>
         </div>
         <span id="mapFilterCount" class="filter-count"></span>

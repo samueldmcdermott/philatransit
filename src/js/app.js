@@ -248,7 +248,11 @@ function tripDistFromOrigin(t) {
   if (t._ghost) return null;
   const da = t.position?.dist_along;
   const total = t.position?.shape_total_len;
-  if (da == null || total == null) return null;
+  if (da == null || total == null) {
+    // Rail isn't projected onto a shape, but its stop count is measured
+    // against its own run, so it orders trains the same way.
+    return t.progress?.stops_passed ?? null;
+  }
   return t.toward_destination === false ? Math.max(0, total - da) : da;
 }
 function fmtElapsed(secs) {
@@ -267,11 +271,27 @@ function setMode(mode) {
   selectedRoute = null;
   document.querySelectorAll('.mode-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.mode === mode));
+  updateDirectionOptions();
   const subwayBanner = document.getElementById('subwayBanner');
   if (subwayBanner) subwayBanner.style.display = mode === 'SUBWAY' ? '' : 'none';
   buildRouteList();
   updateTunnelMonitorBanner();
   updateTunnelClosureBanner();
+}
+
+// Rail is described as inbound/outbound, surface transit as east/west.
+// Show only the pair that applies, and drop a selection that no longer does.
+function updateDirectionOptions() {
+  const want = activeMode === 'RAIL' ? 'rail' : 'transit';
+  for (const id of ['filterDirection', 'mapFilterDirection']) {
+    const sel = document.getElementById(id);
+    if (!sel) continue;
+    for (const opt of sel.options) {
+      if (!opt.dataset.modes) continue;
+      opt.hidden = opt.dataset.modes !== want;
+      if (opt.hidden && sel.value === opt.value) sel.value = 'all';
+    }
+  }
 }
 
 function buildRouteList() {
@@ -314,6 +334,18 @@ async function selectRoute(route, type) {
   else if (activePanel === 'stats')  loadStats();
 }
 
+// Ordered rail stations per line, loaded once from static/rail_lines.json.
+let railLinesData = null;
+
+async function fetchRailStations(routeId) {
+  if (railLinesData === null) {
+    railLinesData = await fetch('/static/rail_lines.json')
+      .then(r => r.json()).catch(() => ({}));
+  }
+  const stations = railLinesData[routeId]?.stations || [];
+  return stations.map(s => ({ name: s.name, lat: s.lat, lng: s.lng }));
+}
+
 function sampleShapeStops(coords, spacingM = 350) {
   if (!coords || coords.length < 2) return [];
   const stops = [{ name: 'Start', lat: coords[0][0], lng: coords[0][1] }];
@@ -342,6 +374,19 @@ async function fetchRouteStops() {
     routeStops        = HARDCODED_STATIONS[key];
     routeStopsOrdered = true;
     return;
+  }
+
+  // Rail stations come from GTFS, in order. Without this a rail line falls
+  // through to /api/stops (SEPTA's bus-stop endpoint, which returns nothing
+  // for a line name) and then to sampleShapeStops, which names its markers
+  // "Stop 1" … "Stop 230".
+  if (selectedRoute.type === 'rail') {
+    const stations = await fetchRailStations(key);
+    if (stations.length) {
+      routeStops        = stations;
+      routeStopsOrdered = true;
+      return;
+    }
   }
 
   const apiIds = selectedRoute.apiIds || [selectedRoute.id];
@@ -602,11 +647,9 @@ async function fetchVehiclesForRoute() {
   if (!selectedRoute) return [];
   if (selectedRoute.type === 'rail') {
     const data = await apiFetch(`/api/vehicles/rail?route=${encodeURIComponent(selectedRoute.id)}`);
-    return (data.trips || []).map(t => ({
-      ...t,
-      _id: t.vehicle_id || t.trip_id || String(Math.random()),
-      _rkey: t.route_id || selectedRoute.id,
-    }));
+    // Rail trains are enriched server-side into the same shape as transit
+    // trips, so they go through the same filtering and keying.
+    return processTrips(data.trips || [], selectedRoute.id, false);
   }
   const apiIds = selectedRoute.apiIds || [selectedRoute.id];
   const results = await Promise.all(
@@ -669,6 +712,13 @@ async function detectClosureForSelectedRoute(trips) {
 function tripDirection(t) {
   // Determine direction from destination or toward_destination
   if (t._ghost) return t._direction || '';
+  // Rail states its direction outright — the matched GTFS run says whether
+  // the leg the train is on runs outbound from Center City.
+  if (selectedRoute?.type === 'rail') {
+    if (t.toward_destination === true)  return 'outbound';
+    if (t.toward_destination === false) return 'inbound';
+    return '';
+  }
   const dest = (t.destination || t.meta?.headsign || '').toLowerCase();
   if (t.toward_destination !== undefined) {
     // toward_destination=true means heading toward destination (typically eastbound for trolleys)
@@ -832,9 +882,21 @@ function renderTrips(trips) {
       nextStop = nearestStop(lat, lng);
     }
 
-    const dir = t.destination || headingLabel(tripHeading(t));
+    // For rail the destination is already the card header, so the tag row
+    // carries the direction and the operational detail instead.
+    const isRail = selectedRoute?.type === 'rail';
+    const dir = isRail ? null : (t.destination || headingLabel(tripHeading(t)));
     const tags = [];
     if (t._routeLabel) tags.push(`<span class="tag" style="background:${vColor};color:#000;font-weight:600">${t._routeLabel}</span>`);
+    if (isRail) {
+      const rdir = tripDirection(t);
+      if (rdir) tags.push(`<span class="tag">${rdir === 'outbound' ? 'Outbound' : 'Inbound'}</span>`);
+      // A through-running train finishes on a different line than the one
+      // it is on now — say so rather than implying it turns back.
+      if (t.meta?.via) tags.push(`<span class="tag">continues as ${t.meta.via}</span>`);
+      if (t.meta?.track) tags.push(`<span class="tag">Track ${t.meta.track}</span>`);
+      if (t.scheduled === false) tags.push(`<span class="tag">Unscheduled</span>`);
+    }
     if (isGhost)         tags.push(`<span class="tag tag-tunnel">Estimated · ${t._direction || 'tunnel'}${t._leg === 'second' ? ' (return)' : ''}</span>`);
     else if (isTunneled) tags.push(`<span class="tag tag-tunnel">Underground</span>`);
     if (!isGhost && (t.lingering || lingeringVids[t.label]))

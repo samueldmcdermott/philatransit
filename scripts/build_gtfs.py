@@ -2,16 +2,20 @@
 """
 Build static GTFS data files for SEPTA Live.
 
-Downloads the latest SEPTA GTFS ZIP and extracts:
-  - static/stops.json      → {stop_id: {name, lat, lng}}
-  - static/schedule.json   → {route_short_name: {weekday:[min,...], saturday:[...], sunday:[...]}}
+Downloads the SEPTA GTFS ZIP that is in effect today and extracts:
+  - static/stops.json          → {stop_id: {name, lat, lng}}
+  - static/schedule.json       → {route_short_name: {weekday:[min,...], saturday:[...], sunday:[...]}}
+  - static/shapes.json         → {route_key: [[lat, lng], ...]}
+  - static/rail_lines.json     → per rail line, its ordered station list
+  - static/rail_schedule.json  → per train number, its scheduled run (see build_rail)
 
 Scheduled minutes are the first-stop departure times for each trip (minutes since midnight),
 representing when each scheduled trip begins service.
 
 Usage:
     pip install requests
-    python3 scripts/build_gtfs.py
+    python3 scripts/build_gtfs.py            # the feed in effect today
+    python3 scripts/build_gtfs.py --latest   # newest feed, even if not yet effective
 """
 
 import contextlib
@@ -21,6 +25,7 @@ import json
 import sys
 import zipfile
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 
 try:
@@ -29,8 +34,20 @@ except ImportError:
     print("Missing: pip install requests")
     sys.exit(1)
 
-GTFS_URL = "https://github.com/septadev/GTFS/releases/latest/download/gtfs_public.zip"
-OUT_DIR  = Path(__file__).parent.parent / "static"
+# The GTFS-code → route-ID map is shared with the running app rather than
+# duplicated here; a copy that drifts is what let the old rail aliasing
+# bug hide for months.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from pkg.provider.septa.constants import RAIL_ROUTE_CODES  # noqa: E402
+
+GTFS_URL      = "https://github.com/septadev/GTFS/releases/latest/download/gtfs_public.zip"
+GTFS_RELEASES = "https://api.github.com/repos/septadev/GTFS/releases"
+OUT_DIR       = Path(__file__).parent.parent / "static"
+
+# How far back to walk the release list looking for the feed in effect today.
+# SEPTA publishes a new release a few days to a week ahead of its effective
+# date, so the current feed is normally the first or second entry.
+MAX_RELEASES_SCANNED = 6
 
 
 def parse_time(s):
@@ -45,11 +62,18 @@ def parse_time(s):
         return None
 
 
-def read_csv(zf, filename):
+def read_csv(zf, filename, prefix=None):
     """Read a CSV file from a ZIP archive into a list of dicts.
-    Merges rows from all matching files (e.g. google_bus/routes.txt + google_rail/routes.txt)."""
+
+    Merges rows from all matching files (e.g. google_bus/routes.txt +
+    google_rail/routes.txt).  Pass `prefix` ("google_rail") to read from
+    one feed only — several files exist in both and mean different
+    things, notably route_stops.txt and directions.txt.
+    """
     names = zf.namelist()
     matches = [n for n in names if n.endswith(filename)]
+    if prefix:
+        matches = [n for n in matches if n.startswith(prefix)]
     if not matches:
         raise FileNotFoundError(f"{filename} not found in ZIP. Available: {names[:20]}")
     rows = []
@@ -58,6 +82,70 @@ def read_csv(zf, filename):
             text = f.read().decode("utf-8-sig")
         rows.extend(csv.DictReader(io.StringIO(text)))
     return rows
+
+
+def feed_window(zf):
+    """Return (feed_start_date, feed_end_date) as YYYYMMDD strings."""
+    try:
+        rows = read_csv(zf, "feed_info.txt", prefix="google_rail")
+    except FileNotFoundError:
+        rows = read_csv(zf, "feed_info.txt")
+    if not rows:
+        return "", ""
+    return (rows[0].get("feed_start_date", "").strip(),
+            rows[0].get("feed_end_date", "").strip())
+
+
+def fetch_gtfs(prefer_latest=False):
+    """Download the GTFS release in effect today.
+
+    GitHub's "latest" release is often published several days before it
+    takes effect, so blindly taking it yields a feed whose train numbers
+    and times do not describe the trains currently running.  Walk back
+    through the release list until one covers today.
+    """
+    if prefer_latest:
+        print(f"Downloading GTFS from {GTFS_URL} …")
+        r = requests.get(GTFS_URL, timeout=180)
+        r.raise_for_status()
+        return r.content
+
+    today = date.today().strftime("%Y%m%d")
+    try:
+        rels = requests.get(GTFS_RELEASES, params={"per_page": MAX_RELEASES_SCANNED},
+                            timeout=30).json()
+    except Exception as e:
+        print(f"  ! release list unavailable ({e}) — falling back to latest")
+        rels = []
+
+    newest = None
+    for rel in rels if isinstance(rels, list) else []:
+        asset = next((a for a in rel.get("assets", [])
+                      if a.get("name") == "gtfs_public.zip"), None)
+        if not asset:
+            continue
+        print(f"Downloading {rel.get('tag_name')} …")
+        r = requests.get(asset["browser_download_url"], timeout=180)
+        r.raise_for_status()
+        with open_gtfs(r.content) as zf:
+            start, end = feed_window(zf)
+        if newest is None:
+            newest = (rel.get("tag_name"), r.content, start, end)
+        if start <= today <= end:
+            print(f"  in effect today ({start}–{end})")
+            return r.content
+        print(f"  covers {start}–{end}, not today ({today}) — trying the previous release")
+
+    if newest:
+        tag, content, start, end = newest
+        print(f"  ! no release covers {today}; using {tag} ({start}–{end}). "
+              f"Rail train numbers may not match the live feed.")
+        return content
+
+    print(f"Downloading GTFS from {GTFS_URL} …")
+    r = requests.get(GTFS_URL, timeout=180)
+    r.raise_for_status()
+    return r.content
 
 
 def open_gtfs(content):
@@ -85,15 +173,157 @@ def open_gtfs(content):
     return outer
 
 
+def build_rail(zf):
+    """Build the two rail files from google_rail.
+
+    rail_lines.json — {route_id: {gtfs, stations: [{id, name, lat, lng}, ...]}}
+        Stations run inbound-end → outbound-end.  Every SEPTA rail line is
+        a single linear sequence; what look like branches (Paoli vs
+        Thorndale, Media vs Wawa) are short-turns along one line, so one
+        ordered list per line is sufficient.
+
+    rail_schedule.json — the scheduled run for each train number:
+        {feed_start, feed_end, stations: [...], services: {...},
+         runs: {train_no: [{route, service, outbound, headsign,
+                            stops: [[station_idx, minutes], ...]}, ...]}}
+
+        A run has one leg per line it traverses.  Through-running trains
+        have two: train 2591 is Norristown TC→Suburban on NOR, then
+        Suburban→Malvern on PAO.  TrainView reports the line of the leg
+        the train is on now and the destination of the whole run, which
+        is why neither field alone can describe a train.
+
+        Legs are stored, not flattened, because the runtime needs to know
+        which line a train is on at a given moment.  Times are minutes
+        since local midnight, matching the rest of the app.
+    """
+    stops_rows = read_csv(zf, "stops.txt", prefix="google_rail")
+    stations, station_idx = [], {}
+    for row in stops_rows:
+        sid = row.get("stop_id", "").strip()
+        try:
+            lat = float(row.get("stop_lat", ""))
+            lng = float(row.get("stop_lon", ""))
+        except ValueError:
+            continue
+        station_idx[sid] = len(stations)
+        stations.append({"id": sid, "name": row.get("stop_name", "").strip(),
+                         "lat": lat, "lng": lng})
+
+    # directions.txt names each direction_id per route.  The mapping is
+    # NOT consistent across routes — AIR 0 is Inbound, CHE 0 is Outbound —
+    # so it must be read rather than assumed.
+    outbound_dir = {}
+    for row in read_csv(zf, "directions.txt", prefix="google_rail"):
+        if row.get("direction", "").strip().lower() == "outbound":
+            outbound_dir[row.get("route_id", "").strip()] = row.get("direction_id", "").strip()
+
+    # rail_lines.json — the outbound station order is the canonical one.
+    by_route_dir = defaultdict(list)
+    for row in read_csv(zf, "route_stops.txt", prefix="google_rail"):
+        key = (row.get("route_id", "").strip(), row.get("direction_id", "").strip())
+        by_route_dir[key].append(row)
+
+    rail_lines = {}
+    for code, route_id in RAIL_ROUTE_CODES.items():
+        rows = by_route_dir.get((code, outbound_dir.get(code, "1")))
+        if not rows:
+            print(f"  ! no route_stops for {code} — skipping")
+            continue
+        rows.sort(key=lambda r: int(r.get("route_stop_sort_order", "0") or 0))
+        seq = [stations[station_idx[r["stop_id"].strip()]]
+               for r in rows if r.get("stop_id", "").strip() in station_idx]
+        rail_lines[route_id] = {"gtfs": code, "stations": seq}
+
+    # services — calendar + calendar_dates, so the runtime can resolve the
+    # active service by date.  Service windows overlap (a track-work
+    # service can shadow the base one for a few days), which makes
+    # (train, route, weekday) ambiguous without the actual date.
+    services = {}
+    for row in read_csv(zf, "calendar.txt", prefix="google_rail"):
+        sid = row.get("service_id", "").strip()
+        if not sid:
+            continue
+        services[sid] = {
+            "dow": [int(row.get(d, "0") or 0) for d in
+                    ("monday", "tuesday", "wednesday", "thursday",
+                     "friday", "saturday", "sunday")],
+            "start": row.get("start_date", "").strip(),
+            "end": row.get("end_date", "").strip(),
+            "added": [], "removed": [],
+        }
+    try:
+        cdates = read_csv(zf, "calendar_dates.txt", prefix="google_rail")
+    except FileNotFoundError:
+        cdates = []
+    for row in cdates:
+        sid = row.get("service_id", "").strip()
+        day = row.get("date", "").strip()
+        if not sid or not day:
+            continue
+        svc = services.setdefault(sid, {"dow": [0] * 7, "start": "", "end": "",
+                                        "added": [], "removed": []})
+        key = "added" if row.get("exception_type", "").strip() == "1" else "removed"
+        svc[key].append(day)
+
+    # runs — keyed on the train number carried in trip_short_name.
+    st_by_trip = defaultdict(list)
+    for row in read_csv(zf, "stop_times.txt", prefix="google_rail"):
+        st_by_trip[row.get("trip_id", "").strip()].append(row)
+
+    runs = defaultdict(list)
+    for row in read_csv(zf, "trips.txt", prefix="google_rail"):
+        code = row.get("route_id", "").strip()
+        short = row.get("trip_short_name", "").strip()
+        # trip_short_name is the route code followed by the train number,
+        # e.g. "PAO2591" — and that number is TrainView's `trainno`.
+        train_no = short[len(code):] if short.startswith(code) else short
+        train_no = "".join(ch for ch in train_no if ch.isdigit())
+        rows = sorted(st_by_trip.get(row.get("trip_id", "").strip(), []),
+                      key=lambda r: int(r.get("stop_sequence", "0") or 0))
+        if not train_no or not rows:
+            continue
+        stop_seq = []
+        for r in rows:
+            sid = r.get("stop_id", "").strip()
+            dep = parse_time(r.get("departure_time", ""))
+            if sid in station_idx and dep is not None:
+                stop_seq.append([station_idx[sid], round(dep, 2)])
+        if not stop_seq:
+            continue
+        runs[train_no].append({
+            "route": RAIL_ROUTE_CODES.get(code, code),
+            "service": row.get("service_id", "").strip(),
+            "outbound": row.get("direction_id", "").strip() == outbound_dir.get(code),
+            "headsign": row.get("trip_headsign", "").strip(),
+            "stops": stop_seq,
+        })
+
+    # Order each run's legs by departure time so concatenation yields the
+    # journey in travel order.
+    for legs in runs.values():
+        legs.sort(key=lambda leg: leg["stops"][0][1])
+
+    start, end = feed_window(zf)
+    schedule = {"feed_start": start, "feed_end": end, "stations": stations,
+                "services": services, "runs": dict(runs)}
+
+    lines_path = OUT_DIR / "rail_lines.json"
+    lines_path.write_text(json.dumps(rail_lines, indent=2))
+    print(f"Wrote {lines_path}  ({len(rail_lines)} lines)")
+
+    sched_path = OUT_DIR / "rail_schedule.json"
+    sched_path.write_text(json.dumps(schedule, separators=(",", ":")))
+    print(f"Wrote {sched_path}  ({len(runs)} train numbers, feed {start}–{end})")
+
+
 def main():
     OUT_DIR.mkdir(exist_ok=True)
 
-    print(f"Downloading GTFS from {GTFS_URL} …")
-    r = requests.get(GTFS_URL, timeout=120)
-    r.raise_for_status()
-    print(f"  Downloaded {len(r.content) / 1024:.0f} KB")
+    content = fetch_gtfs(prefer_latest="--latest" in sys.argv)
+    print(f"  Downloaded {len(content) / 1024:.0f} KB")
 
-    with open_gtfs(r.content) as zf:
+    with open_gtfs(content) as zf:
         # ── stops.json ──────────────────────────────────────────────────
         print("Parsing stops.txt …")
         stops_rows = read_csv(zf, "stops.txt")
@@ -301,13 +531,7 @@ def main():
                 # subway
                 "L1": "MFL", "B1": "BSL",
                 # regional rail (GTFS short code → app route ID)
-                "AIR": "Airport", "CHE": "Chestnut Hill East",
-                "CHW": "Chestnut Hill West", "CYN": "Cynwyd",
-                "FOX": "Fox Chase", "LAN": "Lansdale",
-                "MED": "Media", "NOR": "Manayunk",
-                "PAO": "Paoli", "TRE": "Trenton",
-                "WAR": "Warminster", "WTR": "West Trenton",
-                "WIL": "Wilmington",
+                **RAIL_ROUTE_CODES,
             }
             for gtfs_key, app_key in ALIASES.items():
                 if gtfs_key in route_shapes:
@@ -319,16 +543,14 @@ def main():
         except FileNotFoundError as e:
             print(f"  shapes.txt not found: {e} — skipping")
 
+        # ── rail_lines.json + rail_schedule.json ────────────────────────
+        print("Building rail lines and schedule …")
+        build_rail(zf)
+
     # ── Add schedule aliases (same mapping as shapes) ────────────────────
     SCHED_ALIASES = {
         "L1": "MFL", "B1": "BSL",
-        "AIR": "Airport", "CHE": "Chestnut Hill East",
-        "CHW": "Chestnut Hill West", "CYN": "Cynwyd",
-        "FOX": "Fox Chase", "LAN": "Lansdale",
-        "MED": "Media", "NOR": "Manayunk",
-        "PAO": "Paoli", "TRE": "Trenton",
-        "WAR": "Warminster", "WTR": "West Trenton",
-        "WIL": "Wilmington",
+        **RAIL_ROUTE_CODES,
     }
     for gtfs_key, app_key in SCHED_ALIASES.items():
         if gtfs_key in schedule:

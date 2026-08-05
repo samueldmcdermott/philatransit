@@ -8,14 +8,14 @@ let RAIL_LINES = [
   { id:'Chestnut Hill West', label:'Chestnut Hill West',  color:'#059669', gtfs:'Chestnut Hill West',  alertIds:['CHW'] },
   { id:'Cynwyd',             label:'Cynwyd',              color:'#6366f1', gtfs:'Cynwyd',              alertIds:['CYN'] },
   { id:'Fox Chase',          label:'Fox Chase',           color:'#f97316', gtfs:'Fox Chase',           alertIds:['FOX'] },
-  { id:'Lansdale',           label:'Lansdale/Doylestown', color:'#eab308', gtfs:'Lansdale',            alertIds:['LAN'] },
-  { id:'Media',              label:'Media/Wawa',          color:'#ec4899', gtfs:'Media',               alertIds:['MED'] },
-  { id:'Manayunk',           label:'Manayunk/Norristown', color:'#8b5cf6', gtfs:'Manayunk',            alertIds:['NOR'] },
-  { id:'Paoli',              label:'Paoli/Thorndale',     color:'#0ea5e9', gtfs:'Paoli',               alertIds:['PAO'] },
+  { id:'Lansdale/Doylestown', label:'Lansdale/Doylestown', color:'#eab308', gtfs:'Lansdale/Doylestown', alertIds:['LAN'] },
+  { id:'Media/Wawa',          label:'Media/Wawa',          color:'#ec4899', gtfs:'Media/Wawa',          alertIds:['MED'] },
+  { id:'Manayunk/Norristown', label:'Manayunk/Norristown', color:'#8b5cf6', gtfs:'Manayunk/Norristown', alertIds:['NOR'] },
+  { id:'Paoli/Thorndale',     label:'Paoli/Thorndale',     color:'#0ea5e9', gtfs:'Paoli/Thorndale',     alertIds:['PAO'] },
   { id:'Trenton',            label:'Trenton',             color:'#ef4444', gtfs:'Trenton',             alertIds:['TRE'] },
   { id:'Warminster',         label:'Warminster',          color:'#84cc16', gtfs:'Warminster',          alertIds:['WAR'] },
   { id:'West Trenton',       label:'West Trenton',        color:'#06b6d4', gtfs:'West Trenton',        alertIds:['WTR'] },
-  { id:'Wilmington',         label:'Wilmington/Newark',   color:'#f43f5e', gtfs:'Wilmington',          alertIds:['WIL'] },
+  { id:'Wilmington/Newark',   label:'Wilmington/Newark',   color:'#f43f5e', gtfs:'Wilmington/Newark',   alertIds:['WIL'] },
 ];
 
 let SUBWAY_LINES = [
