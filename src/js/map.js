@@ -5,8 +5,18 @@
 function initLeaflet() {
   if (mapInitialized) return;
   leafletMap = L.map('mapContainer', { zoomControl: true, preferCanvas: true });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap contributors, &copy; CARTO',
+  // Esri Dark Gray Canvas. CARTO's dark_all needed no key until 2026-09-23,
+  // then started serving an "API KEY REQUIRED" watermark tile. Esri splits the
+  // canvas into a base and a labels overlay; its detail stops at z16, so
+  // deeper zooms upscale those tiles.
+  const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+  L.tileLayer(esri + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors',
+    maxNativeZoom: 16,
+    maxZoom: 19,
+  }).addTo(leafletMap);
+  L.tileLayer(esri + 'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+    maxNativeZoom: 16,
     maxZoom: 19,
   }).addTo(leafletMap);
   routeLayerGroup   = L.layerGroup().addTo(leafletMap);

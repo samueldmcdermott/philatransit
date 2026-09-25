@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 Versions correspond to the value in [`VERSION`](VERSION), which the app
 serves at `/api/version`.
 
+## [beta.4.2] - 2026-09-25
+
+### Changed
+- Map basemap switched from CARTO `dark_all` to Esri Dark Gray Canvas (base
+  plus labels overlay). CARTO began requiring an API key on 2026-09-23 and
+  served an "API KEY REQUIRED" watermark in place of the map.
+
 ## [beta.4.0] - 2026-08-05
 
 Regional Rail overhaul. Trains are now matched to their scheduled GTFS run,
